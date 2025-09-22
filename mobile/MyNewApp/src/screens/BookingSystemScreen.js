@@ -18,9 +18,7 @@ export default function BookingSystemScreen() {
   const [expandedAnimals, setExpandedAnimals] = useState({});
   const [orderForm, setOrderForm] = useState({
     orderType: 'Adoption',
-    adoptionQuantity: 1,
     selectedAnimals: ['poules'],
-    animalQuantities: { poules: 1 },
     animalDetails: {
       poules: {
         races: { 'Marans': 1 },
@@ -198,9 +196,7 @@ export default function BookingSystemScreen() {
     setExpandedAnimals({ poules: true }); // Expand default animal
     setOrderForm({
       orderType: 'Adoption',
-      adoptionQuantity: 1,
       selectedAnimals: ['poules'],
-      animalQuantities: { poules: 1 },
       animalDetails: {
         poules: {
           races: { 'Marans': 1 },
@@ -230,9 +226,7 @@ export default function BookingSystemScreen() {
     // Handle legacy orders and new structure
     const formData = {
       orderType: order.orderType || 'Adoption',
-      adoptionQuantity: order.adoptionQuantity || 1,
       selectedAnimals: order.selectedAnimals || ['poules'],
-      animalQuantities: order.animalQuantities || { poules: 1 },
       animalDetails: order.animalDetails || {
         poules: {
           races: { 'Marans': 1 },
@@ -267,9 +261,7 @@ export default function BookingSystemScreen() {
     const newOrder = {
       id: editingOrder ? editingOrder.id : Date.now(),
       orderType: orderForm.orderType,
-      adoptionQuantity: orderForm.adoptionQuantity,
       selectedAnimals: orderForm.selectedAnimals,
-      animalQuantities: orderForm.animalQuantities,
       animalDetails: orderForm.animalDetails,
       ageMonths: orderForm.ageMonths,
       ageWeeks: orderForm.ageWeeks,
@@ -362,21 +354,18 @@ export default function BookingSystemScreen() {
 
   const toggleAnimalSelection = (animal) => {
     const currentAnimals = orderForm.selectedAnimals;
-    let newAnimals, newQuantities, newDetails;
+    let newAnimals, newDetails;
     let newExpandedAnimals = { ...expandedAnimals };
     
     if (currentAnimals.includes(animal)) {
       // Remove animal
       newAnimals = currentAnimals.filter(a => a !== animal);
-      newQuantities = { ...orderForm.animalQuantities };
-      delete newQuantities[animal];
       newDetails = { ...orderForm.animalDetails };
       delete newDetails[animal];
       delete newExpandedAnimals[animal];
     } else {
       // Add animal and expand it by default
       newAnimals = [...currentAnimals, animal];
-      newQuantities = { ...orderForm.animalQuantities, [animal]: 1 };
       newDetails = { 
         ...orderForm.animalDetails, 
         [animal]: {
@@ -393,7 +382,6 @@ export default function BookingSystemScreen() {
     setOrderForm({
       ...orderForm,
       selectedAnimals: newAnimals,
-      animalQuantities: newQuantities,
       animalDetails: newDetails
     });
   };
@@ -405,14 +393,10 @@ export default function BookingSystemScreen() {
     });
   };
 
-  const updateAnimalQuantity = (animal, quantity) => {
-    setOrderForm({
-      ...orderForm,
-      animalQuantities: {
-        ...orderForm.animalQuantities,
-        [animal]: parseInt(quantity) || 0
-      }
-    });
+  const getAnimalTotalQuantity = (animal) => {
+    if (!orderForm.animalDetails[animal]?.races) return 0;
+    return Object.values(orderForm.animalDetails[animal].races)
+      .reduce((total, quantity) => total + (parseInt(quantity) || 0), 0);
   };
 
   const updateRaceQuantity = (animal, race, quantity) => {
@@ -610,45 +594,11 @@ export default function BookingSystemScreen() {
                 {/* Adoption-specific fields */}
                 {orderForm.orderType === 'Adoption' && (
                   <>
-                    {/* Number of Adoptions */}
-                    <View style={styles.quantityContainer}>
-                      <Text style={styles.dropdownLabel}>Nombre d'adoptions</Text>
-                      <View style={styles.quantityControlsContainer}>
-                        <TouchableOpacity 
-                          style={styles.quantityButton}
-                          onPress={() => {
-                            const current = orderForm.adoptionQuantity;
-                            if (current > 1) {
-                              setOrderForm({...orderForm, adoptionQuantity: current - 1});
-                            }
-                          }}
-                        >
-                          <Text style={styles.quantityButtonText}>-</Text>
-                        </TouchableOpacity>
-                        <TextInput
-                          style={[styles.input, styles.quantityInputWithControls]}
-                          placeholder="1"
-                          value={orderForm.adoptionQuantity.toString()}
-                          onChangeText={(text) => setOrderForm({...orderForm, adoptionQuantity: parseInt(text) || 1})}
-                          keyboardType="number-pad"
-                        />
-                        <TouchableOpacity 
-                          style={styles.quantityButton}
-                          onPress={() => {
-                            const current = orderForm.adoptionQuantity;
-                            setOrderForm({...orderForm, adoptionQuantity: current + 1});
-                          }}
-                        >
-                          <Text style={styles.quantityButtonText}>+</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Pour quand? - moved up */}
+                    {/* Pour quand? */}
                     <View style={styles.dateContainer}>
                       <Text style={styles.dropdownLabel}>Pour quand?</Text>
-                      <TextInput
-                        style={styles.input}
+              <TextInput
+                style={styles.input}
                         placeholder="Sélectionner la date (YYYY-MM-DD)"
                         value={orderForm.deliveryDate}
                         onChangeText={(text) => setOrderForm({...orderForm, deliveryDate: text})}
@@ -691,47 +641,15 @@ export default function BookingSystemScreen() {
                               {expandedAnimals[animal] ? '▼' : '▶'}
                             </Text>
                           </TouchableOpacity>
-                          <Text style={styles.animalSectionTitle}>🐓 {animal.charAt(0).toUpperCase() + animal.slice(1)}</Text>
+                          <Text style={styles.animalSectionTitle}>
+                            🐓 {animal.charAt(0).toUpperCase() + animal.slice(1)} ({getAnimalTotalQuantity(animal)})
+                          </Text>
                         </View>
                         
                         {/* Expandable content */}
                         {expandedAnimals[animal] && (
                           <>
-                            <View style={styles.quantityContainer}>
-                              <Text style={styles.quantityLabel}>Nombre de {animal}:</Text>
-                              <View style={styles.quantityControlsContainer}>
-                                <TouchableOpacity 
-                                  style={styles.quantityButton}
-                                  onPress={() => {
-                                    const current = parseInt(orderForm.animalQuantities[animal]) || 0;
-                                    if (current > 0) {
-                                      updateAnimalQuantity(animal, (current - 1).toString());
-                                    }
-                                  }}
-                                >
-                                  <Text style={styles.quantityButtonText}>-</Text>
-                                </TouchableOpacity>
-                                <TextInput
-                                  style={[styles.input, styles.quantityInputWithControls]}
-                                  placeholder="1"
-                                  value={orderForm.animalQuantities[animal]?.toString() || ''}
-                                  onChangeText={(text) => updateAnimalQuantity(animal, text)}
-                                  keyboardType="number-pad"
-                                />
-                                <TouchableOpacity 
-                                  style={styles.quantityButton}
-                                  onPress={() => {
-                                    const current = parseInt(orderForm.animalQuantities[animal]) || 0;
-                                    updateAnimalQuantity(animal, (current + 1).toString());
-                                  }}
-                                >
-                                  <Text style={styles.quantityButtonText}>+</Text>
-                                </TouchableOpacity>
-                              </View>
-                            </View>
-
-                            {/* Races for this animal */}
-                            <Text style={styles.raceSubtitle}>Races:</Text>
+                            {/* Races for this animal - directly under animal title */}
                             {racesByAnimal[animal]?.map((race) => (
                               <View key={race} style={styles.raceContainer}>
                                 <Text style={styles.raceName}>{race}:</Text>
@@ -894,103 +812,103 @@ export default function BookingSystemScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="Nom/Prénom *"
-                  value={orderForm.customerName}
-                  onChangeText={(text) => setOrderForm({...orderForm, customerName: text})}
-                />
+                value={orderForm.customerName}
+                onChangeText={(text) => setOrderForm({...orderForm, customerName: text})}
+              />
 
-                <TextInput
-                  style={styles.input}
+              <TextInput
+                style={styles.input}
                   placeholder="Contact direct (tél, msg)"
-                  value={orderForm.customerPhone}
-                  onChangeText={(text) => setOrderForm({...orderForm, customerPhone: text})}
-                  keyboardType="phone-pad"
-                />
+                value={orderForm.customerPhone}
+                onChangeText={(text) => setOrderForm({...orderForm, customerPhone: text})}
+                keyboardType="phone-pad"
+              />
 
-                <TextInput
-                  style={styles.input}
+              <TextInput
+                style={styles.input}
                   placeholder="Mail (optionnel)"
                   value={orderForm.customerEmail}
                   onChangeText={(text) => setOrderForm({...orderForm, customerEmail: text})}
                   keyboardType="email-address"
-                />
+              />
 
-                <TextInput
+              <TextInput
                   style={[styles.input, styles.textArea]}
                   placeholder="Autres précisions"
                   value={orderForm.otherDetails}
                   onChangeText={(text) => setOrderForm({...orderForm, otherDetails: text})}
                   multiline={true}
                   numberOfLines={3}
-                />
+              />
 
-                <TextInput
-                  style={styles.input}
+              <TextInput
+                style={styles.input}
                   placeholder="Prix total"
-                  value={orderForm.totalPrice}
-                  onChangeText={(text) => setOrderForm({...orderForm, totalPrice: text})}
-                  keyboardType="decimal-pad"
-                />
+                value={orderForm.totalPrice}
+                onChangeText={(text) => setOrderForm({...orderForm, totalPrice: text})}
+                keyboardType="decimal-pad"
+              />
 
                 {orderForm.orderType !== 'Adoption' && (
-                  <TextInput
-                    style={styles.input}
+              <TextInput
+                style={styles.input}
                     placeholder="Date de livraison (YYYY-MM-DD)"
-                    value={orderForm.deliveryDate}
-                    onChangeText={(text) => setOrderForm({...orderForm, deliveryDate: text})}
-                  />
+                value={orderForm.deliveryDate}
+                onChangeText={(text) => setOrderForm({...orderForm, deliveryDate: text})}
+              />
                 )}
 
-                <View style={styles.statusSelector}>
+              <View style={styles.statusSelector}>
                   <Text style={styles.statusSelectorLabel}>Statut de la commande:</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.statusOptions}>
-                      {orderStatuses.map((status) => (
-                        <TouchableOpacity
-                          key={status}
-                          style={[
-                            styles.statusOption,
-                            { backgroundColor: orderForm.status === status ? getStatusColor(status) : '#f0f0f0' }
-                          ]}
-                          onPress={() => setOrderForm({...orderForm, status})}
-                        >
-                          <Text style={[
-                            styles.statusOptionText,
-                            orderForm.status === status && { color: 'white' }
-                          ]}>
-                            {getStatusIcon(status)} {status}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.statusOptions}>
+                    {orderStatuses.map((status) => (
+                      <TouchableOpacity
+                        key={status}
+                        style={[
+                          styles.statusOption,
+                          { backgroundColor: orderForm.status === status ? getStatusColor(status) : '#f0f0f0' }
+                        ]}
+                        onPress={() => setOrderForm({...orderForm, status})}
+                      >
+                        <Text style={[
+                          styles.statusOptionText,
+                          orderForm.status === status && { color: 'white' }
+                        ]}>
+                          {getStatusIcon(status)} {status}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
 
                 {/* Buttons inside scroll area */}
                 <View style={styles.modalActionsInside}>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => setModalVisible(false)}
-                  >
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.cancelBtn]}
+                  onPress={() => setModalVisible(false)}
+                >
                     <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
+                </TouchableOpacity>
+                <TouchableOpacity 
                     style={[
                       styles.modalBtn, 
                       styles.saveBtn,
                       (!orderForm.customerName || orderForm.orderType === '') && styles.saveBtnDisabled
                     ]}
-                    onPress={saveOrder}
-                  >
+                  onPress={saveOrder}
+                >
                     <Text style={[
                       styles.modalBtnText, 
                       { color: 'white' },
                       (!orderForm.customerName || orderForm.orderType === '') && styles.saveBtnTextDisabled
                     ]}>
                       {editingOrder ? 'Modifier' : 'Créer'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
+                  </Text>
+                </TouchableOpacity>
+            </View>
+          </ScrollView>
             </View>
           </View>
         </View>
