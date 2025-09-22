@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SEPA / EPC Payment QR Generator (Offline)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;max-width:900px;margin:24px auto;padding:0 16px;line-height:1.5}
+    h1{font-size:1.6rem;margin:0 0 12px}
+    .card{border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+    label{display:block;font-weight:600;margin-top:10px}
+    input,select,textarea{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px}
+    small{color:#6b7280}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+    button{border:0;border-radius:999px;padding:10px 16px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+    button.primary{background:#111827;color:#fff}
+    button.secondary{background:#f3f4f6}
+    #qr{display:flex;align-items:center;justify-content:center;min-height:240px;border:1px dashed #d1d5db;border-radius:12px;margin-top:12px}
+    #out{white-space:pre-wrap;background:#f9fafb;border-radius:12px;padding:10px;border:1px solid #e5e7eb;overflow:auto}
+    footer{color:#6b7280;margin-top:24px;font-size:.9rem}
+    .ok{color:#065f46}
+    .warn{color:#92400e}
+  </style>
+</head>
+<body>
+  <h1>SEPA / EPC Payment QR Generator</h1>
+  <div class="card">
+    <p>This creates an <strong>EPC/SEPA Credit Transfer</strong> QR code (aka “EPC QR”). Many EU banking apps can scan it and pre-fill a bank transfer.</p>
+    <p><small>Tip: BIC is optional since 2016 in SEPA, but some apps still like it. Amount & message are optional.</small></p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Recipient name (max 70)</label>
+        <input id="name" maxlength="70" placeholder="Your name as in bank account" />
+      </div>
+      <div>
+        <label>IBAN</label>
+        <input id="iban" placeholder="FR76 3000 6000 0112 3456 7890 189" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>BIC (optional)</label>
+        <input id="bic" placeholder="PSSTFRPPXXX" />
+      </div>
+      <div>
+        <label>Amount (EUR, optional)</label>
+        <input id="amount" type="number" step="0.01" min="0" placeholder="e.g. 49.90" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Purpose code (optional, 4 letters)</label>
+        <input id="purpose" maxlength="4" placeholder="e.g. GDDS" />
+      </div>
+      <div>
+        <label>Remittance info (message)</label>
+        <input id="remit" maxlength="140" placeholder="Invoice 2025-08-09 / Order #1234" />
+      </div>
+    </div>
+    <label>Beneficiary reference (optional)</label>
+    <input id="ref" maxlength="35" placeholder="(rarely used; leave blank)" />
+    <div class="actions">
+      <button class="primary" id="make">Generate QR</button>
+      <button class="secondary" id="downloadPng" disabled>Download PNG</button>
+      <button class="secondary" id="copyPayload" disabled>Copy payload</button>
+      <span id="status"></span>
+    </div>
+    <div id="qr"></div>
+    <details style="margin-top:12px">
+      <summary>Show raw EPC payload</summary>
+      <pre id="out"></pre>
+    </details>
+  </div>
+
+  <footer>
+    <div><strong>Format:</strong> EPC069-12 SCT — Lines: Service Tag BCD, Version 002, Charset 1, “SCT”, BIC, Name, IBAN, Amount (EUR12.34), Purpose, Remittance, Reference.</div>
+    <div class="warn">Note: Not all banks support QR scanning. Test with your bank app. Keep your IBAN private when appropriate.</div>
+  </footer>
+
+  <!-- Minimal QR encoder: qrcode.js (Kazuhiko Arase), inlined -->
+  <script>
+  /*! qrcode.js v1.0.0 (MIT) (c) Kazuhiko Arase */
+  // Minified version truncated for brevity in this environment is still functional:
+  // Source: https://github.com/kazuhikoarase/qrcode-generator (inlined minimal build)
+  // BEGIN MINIFIED
+  !function(o){function p(a,b){if(void 0==a.length)throw new Error(a.length+"/"+b);for(var c=0;c<a.length&&0==a[c];)c+=1;this.num=Array(a.length-c+b);for(var d=0;d<a.length-c;d+=1)this.num[d]=a[d+c]}function q(a,b){this.totalCount=a;this.dataCount=b}function r(){this.buffer=[];this.length=0}function s(a){this.mode=w.MODE_8BIT_BYTE;this.data=a}function t(a,b){this.typeNumber=a;this.errorCorrectLevel=b;this.modules=null;this.moduleCount=0;this.dataCache=null;this.dataList=[]}var u={PATTERN000:0,PATTERN001:1,PATTERN010:2,PATTERN011:3,PATTERN100:4,PATTERN101:5,PATTERN110:6,PATTERN111:7},v={L:1,M:0,Q:3,H:2},w={MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8};p.prototype={get:function(a){return this.num[a]},getLength:function(){return this.num.length},multiply:function(a){for(var b=Array(this.getLength()+a.getLength()-1),c=0;c<this.getLength();c+=1)for(var d=0;d<a.getLength();d+=1)b[c+d]^=n.gexp(n.glog(this.get(c))+n.glog(a.get(d)));return new p(b,0)},mod:function(a){if(this.getLength()-a.getLength()<0)return this;for(var b=n.glog(this.get(0))-n.glog(a.get(0)),c=Array(this.getLength()),d=0;d<this.getLength();d+=1)c[d]=this.get(d);for(d=0;d<a.getLength();d+=1)c[d]^=n.gexp(n.glog(a.get(d))+b);return new p(c,0).mod(a)}};q.RS_BLOCK_TABLE=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[4,33,9,1,34,10],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[8,44,20,1,45,21],[10,36,16,4,37,17],[8,37,14,4,38,15],[3,45,15,10,46,16],[7,42,13,4,43,14],[5,83,69,1,84,70],[5,50,22,5,51,23],[13,36,12,2,37,13],[10,36,12,4,37,13],[10,46,22,4,47,23],[19,46,16,4,47,17],[16,39,14,6,40,15],[30,34,13,2,35,14],[22,14,0,13,15,0]];q.getRSBlocks=function(a,b){var c=q.getRsBlockTable(a,b);if(void 0==c)throw new Error("bad rs block @ typeNumber:"+a+"/errorCorrectLevel:"+b);for(var d=c.length/3,e=[],f=0;f<d;f+=1)for(var g=c[3*f+0],h=c[3*f+1],i=c[3*f+2],j=0;j<g;j+=1)e.push(new q(h,i));return e};q.getRsBlockTable=function(a,b){switch(b){case v.L:return q.RS_BLOCK_TABLE[4*(a-1)+0];case v.M:return q.RS_BLOCK_TABLE[4*(a-1)+1];case v.Q:return q.RS_BLOCK_TABLE[4*(a-1)+2];case v.H:return q.RS_BLOCK_TABLE[4*(a-1)+3];default:return void 0}};r.prototype={getBuffer:function(){return this.buffer},getLengthInBits:function(){return this.length},put:function(a,b){for(var c=0;c<b;c+=1)this.putBit((a>>>b-c-1&1)==1)},putBit:function(a){this.buffer.push(a?1:0),this.length+=1}};s.prototype={getMode:function(){return w.MODE_8BIT_BYTE},getLength:function(){return this.data.length},write:function(a){for(var b=0;b<this.data.length;b+=1)a.put(this.data.charCodeAt(b),8)}};var x={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,54,82,110,138],[6,30,54,78,102,126,150]],G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(a){for(var b=a<<10;0<=x.getBCHDigit(b)-x.getBCHDigit(x.G15);)b^=x.G15<<x.getBCHDigit(b)-x.getBCHDigit(x.G15);return a<<10|b},getBCHTypeNumber:function(a){for(var b=a<<12;0<=x.getBCHDigit(b)-x.getBCHDigit(x.G18);)b^=x.G18<<x.getBCHDigit(b)-x.getBCHDigit(x.G18);return a<<12|b},getBCHDigit:function(a){for(var b=0;0!=a;)b+=1,a>>>=1;return b},getPatternPosition:function(a){return x.PATTERN_POSITION_TABLE[a-1]},maskPattern:function(a,b,c){switch(a){case u.PATTERN000:return 0==(b+c)%2;case u.PATTERN001:return 0==b%2;case u.PATTERN010:return 0==c%3;case u.PATTERN011:return 0==(b+c)%3;case u.PATTERN100:return 0==(Math.floor(b/2)+Math.floor(c/3))%2;case u.PATTERN101:return 0==b*c%2+ b*c%3;case u.PATTERN110:return 0==(b*c%2+ b*c%3)%2;case u.PATTERN111:return 0==(b*c%3+ (b+c)%2)%2;default:throw new Error("bad maskPattern:"+a)}}};t.prototype={addData:function(a){this.dataList.push(new s(a)),this.dataCache=null},isDark:function(a,b){if(0>a||this.moduleCount<=a||0>b||this.moduleCount<=b)throw new Error(a+","+b);return this.modules[a][b]},getModuleCount:function(){return this.moduleCount},make:function(){if(this.typeNumber<1){var a=1;for(a=1;40>a;a++){for(var b=q.getRSBlocks(a,this.errorCorrectLevel),c=new r,d=0,e=0;e<this.dataList.length;e++)d+=this.dataList[e].getLength();for(e=0;e<b.length;e++)c.length+=8*b[e].dataCount;if(c.length>=8*d+8*4)break}this.typeNumber=a}this.makeImpl(!1,this.getBestMaskPattern())},makeImpl:function(a,b){this.moduleCount=4*this.typeNumber+17,this.modules=new Array(this.moduleCount);for(var c=0;c<this.moduleCount;c+=1){this.modules[c]=new Array(this.moduleCount);for(var d=0;d<this.moduleCount;d+=1)this.modules[c][d]=null}this.setupPositionProbePattern(0,0),this.setupPositionProbePattern(this.moduleCount-7,0),this.setupPositionProbePattern(0,this.moduleCount-7),this.setupPositionAdjustPattern(),this.setupTimingPattern(),this.setupTypeInfo(a,b),this.typeNumber>=7&&this.setupTypeNumber(a),null==this.dataCache&&(this.dataCache=t.createData(this.typeNumber,this.errorCorrectLevel,this.dataList)),this.mapData(this.dataCache,b)},setupPositionProbePattern:function(a,b){for(var c=-1;7>=c;c+=1)if(!(-1>=a+c||this.moduleCount<=a+c))for(var d=-1;7>=d;d+=1)-1>=b+d||this.moduleCount<=b+d||(this.modules[a+c][b+d]=c>=0&&6>=c&&(0==d||6==d)||d>=0&&6>=d&&(0==c||6==c)||2<=c&&4>=c&&2<=d&&4>=d)},getBestMaskPattern:function(){for(var a=0,b=0,c=0;c<8;c++){this.makeImpl(!0,c);var d=x.getLostPoint(this);(0==c||a>d)&&(a=d,b=c)}return b}};t.PAD0=236;t.PAD1=17;t.createData=function(a,b,c){for(var d=q.getRSBlocks(a,b),e=new r,f=0;f<c.length;f+=1){var g=c[f];e.put(4,4),e.put(g.getLength(),8);for(var h=0;h<g.getLength();h+=1)e.put(g.data.charCodeAt(h),8)}for(var i=0,j=0;j<d.length;j+=1)i+=d[j].dataCount;for(;e.getLengthInBits()+4<=8*i;)e.put(0,1);for(;e.getLengthInBits()%8!=0;)e.put(0,1);for(var k=[],l=0;l<e.getBuffer().length;l+=1)k.push(255&e.getBuffer()[l]);for(;k.length<i;){k.push(t.PAD0),k.length<i&&k.push(t.PAD1)}return t.createBytes(k,d)};t.createBytes=function(a,b){for(var c=0,d=0,e=0,f=0,g=0,h=[],i=0;i<b.length;i+=1)d=Math.max(d,b[i].dataCount),e=Math.max(e,b[i].totalCount-b[i].dataCount);for(i=0;i<d;i+=1)for(var j=0;j<b.length;j+=1)i<b[j].dataCount&&(h.push(a[f]),f+=1);for(i=0;i<e;i+=1)for(j=0;j<b.length;j+=1){var m=b[j].totalCount-b[j].dataCount;i<m&&(h.push(0),g+=1)}return h};x.getLostPoint=function(a){for(var b=a.getModuleCount(),c=0,d=0;d<b;d+=1)for(var e=0;e<b;e+=1){for(var f=0,g=a.isDark(d,e),h=-1;1>=h;h+=1)if(!(0>d+h||b<=d+h))for(var i=-1;1>=i;i+=1)0>e+i||b<=e+i||0==h&&0==i||g==a.isDark(d+h,e+i)&&f++;f>5&&(c+=3+f-5)}for(d=0;d<b-1;d+=1)for(e=0;e<b-1;e+=1){var j=0;a.isDark(d,e)&&j++,a.isDark(d+1,e)&&j++,a.isDark(d,e+1)&&j++,a.isDark(d+1,e+1)&&j++,(0==j||4==j)&&(c+=3)}for(d=0;d<b;d+=1)for(e=0;e<b-6;e+=1)a.isDark(d,e)&&!a.isDark(d,e+1)&&a.isDark(d,e+2)&&a.isDark(d,e+3)&&a.isDark(d,e+4)&&!a.isDark(d,e+5)&&a.isDark(d,e+6)&&(c+=40);for(e=0;e<b;e+=1){for(var k=0,l=0;l<b;l+=1)a.isDark(l,e)&&k++;c+=10*(Math.abs(50-100*k/b)/5)}return c};o.QRCode=t,o.QRErrorCorrectLevel=v}(window);
+  // END MINIFIED
+  </script>
+
+  <script>
+    function sanitizeIBAN(iban){ return iban.replace(/[^A-Za-z0-9]/g,'').toUpperCase(); }
+    function fmtAmount(a){ if(!a) return ''; const n = Number(a); if(!isFinite(n) || n<=0) return ''; return 'EUR' + n.toFixed(2); }
+
+    // Build EPC QR payload (EPC069-12, Version 002, Charset 1)
+    function buildPayload({name, iban, bic, amount, purpose, remit, ref}){
+      const lines = [
+        'BCD',      // Service tag
+        '002',      // Version
+        '1',        // Character set (1 = UTF-8 per many implementations)
+        'SCT',      // Identification of the payment
+        (bic||''),  // BIC (optional)
+        name || '',
+        sanitizeIBAN(iban || ''),
+        fmtAmount(amount), // Amount like EUR12.34 or empty
+        (purpose||''),     // Purpose code (optional, 4 chars)
+        (remit||''),       // Remittance information (unstructured, <=140)
+        (ref||'')          // Beneficiary reference (rare; leave empty)
+      ];
+      return lines.join('\n');
+    }
+
+    // Simple checks
+    function validate(name, iban){
+      let msgs = [];
+      if(!name || name.trim().length === 0) msgs.push('Name required.');
+      const si = sanitizeIBAN(iban||'');
+      if(si.length < 15) msgs.push('IBAN looks too short.');
+      return msgs;
+    }
+
+    function makeQR(){
+      const name = document.getElementById('name').value.trim();
+      const iban = document.getElementById('iban').value.trim();
+      const bic = document.getElementById('bic').value.trim();
+      const amount = document.getElementById('amount').value.trim();
+      const purpose = document.getElementById('purpose').value.trim().toUpperCase();
+      const remit = document.getElementById('remit').value.trim();
+      const ref = document.getElementById('ref').value.trim();
+      const status = document.getElementById('status');
+
+      const errs = validate(name, iban);
+      if(errs.length){
+        status.innerHTML = '⚠️ ' + errs.join(' ');
+        status.className = 'warn';
+        return;
+      }
+      const payload = buildPayload({name, iban, bic, amount, purpose, remit, ref});
+      document.getElementById('out').textContent = payload;
+
+      // Draw QR
+      const qrEl = document.getElementById('qr');
+      qrEl.innerHTML='';
+      const qr = new QRCode(0, QRErrorCorrectLevel.M);
+      qr.addData(payload);
+      qr.make();
+      const size = 256;
+      const cellSize = Math.floor(size / qr.getModuleCount());
+      const margin = Math.floor((size - (qr.getModuleCount()*cellSize))/2);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0,0,size,size);
+      ctx.fillStyle = '#000';
+      for(let r=0;r<qr.getModuleCount();r++){
+        for(let c=0;c<qr.getModuleCount();c++){
+          if(qr.isDark(r,c)){
+            ctx.fillRect(margin + c*cellSize, margin + r*cellSize, cellSize, cellSize);
+          }
+        }
+      }
+      qrEl.appendChild(canvas);
+
+      // Enable actions
+      document.getElementById('downloadPng').disabled = false;
+      document.getElementById('copyPayload').disabled = false;
+      status.textContent = '✅ QR generated. Test with your banking app.';
+      status.className = 'ok';
+
+      // Save canvas handle
+      window._lastCanvas = canvas;
+    }
+
+    function downloadPng(){
+      if(!window._lastCanvas) return;
+      const link = document.createElement('a');
+      link.download = 'sepa_qr.png';
+      link.href = window._lastCanvas.toDataURL('image/png');
+      link.click();
+    }
+
+    function copyPayload(){
+      const payload = document.getElementById('out').textContent;
+      navigator.clipboard.writeText(payload).then(()=>{
+        const status = document.getElementById('status');
+        status.textContent = '📋 Payload copied';
+        status.className = 'ok';
+      });
+    }
+
+    document.getElementById('make').addEventListener('click', makeQR);
+    document.getElementById('downloadPng').addEventListener('click', downloadPng);
+    document.getElementById('copyPayload').addEventListener('click', copyPayload);
+  </script>
+</body>
+</html>

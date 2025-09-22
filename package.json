@@ -1,0 +1,17 @@
+{
+  "name": "farm-app",
+  "version": "1.0.0",
+  "description": "Farm management application with mobile app and backend API",
+  "scripts": {
+    "mobile": "cd mobile/MyNewApp && npm start",
+    "mobile:android": "cd mobile/MyNewApp && npm run android",
+    "mobile:ios": "cd mobile/MyNewApp && npm run ios",
+    "mobile:web": "cd mobile/MyNewApp && npm run web",
+    "backend": "cd backend && npm run dev",
+    "backend:start": "cd backend && npm start",
+    "install:all": "npm install && cd mobile/MyNewApp && npm install && cd ../../backend && npm install"
+  },
+  "keywords": ["farm", "management", "mobile", "expo", "react-native"],
+  "author": "Farm-App Team",
+  "license": "MIT"
+}
