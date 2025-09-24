@@ -149,7 +149,7 @@ export default function ProductManagementScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📦 Product Management</Text>
+        <Text style={styles.headerTitle}>📦 Produits</Text>
         <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
           <Text style={styles.addButtonText}>+ Add Product</Text>
         </TouchableOpacity>

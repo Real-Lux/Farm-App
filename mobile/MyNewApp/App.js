@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text, StatusBar } from 'react-native';
@@ -6,8 +6,70 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import ProductManagementScreen from './src/screens/ProductManagementScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import BookingSystemScreen from './src/screens/BookingSystemScreen';
+import AddOrderScreen from './src/screens/AddOrderScreen';
 
 const Tab = createBottomTabNavigator();
+
+// Create a navigator component that handles both screens
+function OrdersNavigator() {
+  const [currentScreen, setCurrentScreen] = useState('BookingSystem');
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [orders, setOrders] = useState([]);
+
+  const navigateToAddOrder = (order = null) => {
+    setEditingOrder(order);
+    setCurrentScreen('AddOrder');
+  };
+
+  const navigateToBookingSystem = () => {
+    setCurrentScreen('BookingSystem');
+  };
+
+  const handleSaveOrder = (newOrder, isEditing) => {
+    if (isEditing) {
+      setOrders(prevOrders => 
+        prevOrders.map(o => o.id === newOrder.id ? newOrder : o)
+          .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
+      );
+    } else {
+      setOrders(prevOrders => [newOrder, ...prevOrders]);
+    }
+    navigateToBookingSystem();
+  };
+
+  const mockNavigation = {
+    navigate: (screenName, params) => {
+      if (screenName === 'AddOrder') {
+        navigateToAddOrder(params?.editingOrder);
+      } else {
+        navigateToBookingSystem();
+      }
+    },
+    goBack: navigateToBookingSystem
+  };
+
+  if (currentScreen === 'AddOrder') {
+    return (
+      <AddOrderScreen 
+        navigation={mockNavigation}
+        route={{
+          params: {
+            editingOrder,
+            onSaveOrder: handleSaveOrder
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <BookingSystemScreen 
+      navigation={mockNavigation}
+      orders={orders}
+      setOrders={setOrders}
+    />
+  );
+}
 
 export default function App() {
   console.log('🚀 Application Ferme démarrant...');
@@ -66,7 +128,7 @@ export default function App() {
           />
           <Tab.Screen 
             name="Commandes" 
-            component={BookingSystemScreen}
+            component={OrdersNavigator}
             options={{
               tabBarIcon: ({ color }) => (
                 <Text style={{ fontSize: 20, color }}>🛒</Text>
