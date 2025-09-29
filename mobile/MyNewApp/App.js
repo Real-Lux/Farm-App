@@ -7,10 +7,11 @@ import ProductManagementScreen from './src/screens/ProductManagementScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import BookingSystemScreen from './src/screens/BookingSystemScreen';
 import AddOrderScreen from './src/screens/AddOrderScreen';
+import ElevageScreen from './src/screens/ElevageScreen';
 
 const Tab = createBottomTabNavigator();
 
-// Create a navigator component that handles both screens
+// Create a navigator component that handles both order screens
 function OrdersNavigator() {
   const [currentScreen, setCurrentScreen] = useState('BookingSystem');
   const [editingOrder, setEditingOrder] = useState(null);
@@ -71,6 +72,44 @@ function OrdersNavigator() {
   );
 }
 
+// Create a navigator component that handles ProductManagement and Elevage screens
+function GestionNavigator() {
+  const [currentScreen, setCurrentScreen] = useState('ProductManagement');
+
+  const navigateToElevage = () => {
+    setCurrentScreen('Elevage');
+  };
+
+  const navigateToProductManagement = () => {
+    setCurrentScreen('ProductManagement');
+  };
+
+  const mockNavigation = {
+    navigate: (screenName, params) => {
+      if (screenName === 'ElevageScreen') {
+        navigateToElevage();
+      } else {
+        navigateToProductManagement();
+      }
+    },
+    goBack: navigateToProductManagement
+  };
+
+  if (currentScreen === 'Elevage') {
+    return (
+      <ElevageScreen 
+        navigation={mockNavigation}
+      />
+    );
+  }
+
+  return (
+    <ProductManagementScreen 
+      navigation={mockNavigation}
+    />
+  );
+}
+
 export default function App() {
   console.log('🚀 Application Ferme démarrant...');
   
@@ -80,65 +119,65 @@ export default function App() {
         <StatusBar barStyle="light-content" backgroundColor="#4CAF50" />
         <NavigationContainer>
           <Tab.Navigator
-          screenOptions={{
-            tabBarActiveTintColor: '#4CAF50',
-            tabBarInactiveTintColor: '#999',
-            headerShown: false,
-            tabBarStyle: {
-              backgroundColor: 'white',
-              borderTopWidth: 1,
-              borderTopColor: '#e0e0e0',
-              paddingBottom: 5,
-              paddingTop: 5,
-              height: 60,
-            },
-            tabBarLabelStyle: {
-              fontSize: 12,
-              fontWeight: '600',
-            }
-          }}
-        >
-          <Tab.Screen 
-            name="Accueil" 
-            component={DashboardScreen}
-            options={{
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>🏠</Text>
-              ),
+            screenOptions={{
+              tabBarActiveTintColor: '#4CAF50',
+              tabBarInactiveTintColor: '#999',
+              headerShown: false,
+              tabBarStyle: {
+                backgroundColor: 'white',
+                borderTopWidth: 1,
+                borderTopColor: '#e0e0e0',
+                paddingBottom: 5,
+                paddingTop: 5,
+                height: 60,
+              },
+              tabBarLabelStyle: {
+                fontSize: 12,
+                fontWeight: '600',
+              }
             }}
-          />
-          
-          <Tab.Screen 
-            name="Gestion" 
-            component={ProductManagementScreen}
-            options={{
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>📦</Text>
-              ),
-            }}
-          />
-          <Tab.Screen 
-            name="Calendrier" 
-            component={CalendarScreen}
-            options={{
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>📅</Text>
-              ),
-            }}
-          />
-          <Tab.Screen 
-            name="Commandes" 
-            component={OrdersNavigator}
-            options={{
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>🛒</Text>
-              ),
-            }}
-          />
-        </Tab.Navigator>
-      </NavigationContainer>
-    </View>
-  );
+          >
+            <Tab.Screen 
+              name="Accueil" 
+              component={DashboardScreen}
+              options={{
+                tabBarIcon: ({ color }) => (
+                  <Text style={{ fontSize: 20, color }}>🏠</Text>
+                ),
+              }}
+            />
+            
+            <Tab.Screen 
+              name="Gestion" 
+              component={GestionNavigator}
+              options={{
+                tabBarIcon: ({ color }) => (
+                  <Text style={{ fontSize: 20, color }}>📦</Text>
+                ),
+              }}
+            />
+            <Tab.Screen 
+              name="Calendrier" 
+              component={CalendarScreen}
+              options={{
+                tabBarIcon: ({ color }) => (
+                  <Text style={{ fontSize: 20, color }}>📅</Text>
+                ),
+              }}
+            />
+            <Tab.Screen 
+              name="Commandes" 
+              component={OrdersNavigator}
+              options={{
+                tabBarIcon: ({ color }) => (
+                  <Text style={{ fontSize: 20, color }}>🛒</Text>
+                ),
+              }}
+            />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </View>
+    );
   } catch (error) {
     console.error('❌ App Error:', error);
     return (

@@ -11,6 +11,7 @@ import {
 
 export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders }) {
   const [orders, setOrders] = useState(externalOrders || []);
+  const [activeFilters, setActiveFilters] = useState([]); // Track active status filters
 
   const orderStatuses = ['En attente', 'Confirmée', 'En préparation', 'Prête', 'Livrée', 'Annulée'];
 
@@ -249,6 +250,27 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
 
   const stats = getOrderStats();
 
+  const toggleStatusFilter = (status) => {
+    setActiveFilters(prev => {
+      if (prev.includes(status)) {
+        // Remove filter
+        return prev.filter(f => f !== status);
+      } else {
+        // Add filter
+        return [...prev, status];
+      }
+    });
+  };
+
+  const getFilteredOrders = () => {
+    if (activeFilters.length === 0) {
+      return orders; // Show all orders if no filters active
+    }
+    return orders.filter(order => activeFilters.includes(order.status));
+  };
+
+  const filteredOrders = getFilteredOrders();
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -258,33 +280,78 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsContainer}>
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { borderLeftColor: '#FF9800' }]}>
-            <Text style={styles.statNumber}>{stats['En attente'] || 0}</Text>
-            <Text style={styles.statLabel}>En attente</Text>
-          </View>
-          <View style={[styles.statCard, { borderLeftColor: '#2196F3' }]}>
-            <Text style={styles.statNumber}>{stats['Confirmée'] || 0}</Text>
-            <Text style={styles.statLabel}>Confirmées</Text>
-          </View>
-          <View style={[styles.statCard, { borderLeftColor: '#4CAF50' }]}>
-            <Text style={styles.statNumber}>{stats['Prête'] || 0}</Text>
-            <Text style={styles.statLabel}>Prêtes</Text>
-          </View>
-          <View style={[styles.statCard, { borderLeftColor: '#4CAF50' }]}>
-            <Text style={styles.statNumber}>{stats.totalRevenue.toFixed(0)}€</Text>
-            <Text style={styles.statLabel}>Revenus</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtersContainer}>
+        <View style={styles.filtersRow}>
+          {orderStatuses.map((status) => {
+            const isActive = activeFilters.includes(status);
+            const statusCount = stats[status] || 0;
+            return (
+              <TouchableOpacity
+                key={status}
+                style={[
+                  styles.filterChip,
+                  isActive && styles.filterChipActive,
+                  { borderColor: getStatusColor(status) }
+                ]}
+                onPress={() => toggleStatusFilter(status)}
+              >
+                <Text style={styles.filterIcon}>{getStatusIcon(status)}</Text>
+                <Text style={[
+                  styles.filterCount,
+                  isActive && styles.filterCountActive
+                ]}>
+                  {statusCount}
+                </Text>
+                <Text style={[
+                  styles.filterLabel,
+                  isActive && styles.filterLabelActive
+                ]}>
+                  {status}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          
+          {/* Revenue chip */}
+          <View style={[styles.filterChip, styles.revenueChip]}>
+            <Text style={styles.filterIcon}>💰</Text>
+            <Text style={styles.filterCount}>{stats.totalRevenue.toFixed(0)}€</Text>
+            <Text style={styles.filterLabel}>Revenus</Text>
           </View>
         </View>
       </ScrollView>
 
+      {/* Active filters indicator */}
+      {activeFilters.length > 0 && (
+        <View style={styles.activeFiltersContainer}>
+          <Text style={styles.activeFiltersText}>
+            Filtres actifs: {activeFilters.join(', ')} ({filteredOrders.length} commande{filteredOrders.length !== 1 ? 's' : ''})
+          </Text>
+          <TouchableOpacity
+            style={styles.clearFiltersButton}
+            onPress={() => setActiveFilters([])}
+          >
+            <Text style={styles.clearFiltersText}>Tout afficher</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <FlatList
-        data={orders}
+        data={filteredOrders}
         renderItem={({ item }) => <OrderItem item={item} />}
         keyExtractor={item => item.id.toString()}
         style={styles.orderList}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={() => (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>
+              {activeFilters.length > 0 
+                ? '🔍 Aucune commande ne correspond aux filtres sélectionnés'
+                : '📋 Aucune commande pour le moment'
+              }
+            </Text>
+          </View>
+        )}
       />
 
     </View>
@@ -319,37 +386,99 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
   },
-  statsContainer: {
+  filtersContainer: {
     backgroundColor: 'white',
-    paddingVertical: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  statsRow: {
+  filtersRow: {
     flexDirection: 'row',
     paddingHorizontal: 15,
-    gap: 15,
+    gap: 8,
   },
-  statCard: {
+  filterChip: {
     backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 15,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     alignItems: 'center',
-    borderLeftWidth: 4,
-    minWidth: 80,
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    minWidth: 60,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 2,
+    elevation: 1,
+  },
+  filterChipActive: {
+    backgroundColor: '#f0f8ff',
+    borderWidth: 2,
+    shadowOpacity: 0.1,
     elevation: 2,
   },
-  statNumber: {
-    fontSize: 20,
+  filterIcon: {
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  filterCount: {
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#333',
   },
-  statLabel: {
-    fontSize: 12,
+  filterCountActive: {
+    color: '#005F6B',
+  },
+  filterLabel: {
+    fontSize: 9,
     color: '#666',
-    marginTop: 3,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  filterLabelActive: {
+    color: '#005F6B',
+    fontWeight: '600',
+  },
+  revenueChip: {
+    borderColor: '#4CAF50',
+    backgroundColor: '#f8fff8',
+  },
+  activeFiltersContainer: {
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  activeFiltersText: {
+    fontSize: 12,
+    color: '#1976d2',
+    fontWeight: '500',
+    flex: 1,
+  },
+  clearFiltersButton: {
+    backgroundColor: '#1976d2',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  clearFiltersText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
   orderList: {
     padding: 15,

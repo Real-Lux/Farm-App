@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import database from '../services/database';
 
-export default function ProductManagementScreen() {
+export default function ProductManagementScreen({ navigation }) {
   const [products, setProducts] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -34,7 +34,7 @@ export default function ProductManagementScreen() {
       setProducts(productsData);
     } catch (error) {
       console.error('Error loading products:', error);
-      Alert.alert('Error', 'Failed to load products');
+      Alert.alert('Erreur', 'Impossible de charger les produits');
     }
   };
 
@@ -64,7 +64,7 @@ export default function ProductManagementScreen() {
 
   const saveProduct = async () => {
     if (!productForm.name || !productForm.price || !productForm.quantity) {
-      Alert.alert('Error', 'Please fill all fields');
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
       return;
     }
 
@@ -85,27 +85,27 @@ export default function ProductManagementScreen() {
 
       setModalVisible(false);
       loadProducts(); // Reload the list
-      Alert.alert('Success', `Product ${editingProduct ? 'updated' : 'added'} successfully!`);
+      Alert.alert('Succès', `Produit ${editingProduct ? 'mis à jour' : 'ajouté'} avec succès!`);
     } catch (error) {
       console.error('Error saving product:', error);
-      Alert.alert('Error', `Failed to ${editingProduct ? 'update' : 'add'} product`);
+      Alert.alert('Erreur', `Impossible de ${editingProduct ? 'mettre à jour' : 'ajouter'} le produit`);
     }
   };
 
   const deleteProduct = (id) => {
     Alert.alert(
-      'Delete Product',
-      'Are you sure you want to delete this product?',
+      'Supprimer le produit',
+      'Êtes-vous sûr de vouloir supprimer ce produit?',
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: async () => {
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Supprimer', style: 'destructive', onPress: async () => {
           try {
             await database.deleteProduct(id);
             loadProducts(); // Reload the list
-            Alert.alert('Success', 'Product deleted successfully!');
+            Alert.alert('Succès', 'Produit supprimé avec succès!');
           } catch (error) {
             console.error('Error deleting product:', error);
-            Alert.alert('Error', 'Failed to delete product');
+            Alert.alert('Erreur', 'Impossible de supprimer le produit');
           }
         }}
       ]
@@ -119,13 +119,13 @@ export default function ProductManagementScreen() {
         <Text style={[styles.stockStatus, { 
           color: item.quantity < 20 ? '#F44336' : '#4CAF50' 
         }]}>
-          {item.quantity < 20 ? '⚠️ Low Stock' : '✅ In Stock'}
+          {item.quantity < 20 ? '⚠️ Stock faible' : '✅ En stock'}
         </Text>
       </View>
       
       <View style={styles.productDetails}>
-        <Text style={styles.productInfo}>💰 ${item.price.toFixed(2)} per {item.unit}</Text>
-        <Text style={styles.productInfo}>📦 {item.quantity} {item.unit} available</Text>
+        <Text style={styles.productInfo}>💰 {item.price.toFixed(2)}€ par {item.unit || 'unité'}</Text>
+        <Text style={styles.productInfo}>📦 {item.quantity} {item.unit || 'unité(s)'} disponible(s)</Text>
         <Text style={styles.productInfo}>🏷️ {item.category}</Text>
       </View>
 
@@ -134,13 +134,13 @@ export default function ProductManagementScreen() {
           style={[styles.actionBtn, styles.editBtn]}
           onPress={() => openEditModal(item)}
         >
-          <Text style={styles.actionBtnText}>✏️ Edit</Text>
+          <Text style={styles.actionBtnText}>✏️ Modifier</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.actionBtn, styles.deleteBtn]}
           onPress={() => deleteProduct(item.id)}
         >
-          <Text style={styles.actionBtnText}>🗑️ Delete</Text>
+          <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -150,9 +150,17 @@ export default function ProductManagementScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>📦 Produits</Text>
-        <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-          <Text style={styles.addButtonText}>+ Add Product</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.elevageButton} 
+            onPress={() => navigation.navigate('ElevageScreen')}
+          >
+            <Text style={styles.elevageButtonText}>🐓 Élevage</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+            <Text style={styles.addButtonText}>+ Ajouter</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -172,19 +180,19 @@ export default function ProductManagementScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              {editingProduct ? 'Edit Product' : 'Add New Product'}
+              {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
             </Text>
 
             <TextInput
               style={styles.input}
-              placeholder="Product Name"
+              placeholder="Nom du produit"
               value={productForm.name}
               onChangeText={(text) => setProductForm({...productForm, name: text})}
             />
 
             <TextInput
               style={styles.input}
-              placeholder="Price"
+              placeholder="Prix"
               value={productForm.price}
               onChangeText={(text) => setProductForm({...productForm, price: text})}
               keyboardType="decimal-pad"
@@ -192,7 +200,7 @@ export default function ProductManagementScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Quantity"
+              placeholder="Quantité"
               value={productForm.quantity}
               onChangeText={(text) => setProductForm({...productForm, quantity: text})}
               keyboardType="number-pad"
@@ -200,14 +208,14 @@ export default function ProductManagementScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Unit (kg, heads, boxes, etc.)"
+              placeholder="Unité (kg, têtes, boîtes, etc.)"
               value={productForm.unit}
               onChangeText={(text) => setProductForm({...productForm, unit: text})}
             />
 
             <TextInput
               style={styles.input}
-              placeholder="Category"
+              placeholder="Catégorie"
               value={productForm.category}
               onChangeText={(text) => setProductForm({...productForm, category: text})}
             />
@@ -217,14 +225,14 @@ export default function ProductManagementScreen() {
                 style={[styles.modalBtn, styles.cancelBtn]}
                 onPress={() => setModalVisible(false)}
               >
-                <Text style={styles.modalBtnText}>Cancel</Text>
+                <Text style={styles.modalBtnText}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.modalBtn, styles.saveBtn]}
                 onPress={saveProduct}
               >
                 <Text style={[styles.modalBtnText, { color: 'white' }]}>
-                  {editingProduct ? 'Update' : 'Save'}
+                  {editingProduct ? 'Modifier' : 'Sauvegarder'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -252,6 +260,23 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  elevageButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  elevageButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 12,
   },
   addButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
