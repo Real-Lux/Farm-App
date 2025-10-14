@@ -14,6 +14,12 @@ npm run install:all
 # Start development server with hot reloading
 npm run mobile
 
+####################################################
+####################### USING ######################
+####################################################
+# Or use Expo CLI directly with cache clearing:
+npx expo start --clear
+
 # Or run specific platforms:
 npm run mobile:android    # Android emulator
 npm run mobile:ios        # iOS simulator  
@@ -64,6 +70,17 @@ cp backend/env.example backend/.env
 - **Mobile**: Changes auto-refresh on phone/emulator
 - **Web**: Browser auto-refreshes like a website
 - **Backend**: Auto-restarts on file changes
+
+## 📦 Production Build
+To build production artifacts for the mobile app:
+```bash
+
+####################################################
+####################### USING ######################
+####################################################
+# Build Android production APK/AAB
+$env:EAS_NO_VCS="1"; $env:EAS_PROJECT_ROOT="."; eas build -p android --profile production
+```
 
 ---
 **💡 Perfect for rapid development and testing!**

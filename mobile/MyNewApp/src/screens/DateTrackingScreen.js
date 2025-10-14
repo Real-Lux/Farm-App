@@ -10,6 +10,7 @@ import {
   Alert,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function DateTrackingScreen() {
   const [events, setEvents] = useState([]);
@@ -230,7 +231,7 @@ export default function DateTrackingScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>📅 Farm Calendar</Text>
         <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
@@ -345,7 +346,7 @@ export default function DateTrackingScreen() {
           </ScrollView>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 

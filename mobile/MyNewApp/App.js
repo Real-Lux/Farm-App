@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text, StatusBar } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import DashboardScreen from './src/screens/DashboardScreen';
 import ProductManagementScreen from './src/screens/ProductManagementScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
@@ -115,9 +116,10 @@ export default function App() {
   
   try {
     return (
-      <View style={{ flex: 1 }}>
-        <StatusBar barStyle="light-content" backgroundColor="#4CAF50" />
-        <NavigationContainer>
+      <SafeAreaProvider>
+        <View style={{ flex: 1 }}>
+          <StatusBar barStyle="light-content" backgroundColor="#4CAF50" />
+          <NavigationContainer>
           <Tab.Navigator
             screenOptions={{
               tabBarActiveTintColor: '#4CAF50',
@@ -127,9 +129,9 @@ export default function App() {
                 backgroundColor: 'white',
                 borderTopWidth: 1,
                 borderTopColor: '#e0e0e0',
-                paddingBottom: 5,
-                paddingTop: 5,
-                height: 60,
+                paddingBottom: 25,
+                paddingTop: 8,
+                height: 85,
               },
               tabBarLabelStyle: {
                 fontSize: 12,
@@ -176,7 +178,8 @@ export default function App() {
             />
           </Tab.Navigator>
         </NavigationContainer>
-      </View>
+        </View>
+      </SafeAreaProvider>
     );
   } catch (error) {
     console.error('❌ App Error:', error);

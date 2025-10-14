@@ -8,6 +8,8 @@ import {
   Alert,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { toFrenchDate } from '../utils/dateUtils';
 
 export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders }) {
   const [orders, setOrders] = useState(externalOrders || []);
@@ -89,12 +91,20 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     });
   };
 
-  const handleSaveOrder = (newOrder, isEditing) => {
+  const handleSaveOrder = async (newOrder, isEditing) => {
     if (isEditing) {
       setOrders(orders.map(o => o.id === newOrder.id ? newOrder : o)
         .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
     } else {
       setOrders([newOrder, ...orders]);
+    }
+    
+    // Sync with calendar when orders change
+    try {
+      await database.syncOrdersWithCalendar();
+      console.log('📅 Calendar synced with updated orders');
+    } catch (error) {
+      console.error('Error syncing calendar with orders:', error);
     }
   };
 
@@ -105,8 +115,16 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       'Êtes-vous sûr de vouloir supprimer cette commande ?',
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => {
+        { text: 'Supprimer', style: 'destructive', onPress: async () => {
           setOrders(orders.filter(o => o.id !== id));
+          
+          // Sync with calendar when orders change
+          try {
+            await database.syncOrdersWithCalendar();
+            console.log('📅 Calendar synced after order deletion');
+          } catch (error) {
+            console.error('Error syncing calendar after deletion:', error);
+          }
         }}
       ]
     );
@@ -144,13 +162,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   };
 
   const formatDate = (dateString) => {
-    if (!dateString) return 'Non défini';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+    return toFrenchDate(dateString);
   };
 
 
@@ -208,7 +220,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           <Text style={styles.orderInfo}>📧 {item.customerEmail}</Text>
         )}
         {item.deliveryDate && (
-          <Text style={styles.orderInfo}>🚚 Livraison: {formatDate(item.deliveryDate)}</Text>
+          <Text style={styles.orderInfo}>🏠 Récupération: {formatDate(item.deliveryDate)}</Text>
         )}
       </View>
 
@@ -272,7 +284,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const filteredOrders = getFilteredOrders();
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Commandes</Text>
         <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
@@ -313,7 +325,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           })}
           
           {/* Revenue chip */}
-          <View style={[styles.filterChip, styles.revenueChip]}>
+          <View style={[styles.filterChip, styles.revenueChip, { width: 80 }]}>
             <Text style={styles.filterIcon}>💰</Text>
             <Text style={styles.filterCount}>{stats.totalRevenue.toFixed(0)}€</Text>
             <Text style={styles.filterLabel}>Revenus</Text>
@@ -324,9 +336,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       {/* Active filters indicator */}
       {activeFilters.length > 0 && (
         <View style={styles.activeFiltersContainer}>
-          <Text style={styles.activeFiltersText}>
-            Filtres actifs: {activeFilters.join(', ')} ({filteredOrders.length} commande{filteredOrders.length !== 1 ? 's' : ''})
-          </Text>
+          <View style={styles.activeFiltersTextContainer}>
+            <Text style={styles.activeFiltersText} numberOfLines={1}>
+              Filtres actifs: {activeFilters.join(', ')} ({filteredOrders.length} commande{filteredOrders.length !== 1 ? 's' : ''})
+            </Text>
+          </View>
           <TouchableOpacity
             style={styles.clearFiltersButton}
             onPress={() => setActiveFilters([])}
@@ -354,14 +368,14 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         )}
       />
 
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
   header: {
     backgroundColor: '#005F6B',
@@ -391,6 +405,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    minHeight: 60, // Consistent height
   },
   filtersRow: {
     flexDirection: 'row',
@@ -403,9 +418,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2, // Consistent border width
     borderColor: '#e0e0e0',
-    minWidth: 60,
+    minWidth: 70, // Slightly larger minimum width
+    width: 70, // Fixed width for consistency
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -414,7 +430,7 @@ const styles = StyleSheet.create({
   },
   filterChipActive: {
     backgroundColor: '#f0f8ff',
-    borderWidth: 2,
+    borderWidth: 2, // Same border width as inactive
     shadowOpacity: 0.1,
     elevation: 2,
   },
@@ -431,10 +447,11 @@ const styles = StyleSheet.create({
     color: '#005F6B',
   },
   filterLabel: {
-    fontSize: 9,
+    fontSize: 8,
     color: '#666',
     marginTop: 2,
     textAlign: 'center',
+    flexShrink: 1,
   },
   filterLabelActive: {
     color: '#005F6B',
@@ -447,18 +464,22 @@ const styles = StyleSheet.create({
   activeFiltersContainer: {
     backgroundColor: '#e3f2fd',
     paddingHorizontal: 15,
-    paddingVertical: 8,
+    paddingVertical: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    minHeight: 40, // Consistent height
+  },
+  activeFiltersTextContainer: {
+    flex: 1,
+    marginRight: 10,
   },
   activeFiltersText: {
     fontSize: 12,
     color: '#1976d2',
     fontWeight: '500',
-    flex: 1,
   },
   clearFiltersButton: {
     backgroundColor: '#1976d2',

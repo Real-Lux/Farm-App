@@ -10,7 +10,10 @@ import {
   Alert,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
+import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
 export default function ElevageScreen({ navigation }) {
   const [lots, setLots] = useState([]);
@@ -21,6 +24,8 @@ export default function ElevageScreen({ navigation }) {
   const [modalType, setModalType] = useState('lot'); // 'lot', 'race', 'update'
   const [editingItem, setEditingItem] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
+  const [calendarModal, setCalendarModal] = useState(false);
+  const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
   
   const [lotForm, setLotForm] = useState({
@@ -75,7 +80,7 @@ export default function ElevageScreen({ navigation }) {
     setModalType('lot');
     setLotForm({
       name: '',
-      date_creation: new Date().toISOString().split('T')[0],
+      date_creation: getTodayISO(),
       date_eclosion: '',
       races: {},
       status: 'Actif',
@@ -123,6 +128,16 @@ export default function ElevageScreen({ navigation }) {
       notes: ''
     });
     setModalVisible(true);
+  };
+
+  const openCalendarModal = (field) => {
+    setCalendarField(field);
+    setCalendarModal(true);
+  };
+
+  const handleDateSelect = (day) => {
+    setLotForm({...lotForm, [calendarField]: day.dateString});
+    setCalendarModal(false);
   };
 
   const saveLot = async () => {
@@ -351,11 +366,11 @@ export default function ElevageScreen({ navigation }) {
                       </Text>
                     </View>
                     <View style={styles.raceStats}>
+                      <Text style={styles.raceStatText}>🐓 {raceData.current} restants</Text>
+                      <Text style={styles.raceStatText}>♂️ {raceData.males || 0} | ♀️ {raceData.females || 0} | ❓ {raceData.unsexed || 0}</Text>
                       <Text style={styles.raceStatText}>
                         💀 {raceData.deaths || 0} morts (♂️{raceData.deaths_males || 0} | ♀️{raceData.deaths_females || 0} | ❓{raceData.deaths_unsexed || 0})
                       </Text>
-                      <Text style={styles.raceStatText}>🐓 {raceData.current} restants</Text>
-                      <Text style={styles.raceStatText}>♂️ {raceData.males || 0} | ♀️ {raceData.females || 0} | ❓ {raceData.unsexed || 0}</Text>
                     </View>
                   </TouchableOpacity>
                 );
@@ -434,7 +449,7 @@ export default function ElevageScreen({ navigation }) {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
@@ -599,11 +614,11 @@ export default function ElevageScreen({ navigation }) {
                     <View style={styles.genderStatsRow}>
                       <View style={styles.genderStatGroup}>
                         <Text style={styles.genderStatTitle}>Vivants:</Text>
-                        <Text style={styles.genderStatText}>♂️ {totalMales} | ♀️ {totalFemales}</Text>
+                        <Text style={styles.genderStatText}>♂️ {totalMales} | ♀️ {totalFemales} | ? {Object.values(lot.races).reduce((sum, race) => sum + (race.unsexed || 0), 0)}</Text>
                       </View>
                       <View style={styles.genderStatGroup}>
                         <Text style={styles.genderStatTitle}>Morts:</Text>
-                        <Text style={styles.genderStatText}>♂️ {totalDeathsMales} | ♀️ {totalDeathsFemales}</Text>
+                        <Text style={styles.genderStatText}>♂️ {totalDeathsMales} | ♀️ {totalDeathsFemales} | ? {Object.values(lot.races).reduce((sum, race) => sum + (race.deaths_unsexed || 0), 0)}</Text>
                       </View>
                     </View>
 
@@ -614,8 +629,8 @@ export default function ElevageScreen({ navigation }) {
                         <Text style={styles.raceStatsName}>{raceName}:</Text>
                         <Text style={styles.raceStatsDetail}>
                           {raceData.current}/{raceData.initial} 
-                          (♂️{raceData.males||0}|♀️{raceData.females||0}) 
-                          💀{raceData.deaths||0}(♂️{raceData.deaths_males||0}|♀️{raceData.deaths_females||0})
+                          (♂️{raceData.males||0}|♀️{raceData.females||0}|?{raceData.unsexed||0}) 
+                          💀{raceData.deaths||0}(♂️{raceData.deaths_males||0}|♀️{raceData.deaths_females||0}|?{raceData.deaths_unsexed||0})
                         </Text>
                       </View>
                     ))}
@@ -664,7 +679,7 @@ export default function ElevageScreen({ navigation }) {
                     </View>
 
                     <View style={styles.genderStatsRow}>
-                      <Text style={styles.genderStatText}>♂️ {totalMales} | ♀️ {totalFemales}</Text>
+                      <Text style={styles.genderStatText}>♂️ {totalMales} | ♀️ {totalFemales} | ? {lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)}</Text>
                     </View>
                   </View>
                 );
@@ -697,19 +712,35 @@ export default function ElevageScreen({ navigation }) {
                     onChangeText={(text) => setLotForm({...lotForm, name: text})}
                   />
 
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Date de création (YYYY-MM-DD) *"
-                    value={lotForm.date_creation}
-                    onChangeText={(text) => setLotForm({...lotForm, date_creation: text})}
-                  />
+                  <View style={styles.dateFieldContainer}>
+                    <Text style={styles.dateFieldLabel}>Date de création *</Text>
+                    <TouchableOpacity 
+                      style={styles.datePickerButton}
+                      onPress={() => openCalendarModal('date_creation')}
+                    >
+                      <Text style={styles.datePickerText}>
+                        {lotForm.date_creation ? 
+                          formatForCalendar(lotForm.date_creation) : 
+                          '📅 Sélectionner une date'
+                        }
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Date d'éclosion (YYYY-MM-DD)"
-                    value={lotForm.date_eclosion}
-                    onChangeText={(text) => setLotForm({...lotForm, date_eclosion: text})}
-                  />
+                  <View style={styles.dateFieldContainer}>
+                    <Text style={styles.dateFieldLabel}>Date d'éclosion</Text>
+                    <TouchableOpacity 
+                      style={styles.datePickerButton}
+                      onPress={() => openCalendarModal('date_eclosion')}
+                    >
+                      <Text style={styles.datePickerText}>
+                        {lotForm.date_eclosion ? 
+                          formatForCalendar(lotForm.date_eclosion) : 
+                          '📅 Sélectionner une date'
+                        }
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
                   <Text style={styles.sectionTitle}>Races dans ce lot:</Text>
                   
@@ -941,15 +972,73 @@ export default function ElevageScreen({ navigation }) {
             </ScrollView>
           </View>
         </View>
-      </Modal>
-    </View>
-  );
-}
+        </Modal>
+
+        {/* Calendar Modal */}
+        <Modal
+          visible={calendarModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setCalendarModal(false)}
+        >
+          <View style={styles.calendarModalOverlay}>
+            <View style={styles.calendarModalContent}>
+              <View style={styles.calendarHeader}>
+                <Text style={styles.calendarTitle}>
+                  {calendarField === 'date_creation' ? 'Date de création' : 'Date d\'éclosion'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.calendarCloseBtn}
+                  onPress={() => setCalendarModal(false)}
+                >
+                  <Text style={styles.calendarCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Calendar
+                onDayPress={handleDateSelect}
+                minDate={calendarField === 'date_creation' ? getTodayISO() : undefined}
+                theme={{
+                  backgroundColor: '#ffffff',
+                  calendarBackground: '#ffffff',
+                  textSectionTitleColor: '#005F6B',
+                  selectedDayBackgroundColor: '#005F6B',
+                  selectedDayTextColor: '#ffffff',
+                  todayTextColor: '#005F6B',
+                  dayTextColor: '#2d4150',
+                  textDisabledColor: '#d9e1e8',
+                  dotColor: '#00adf5',
+                  selectedDotColor: '#ffffff',
+                  arrowColor: '#005F6B',
+                  disabledArrowColor: '#d9e1e8',
+                  monthTextColor: '#005F6B',
+                  indicatorColor: '#005F6B',
+                  textDayFontWeight: '300',
+                  textMonthFontWeight: 'bold',
+                  textDayHeaderFontWeight: '300',
+                  textDayFontSize: 16,
+                  textMonthFontSize: 16,
+                  textDayHeaderFontSize: 13
+                }}
+              />
+              
+              <TouchableOpacity 
+                style={styles.calendarCancelBtn}
+                onPress={() => setCalendarModal(false)}
+              >
+                <Text style={styles.calendarCancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    );
+  }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
   header: {
     backgroundColor: '#005F6B',
@@ -1522,5 +1611,76 @@ const styles = StyleSheet.create({
   raceStatLabel: {
     fontSize: 9,
     color: '#666',
+  },
+  dateFieldContainer: {
+    marginBottom: 15,
+  },
+  dateFieldLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  datePickerButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  datePickerText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  calendarModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  calendarTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  calendarCloseBtn: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarCloseBtnText: {
+    fontSize: 18,
+    color: '#666',
+  },
+  calendarCancelBtn: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 15,
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  calendarCancelBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
   },
 });

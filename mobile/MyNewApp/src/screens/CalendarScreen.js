@@ -10,6 +10,8 @@ import {
   Alert,
   Dimensions
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Calendar, CalendarList, Agenda } from 'react-native-calendars';
 import database from '../services/database';
 
@@ -29,13 +31,14 @@ export default function CalendarScreen() {
     notes: ''
   });
 
-  const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Autre'];
+  const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Récupération', 'Autre'];
   const eventColors = {
     'Alimentation': '#4CAF50',
     'Entretien': '#FF9800', 
     'Soins': '#2196F3',
     'Reproduction': '#8BC34A',
     'Vétérinaire': '#9C27B0',
+    'Récupération': '#FF5722', // Orange-red for order pickups
     'Autre': '#607D8B'
   };
 
@@ -51,10 +54,32 @@ export default function CalendarScreen() {
     loadEvents();
   }, []);
 
+  // Refresh calendar when screen comes into focus (e.g., after adding orders)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadEvents();
+    }, [])
+  );
+
   const loadEvents = async () => {
     try {
+      console.log('🔄 CalendarScreen: Starting to load events...');
+      
+      // First sync orders with calendar to ensure all order events are created
+      await database.syncOrdersWithCalendar();
+      
+      // Then load all events (including order events)
       const eventsData = await database.getEvents();
+      console.log('📅 CalendarScreen: Raw events data:', eventsData);
       setEvents(eventsData);
+      console.log(`📅 CalendarScreen: Loaded ${eventsData.length} calendar events`);
+      
+      // Debug: Check for October 17, 2025 events specifically
+      const oct17Events = eventsData.filter(event => {
+        const eventDate = (event.date || event.event_date)?.split('T')[0];
+        return eventDate === '2025-10-17';
+      });
+      console.log('🔍 CalendarScreen: Events for Oct 17, 2025:', oct17Events);
     } catch (error) {
       console.error('Error loading events:', error);
     }
@@ -421,12 +446,27 @@ export default function CalendarScreen() {
   const monthEvents = getEventsForMonth(selectedDate);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>📅 Événements</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
-          <Text style={styles.addButtonText}>+ Add Event</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity style={styles.refreshButton} onPress={loadEvents}>
+            <Text style={styles.refreshButtonText}>🔄</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.syncButton} onPress={async () => {
+            console.log('🔄 Manual sync triggered');
+            // Debug: Show all orders first
+            const allOrders = await database.getOrders();
+            console.log('🔍 All orders in database:', allOrders);
+            await database.syncOrdersWithCalendar();
+            await loadEvents();
+          }}>
+            <Text style={styles.syncButtonText}>📅</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
+            <Text style={styles.addButtonText}>+ Add Event</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.mainScrollView} showsVerticalScrollIndicator={true}>
@@ -582,14 +622,14 @@ export default function CalendarScreen() {
           </ScrollView>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
   mainScrollView: {
     flex: 1,
@@ -602,10 +642,36 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
+  },
+  refreshButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  refreshButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  syncButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  syncButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
   addButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',

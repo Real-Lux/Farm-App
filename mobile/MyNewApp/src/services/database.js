@@ -1,4 +1,6 @@
 // Simple test database service - no external dependencies
+import * as FileSystem from 'expo-file-system';
+import { toISODate, getTodayISO, getNowISO } from '../utils/dateUtils';
 console.log('🔄 Loading simple database service...');
 
 class SimpleTestDatabaseService {
@@ -168,6 +170,14 @@ class SimpleTestDatabaseService {
     console.log('➕ addOrder called');
     const newOrder = { id: Date.now(), ...order };
     this.storage.orders.push(newOrder);
+    
+    // Auto-sync with calendar if delivery date exists
+    if (newOrder.deliveryDate) {
+      // Ensure delivery date is in ISO format
+      newOrder.deliveryDate = toISODate(newOrder.deliveryDate);
+      await this.syncOrdersWithCalendar();
+    }
+    
     return { insertId: newOrder.id };
   }
 
@@ -191,8 +201,57 @@ class SimpleTestDatabaseService {
 
   // Export/Import functionality
   async exportToCSV(tableName) {
-    console.log('📤 exportToCSV called');
-    return 'export_simulated';
+    console.log('📤 exportToCSV called for:', tableName);
+    
+    // Get data from our storage
+    const data = this.storage[tableName] || [];
+    console.log(`📊 Found ${data.length} records for ${tableName}:`, data);
+    
+    if (data.length === 0) {
+      throw new Error(`Aucune donnée à exporter pour ${tableName}`);
+    }
+
+    // Generate CSV content
+    const csvContent = this.generateCSV(data);
+    const fileName = `${tableName}_${getTodayISO()}.csv`;
+    
+    console.log(`📝 Generated CSV content (${csvContent.length} chars):`, csvContent.substring(0, 200) + '...');
+    
+    // For mobile, create file and return path
+    try {
+      const fileUri = `${FileSystem.documentDirectory}export_${fileName}`;
+      console.log(`💾 Writing file to: ${fileUri}`);
+      
+      await FileSystem.writeAsStringAsync(fileUri, csvContent);
+      
+      // Verify file was created
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      console.log(`✅ File created successfully:`, fileInfo);
+      
+      return { fileUri, fileName, data: csvContent };
+    } catch (error) {
+      console.log('❌ FileSystem error:', error);
+      // For web or other platforms
+      return { data: csvContent, fileName };
+    }
+  }
+
+  generateCSV(data) {
+    if (!data || data.length === 0) return '';
+    
+    const headers = Object.keys(data[0]);
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => 
+        headers.map(header => {
+          const value = row[header] || '';
+          // Escape commas and quotes
+          return `"${String(value).replace(/"/g, '""')}"`;
+        }).join(',')
+      )
+    ];
+    
+    return csvRows.join('\n');
   }
 
   async importFromCSV(tableName, csvContent) {
@@ -202,12 +261,192 @@ class SimpleTestDatabaseService {
 
   async backupDatabase() {
     console.log('💾 backupDatabase called');
-    return 'backup_simulated';
+    
+    const backupData = {
+      products: this.storage.products,
+      orders: this.storage.orders,
+      calendar_events: this.storage.calendar_events,
+      elevage_lots: this.storage.elevage_lots,
+      elevage_races: this.storage.elevage_races,
+      elevage_historique: this.storage.elevage_historique,
+      backup_date: getNowISO()
+    };
+
+    const fileName = `farmapp_backup_${getTodayISO()}.json`;
+    
+    // For mobile, create file and return path
+    try {
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(backupData, null, 2));
+      return { fileUri, fileName, data: backupData };
+    } catch (error) {
+      console.log('FileSystem not available for backup, returning data only:', error);
+      return { data: backupData, fileName };
+    }
   }
 
   async getTableData(tableName) {
     console.log('📋 getTableData called');
     return this.storage[tableName] || [];
+  }
+
+  // Debug function to list all files in documents directory
+  async listDocumentFiles() {
+    try {
+      const files = await FileSystem.readDirectoryAsync(FileSystem.documentDirectory);
+      console.log('📁 Files in documents directory:', files);
+      
+      // Get detailed info for each file
+      for (const file of files) {
+        const fileUri = `${FileSystem.documentDirectory}${file}`;
+        const fileInfo = await FileSystem.getInfoAsync(fileUri);
+        console.log(`📄 ${file}:`, fileInfo);
+      }
+      
+      return files;
+    } catch (error) {
+      console.log('❌ Error listing files:', error);
+      return [];
+    }
+  }
+
+  // ========== CALENDAR-ORDERS INTEGRATION ==========
+
+  // Sync orders with calendar events
+  async syncOrdersWithCalendar() {
+    console.log('🔄 Syncing orders with calendar events...');
+    
+    const orders = this.storage.orders || [];
+    const existingEvents = this.storage.calendar_events || [];
+    
+    console.log(`📋 Found ${orders.length} orders to sync`);
+    console.log('📋 Orders data:', orders);
+    
+    // Create calendar events for orders with delivery dates
+    for (const order of orders) {
+      console.log(`🔍 Processing order ${order.id}:`, order);
+      if (order.deliveryDate) {
+        // Ensure delivery date is in ISO format
+        const isoDeliveryDate = toISODate(order.deliveryDate);
+        console.log(`📅 Order ${order.id} has delivery date: ${order.deliveryDate} -> ${isoDeliveryDate}`);
+        
+        const eventTitle = `Récupération: ${order.customerName}`;
+        const eventDescription = this.generateOrderEventDescription(order);
+        
+        // Check if event already exists
+        const existingEvent = existingEvents.find(event => 
+          event.date === isoDeliveryDate && 
+          event.title === eventTitle
+        );
+        
+        if (!existingEvent) {
+          const newEvent = {
+            id: Date.now() + Math.random(),
+            title: eventTitle,
+            date: isoDeliveryDate,
+            type: 'Récupération',
+            product: order.orderType,
+            notes: eventDescription,
+            order_id: order.id,
+            customer_name: order.customerName,
+            customer_phone: order.customerPhone,
+            customer_email: order.customerEmail,
+            total_price: order.totalPrice,
+            created_at: getNowISO()
+          };
+          
+          this.storage.calendar_events.push(newEvent);
+          console.log(`✅ Created calendar event for order ${order.id}:`, newEvent);
+        } else {
+          console.log(`⚠️ Event already exists for order ${order.id}`);
+        }
+      } else {
+        console.log(`❌ Order ${order.id} has no delivery date`);
+      }
+    }
+    
+    console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events`);
+    console.log('📅 All calendar events:', this.storage.calendar_events);
+  }
+
+  // Generate description for order calendar events
+  generateOrderEventDescription(order) {
+    let description = `Commande ${order.orderType}`;
+    
+    if (order.orderType === 'Adoption') {
+      description += ` - ${order.animalType} ${order.race}`;
+      if (order.ageMonths) {
+        description += ` (${order.ageMonths} mois)`;
+      }
+    } else if (order.product) {
+      description += ` - ${order.product}`;
+      if (order.quantity) {
+        description += ` (${order.quantity})`;
+      }
+    }
+    
+    description += ` - ${order.totalPrice}€`;
+    
+    if (order.customerPhone) {
+      description += ` - Tel: ${order.customerPhone}`;
+    }
+    
+    return description;
+  }
+
+  // Get calendar events for a specific date
+  async getEventsForDate(date) {
+    return this.storage.calendar_events.filter(event => event.date === date);
+  }
+
+  // Get orders for a specific date
+  async getOrdersForDate(date) {
+    return this.storage.orders.filter(order => order.deliveryDate === date);
+  }
+
+  // Export calendar events with order details to CSV
+  async exportCalendarWithOrders() {
+    console.log('📤 exportCalendarWithOrders called');
+    
+    // Sync orders with calendar first
+    await this.syncOrdersWithCalendar();
+    
+    const events = this.storage.calendar_events || [];
+    if (events.length === 0) {
+      throw new Error('Aucun événement de calendrier à exporter');
+    }
+
+    // Create detailed CSV with all order information
+    const csvData = events.map(event => ({
+      date: event.date,
+      title: event.title,
+      type: event.type,
+      customer_name: event.customer_name || '',
+      customer_phone: event.customer_phone || '',
+      customer_email: event.customer_email || '',
+      order_type: event.product || '',
+      total_price: event.total_price || '',
+      notes: event.notes || '',
+      order_id: event.order_id || '',
+      created_at: event.created_at || ''
+    }));
+
+    const csvContent = this.generateCSV(csvData);
+    const fileName = `calendrier_commandes_${getTodayISO()}.csv`;
+    
+    try {
+      const fileUri = `${FileSystem.documentDirectory}export_${fileName}`;
+      await FileSystem.writeAsStringAsync(fileUri, csvContent);
+      
+      // Verify file was created
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      console.log(`✅ Calendar with orders CSV created:`, fileInfo);
+      
+      return { fileUri, fileName, data: csvContent };
+    } catch (error) {
+      console.log('❌ FileSystem error for calendar export:', error);
+      return { data: csvContent, fileName };
+    }
   }
 
   // ========== ELEVAGE CRUD ==========
@@ -363,7 +602,7 @@ class SimpleTestDatabaseService {
         
         await this.addHistorique({
           lot_id: lotId,
-          date: new Date().toISOString().split('T')[0],
+          date: getTodayISO(),
           type: 'Mort',
           description: description,
           race: race,
@@ -391,7 +630,7 @@ class SimpleTestDatabaseService {
       if (sexingChanges.length > 0 && (maleDeaths === 0 && femaleDeaths === 0 && unsexedDeaths === 0)) {
         await this.addHistorique({
           lot_id: lotId,
-          date: new Date().toISOString().split('T')[0],
+          date: getTodayISO(),
           type: 'Sexage',
           description: `Mise à jour sexage: ${sexingChanges.join(', ')} - ${race}`,
           race: race,

@@ -10,6 +10,7 @@ import {
   Alert,
   FlatList
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import database from '../services/database';
 
 export default function ProductManagementScreen({ navigation }) {
@@ -147,7 +148,7 @@ export default function ProductManagementScreen({ navigation }) {
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>📦 Produits</Text>
         <View style={styles.headerButtons}>
@@ -239,14 +240,14 @@ export default function ProductManagementScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)

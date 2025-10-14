@@ -8,7 +8,10 @@ import {
   RefreshControl,
   Alert 
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import database from '../services/database';
+import emailService from '../services/emailService';
+import * as Sharing from 'expo-sharing';
 
 export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -56,21 +59,198 @@ export default function DashboardScreen() {
 
   const handleExport = async (tableName) => {
     try {
-      await database.exportToCSV(tableName);
-      Alert.alert('Success', `${tableName} data exported successfully!`);
+      // Show loading alert
+      Alert.alert('Export en cours', 'Génération du fichier CSV...');
+      
+      // Export data to CSV
+      console.log(`Exporting ${tableName}...`);
+      const exportResult = await database.exportToCSV(tableName);
+      console.log(`Export result for ${tableName}:`, exportResult);
+      
+      if (exportResult.fileUri) {
+        // List all files after creation
+        await database.listDocumentFiles();
+        
+        // Share the file locally first
+        if (await Sharing.isAvailableAsync()) {
+          console.log('📤 Sharing file:', exportResult.fileUri);
+          await Sharing.shareAsync(exportResult.fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: `Export ${tableName}`
+          });
+          console.log('✅ Share dialog completed');
+        } else {
+          console.log('❌ Sharing not available');
+        }
+        
+        // Ask if user wants to send via email
+        Alert.alert(
+          'Export réussi',
+          `Fichier ${tableName} exporté avec succès!\n\nVoulez-vous l'envoyer par email à ${emailService.backupEmail}?`,
+          [
+            { text: 'Non', style: 'cancel' },
+            { 
+              text: 'Envoyer par email', 
+              onPress: async () => {
+                try {
+                  await emailService.sendSingleExport(tableName, exportResult.fileUri);
+                } catch (emailError) {
+                  console.error('Email error:', emailError);
+                }
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Succès', `${tableName} exporté avec succès!`);
+      }
     } catch (error) {
       console.error('Export error:', error);
-      Alert.alert('Error', `Failed to export ${tableName} data`);
+      Alert.alert('Erreur', error.message || `Impossible d'exporter ${tableName}`);
+    }
+  };
+
+  const handleCalendarWithOrdersExport = async () => {
+    try {
+      Alert.alert('Export en cours', 'Génération du calendrier avec commandes...');
+      
+      console.log('Exporting calendar with orders...');
+      const exportResult = await database.exportCalendarWithOrders();
+      console.log('Calendar with orders export result:', exportResult);
+      
+      if (exportResult.fileUri) {
+        // List all files after creation
+        await database.listDocumentFiles();
+        
+        // Share the file locally first
+        if (await Sharing.isAvailableAsync()) {
+          console.log('📤 Sharing calendar file:', exportResult.fileUri);
+          await Sharing.shareAsync(exportResult.fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: 'Export Calendrier + Commandes'
+          });
+          console.log('✅ Share dialog completed');
+        } else {
+          console.log('❌ Sharing not available');
+        }
+        
+        // Ask if user wants to send via email
+        Alert.alert(
+          'Export réussi',
+          `Fichier calendrier avec commandes exporté avec succès!\n\nVoulez-vous l'envoyer par email à ${emailService.backupEmail}?`,
+          [
+            { text: 'Non', style: 'cancel' },
+            { 
+              text: 'Envoyer par email', 
+              onPress: async () => {
+                try {
+                  await emailService.sendSingleExport('calendrier_commandes', exportResult.fileUri);
+                } catch (emailError) {
+                  console.error('Email error:', emailError);
+                }
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Succès', 'Calendrier avec commandes exporté avec succès!');
+      }
+    } catch (error) {
+      console.error('Calendar export error:', error);
+      Alert.alert('Erreur', error.message || 'Impossible d\'exporter le calendrier avec commandes');
     }
   };
 
   const handleBackup = async () => {
     try {
-      await database.backupDatabase();
-      Alert.alert('Success', 'Database backup created successfully!');
+      Alert.alert('Sauvegarde en cours', 'Création de la sauvegarde complète...');
+      
+      const filesToSend = [];
+      const tables = ['products', 'orders', 'calendar_events', 'elevage_lots', 'elevage_races', 'elevage_historique'];
+      
+      // Export each table to CSV
+      for (const tableName of tables) {
+        try {
+          console.log(`Attempting to export ${tableName}...`);
+          const exportResult = await database.exportToCSV(tableName);
+          console.log(`Export result for ${tableName}:`, exportResult);
+          
+          if (exportResult.fileUri || exportResult.data) {
+            filesToSend.push({
+              uri: exportResult.fileUri,
+              filename: exportResult.fileName
+            });
+            console.log(`Added ${tableName} to files to send`);
+          }
+        } catch (error) {
+          console.log(`Skipping ${tableName} - error:`, error.message);
+        }
+      }
+      
+      // Create calendar with orders export
+      try {
+        console.log('Creating calendar with orders export...');
+        const calendarResult = await database.exportCalendarWithOrders();
+        console.log('Calendar with orders result:', calendarResult);
+        
+        if (calendarResult.fileUri || calendarResult.data) {
+          filesToSend.push({
+            uri: calendarResult.fileUri,
+            filename: calendarResult.fileName
+          });
+          console.log('Added calendar with orders to files to send');
+        }
+      } catch (error) {
+        console.log('Skipping calendar with orders - no data available');
+      }
+
+      // Create main backup JSON file
+      try {
+        console.log('Creating main backup...');
+        const backupResult = await database.backupDatabase();
+        console.log('Backup result:', backupResult);
+        
+        if (backupResult.fileUri || backupResult.data) {
+          filesToSend.push({
+            uri: backupResult.fileUri,
+            filename: backupResult.fileName
+          });
+          console.log('Added main backup to files to send');
+        }
+      } catch (error) {
+        console.error('Error creating main backup:', error);
+      }
+      
+      console.log(`Total files to send: ${filesToSend.length}`, filesToSend);
+      
+      if (filesToSend.length === 0) {
+        Alert.alert('Erreur', 'Aucune donnée à sauvegarder');
+        return;
+      }
+      
+      // Send all files via email
+      Alert.alert(
+        'Sauvegarde prête',
+        `${filesToSend.length} fichier(s) créé(s).\n\nEnvoyer la sauvegarde complète par email à ${emailService.backupEmail}?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { 
+            text: 'Envoyer par email', 
+            onPress: async () => {
+              try {
+                await emailService.sendFullBackup(filesToSend);
+              } catch (emailError) {
+                console.error('Email backup error:', emailError);
+                Alert.alert('Erreur', 'Impossible d\'envoyer l\'email de sauvegarde');
+              }
+            }
+          }
+        ]
+      );
+      
     } catch (error) {
       console.error('Backup error:', error);
-      Alert.alert('Error', 'Failed to create backup');
+      Alert.alert('Erreur', 'Impossible de créer la sauvegarde');
     }
   };
 
@@ -82,12 +262,13 @@ export default function DashboardScreen() {
   );
 
   return (
-    <ScrollView 
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <ScrollView 
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
       <View style={styles.header}>
         <Text style={styles.headerTitle}>🐓 La Ferme Aux oeufs bleus</Text>
         <Text style={styles.headerDate}>
@@ -175,20 +356,49 @@ export default function DashboardScreen() {
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.actionButton}
+            onPress={() => handleExport('calendar_events')}
+          >
+            <Text style={styles.actionButtonText}>📅 Exporter Calendrier</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={handleCalendarWithOrdersExport}
+          >
+            <Text style={styles.actionButtonText}>📋 Calendrier + Commandes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.actionButton}
             onPress={handleBackup}
           >
             <Text style={styles.actionButtonText}>💾 Sauvegarder Tout</Text>
           </TouchableOpacity>
         </View>
+        
+        <View style={styles.quickActions}>
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: '#9C27B0' }]}
+            onPress={async () => {
+              console.log('🔍 DEBUG: Listing all files...');
+              await database.listDocumentFiles();
+              Alert.alert('Debug', 'Check console for file list');
+            }}
+          >
+            <Text style={styles.actionButtonText}>🔍 Debug: List Files</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f8ff', // Light blue-gray instead of white
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)

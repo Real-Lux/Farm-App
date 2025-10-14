@@ -9,7 +9,10 @@ import {
   Alert,
   Modal
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
+import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
 export default function AddOrderScreen({ navigation, route }) {
   const { editingOrder, onSaveOrder } = route.params || {};
@@ -21,6 +24,8 @@ export default function AddOrderScreen({ navigation, route }) {
   const [selectedRaceForLot, setSelectedRaceForLot] = useState(null);
   const [selectedAnimalForLot, setSelectedAnimalForLot] = useState(null);
   const [lotSelections, setLotSelections] = useState({}); // Track lot selections per race
+  const [calendarModal, setCalendarModal] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState([]);
   const [orderForm, setOrderForm] = useState(editingOrder ? {
     orderType: editingOrder.orderType || 'Adoption',
     selectedAnimals: editingOrder.selectedAnimals || ['poules'],
@@ -34,7 +39,7 @@ export default function AddOrderScreen({ navigation, route }) {
     },
     ageMonths: editingOrder.ageMonths || '',
     ageWeeks: editingOrder.ageWeeks || '',
-    deliveryDate: editingOrder.deliveryDate || '',
+    deliveryDate: toISODate(editingOrder.deliveryDate || ''),
     customerName: editingOrder.customerName || '',
     customerPhone: editingOrder.customerPhone || '',
     customerEmail: editingOrder.customerEmail || '',
@@ -79,7 +84,57 @@ export default function AddOrderScreen({ navigation, route }) {
 
   useEffect(() => {
     loadAvailableStock();
+    loadCalendarEvents();
   }, []);
+
+  const loadCalendarEvents = async () => {
+    try {
+      const events = await database.getEvents();
+      setCalendarEvents(events);
+    } catch (error) {
+      console.error('Error loading calendar events:', error);
+    }
+  };
+
+  // Convert events to calendar format for marked dates
+  const getMarkedDates = () => {
+    const marked = {};
+    
+    // Mark calendar events
+    calendarEvents.forEach(event => {
+      const date = event.date || event.event_date;
+      if (date) {
+        const eventDate = date.split('T')[0]; // Get YYYY-MM-DD format
+        if (!marked[eventDate]) {
+          marked[eventDate] = { 
+            dots: [],
+            marked: true
+          };
+        }
+        
+        marked[eventDate].dots.push({
+          color: '#4CAF50', // Green for events
+          key: event.id
+        });
+      }
+    });
+
+    // Mark selected delivery date
+    if (orderForm.deliveryDate) {
+      if (!marked[orderForm.deliveryDate]) {
+        marked[orderForm.deliveryDate] = { dots: [] };
+      }
+      marked[orderForm.deliveryDate].selected = true;
+      marked[orderForm.deliveryDate].selectedColor = '#005F6B';
+    }
+
+    return marked;
+  };
+
+  const handleDateSelect = (day) => {
+    setOrderForm({...orderForm, deliveryDate: day.dateString});
+    setCalendarModal(false);
+  };
 
   const loadAvailableStock = async () => {
     try {
@@ -245,7 +300,7 @@ export default function AddOrderScreen({ navigation, route }) {
     const stockInfo = availableStock[race];
     if (!stockInfo || stockInfo.lots.length === 0) return [];
     
-    const targetDate = deliveryDate || new Date().toISOString().split('T')[0];
+    const targetDate = deliveryDate || getTodayISO();
     
     return stockInfo.lots
       .map(lot => {
@@ -307,9 +362,9 @@ export default function AddOrderScreen({ navigation, route }) {
       product: orderForm.product,
       quantity: orderForm.quantity ? parseInt(orderForm.quantity) : null,
       totalPrice: orderForm.totalPrice ? parseFloat(orderForm.totalPrice) : 0,
-      deliveryDate: orderForm.deliveryDate,
+      deliveryDate: toISODate(orderForm.deliveryDate),
       status: orderForm.status,
-      orderDate: editingOrder ? editingOrder.orderDate : new Date().toISOString().split('T')[0]
+      orderDate: editingOrder ? editingOrder.orderDate : getTodayISO()
     };
 
     onSaveOrder(newOrder, !!editingOrder);
@@ -320,7 +375,7 @@ export default function AddOrderScreen({ navigation, route }) {
   const isFormValid = orderForm.customerName && orderForm.orderType;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
@@ -381,12 +436,17 @@ export default function AddOrderScreen({ navigation, route }) {
             {/* Pour quand? */}
             <View style={styles.dateContainer}>
               <Text style={styles.dropdownLabel}>Pour quand?</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Sélectionner la date (YYYY-MM-DD)"
-                value={orderForm.deliveryDate}
-                onChangeText={(text) => setOrderForm({...orderForm, deliveryDate: text})}
-              />
+              <TouchableOpacity 
+                style={styles.datePickerButton}
+                onPress={() => setCalendarModal(true)}
+              >
+                <Text style={styles.datePickerText}>
+                  {orderForm.deliveryDate ? 
+                    formatForCalendar(orderForm.deliveryDate) : 
+                    '📅 Sélectionner une date'
+                  }
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Animal Types Selection */}
@@ -691,12 +751,25 @@ export default function AddOrderScreen({ navigation, route }) {
         />
 
         {orderForm.orderType !== 'Adoption' && (
-          <TextInput
-            style={styles.input}
-            placeholder="Date de livraison (YYYY-MM-DD)"
-            value={orderForm.deliveryDate}
-            onChangeText={(text) => setOrderForm({...orderForm, deliveryDate: text})}
-          />
+          <View style={styles.dateContainer}>
+            <Text style={styles.dropdownLabel}>Date de livraison</Text>
+            <TouchableOpacity 
+              style={styles.datePickerButton}
+              onPress={() => setCalendarModal(true)}
+            >
+              <Text style={styles.datePickerText}>
+                {orderForm.deliveryDate ? 
+                  new Date(orderForm.deliveryDate).toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  }) : 
+                  '📅 Sélectionner une date'
+                }
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         <View style={styles.statusSelector}>
@@ -809,14 +882,75 @@ export default function AddOrderScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-    </View>
+
+      {/* Calendar Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={calendarModal}
+        onRequestClose={() => setCalendarModal(false)}
+      >
+        <View style={styles.calendarModalOverlay}>
+          <View style={styles.calendarModalContent}>
+            <View style={styles.calendarHeader}>
+              <Text style={styles.calendarTitle}>Sélectionner une date</Text>
+              <TouchableOpacity 
+                style={styles.calendarCloseBtn}
+                onPress={() => setCalendarModal(false)}
+              >
+                <Text style={styles.calendarCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={styles.calendarSubtitle}>
+              Les points verts indiquent des événements du calendrier
+            </Text>
+            
+            <Calendar
+              onDayPress={handleDateSelect}
+              markedDates={getMarkedDates()}
+              markingType={'multi-dot'}
+              minDate={getTodayISO()}
+              theme={{
+                backgroundColor: '#ffffff',
+                calendarBackground: '#ffffff',
+                textSectionTitleColor: '#005F6B',
+                selectedDayBackgroundColor: '#005F6B',
+                selectedDayTextColor: '#ffffff',
+                todayTextColor: '#005F6B',
+                dayTextColor: '#2d4150',
+                textDisabledColor: '#d9e1e8',
+                dotColor: '#4CAF50',
+                selectedDotColor: '#ffffff',
+                arrowColor: '#005F6B',
+                monthTextColor: '#005F6B',
+                indicatorColor: '#005F6B',
+                textDayFontWeight: '300',
+                textMonthFontWeight: 'bold',
+                textDayHeaderFontWeight: '300',
+                textDayFontSize: 16,
+                textMonthFontSize: 16,
+                textDayHeaderFontSize: 13
+              }}
+            />
+            
+            <TouchableOpacity 
+              style={styles.calendarCancelBtn}
+              onPress={() => setCalendarModal(false)}
+            >
+              <Text style={styles.calendarCancelBtnText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
   header: {
     backgroundColor: '#005F6B',
@@ -1184,5 +1318,74 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 50,
+  },
+  // Calendar Modal Styles
+  datePickerButton: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 15,
+    backgroundColor: 'white',
+    marginBottom: 15,
+  },
+  datePickerText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  calendarModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  calendarTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  calendarCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  calendarSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  calendarCancelBtn: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 15,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  calendarCancelBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
   },
 });
