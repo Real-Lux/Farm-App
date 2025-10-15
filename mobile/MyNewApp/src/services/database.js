@@ -186,6 +186,38 @@ class SimpleTestDatabaseService {
     return this.storage.orders;
   }
 
+  async updateOrder(id, updates) {
+    console.log('✏️ updateOrder called', { id, updates });
+    const index = this.storage.orders.findIndex(o => o.id == id);
+    if (index !== -1) {
+      const existing = this.storage.orders[index];
+      const updated = { ...existing, ...updates };
+      if (updated.deliveryDate) {
+        updated.deliveryDate = toISODate(updated.deliveryDate);
+      }
+      this.storage.orders[index] = updated;
+      await this.syncOrdersWithCalendar();
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async deleteOrder(id) {
+    console.log('🗑️ deleteOrder called', { id });
+    const prevLength = this.storage.orders.length;
+    this.storage.orders = this.storage.orders.filter(o => o.id != id);
+
+    // Remove any calendar events linked to this order
+    const beforeEvents = this.storage.calendar_events.length;
+    this.storage.calendar_events = this.storage.calendar_events.filter(ev => ev.order_id != id);
+    const removedEvents = beforeEvents - this.storage.calendar_events.length;
+    console.log(`🧹 Removed ${removedEvents} calendar events for deleted order ${id}`);
+
+    await this.syncOrdersWithCalendar();
+
+    return { rowsAffected: prevLength !== this.storage.orders.length ? 1 : 0 };
+  }
+
   // Calendar events CRUD
   async addEvent(event) {
     console.log('➕ addEvent called');
@@ -315,56 +347,80 @@ class SimpleTestDatabaseService {
   // Sync orders with calendar events
   async syncOrdersWithCalendar() {
     console.log('🔄 Syncing orders with calendar events...');
-    
     const orders = this.storage.orders || [];
-    const existingEvents = this.storage.calendar_events || [];
-    
+    if (!this.storage.calendar_events) this.storage.calendar_events = [];
+    const existingEvents = this.storage.calendar_events;
+
     console.log(`📋 Found ${orders.length} orders to sync`);
-    console.log('📋 Orders data:', orders);
-    
-    // Create calendar events for orders with delivery dates
+    const ordersById = new Map(orders.map(o => [o.id, o]));
+
+    // 1) Update or create an event per order with a delivery date
     for (const order of orders) {
       console.log(`🔍 Processing order ${order.id}:`, order);
-      if (order.deliveryDate) {
-        // Ensure delivery date is in ISO format
-        const isoDeliveryDate = toISODate(order.deliveryDate);
-        console.log(`📅 Order ${order.id} has delivery date: ${order.deliveryDate} -> ${isoDeliveryDate}`);
-        
-        const eventTitle = `Récupération: ${order.customerName}`;
-        const eventDescription = this.generateOrderEventDescription(order);
-        
-        // Check if event already exists
-        const existingEvent = existingEvents.find(event => 
-          event.date === isoDeliveryDate && 
-          event.title === eventTitle
-        );
-        
-        if (!existingEvent) {
-          const newEvent = {
-            id: Date.now() + Math.random(),
-            title: eventTitle,
-            date: isoDeliveryDate,
-            type: 'Récupération',
-            product: order.orderType,
-            notes: eventDescription,
-            order_id: order.id,
-            customer_name: order.customerName,
-            customer_phone: order.customerPhone,
-            customer_email: order.customerEmail,
-            total_price: order.totalPrice,
-            created_at: getNowISO()
-          };
-          
-          this.storage.calendar_events.push(newEvent);
-          console.log(`✅ Created calendar event for order ${order.id}:`, newEvent);
-        } else {
-          console.log(`⚠️ Event already exists for order ${order.id}`);
-        }
-      } else {
+      if (!order.deliveryDate) {
         console.log(`❌ Order ${order.id} has no delivery date`);
+        continue;
+      }
+
+      const isoDeliveryDate = toISODate(order.deliveryDate);
+      const eventTitle = `Récupération: ${order.customerName}`;
+      const eventDescription = this.generateOrderEventDescription(order);
+
+      const eventByOrderId = existingEvents.find(e => e.order_id === order.id);
+      if (eventByOrderId) {
+        // Update in place
+        eventByOrderId.title = eventTitle;
+        eventByOrderId.date = isoDeliveryDate;
+        eventByOrderId.type = 'Récupération';
+        eventByOrderId.product = order.orderType;
+        eventByOrderId.notes = eventDescription;
+        eventByOrderId.customer_name = order.customerName;
+        eventByOrderId.customer_phone = order.customerPhone;
+        eventByOrderId.customer_email = order.customerEmail;
+        eventByOrderId.total_price = order.totalPrice;
+        console.log(`♻️ Updated calendar event for order ${order.id}`);
+      } else {
+        const newEvent = {
+          id: Date.now() + Math.random(),
+          title: eventTitle,
+          date: isoDeliveryDate,
+          type: 'Récupération',
+          product: order.orderType,
+          notes: eventDescription,
+          order_id: order.id,
+          customer_name: order.customerName,
+          customer_phone: order.customerPhone,
+          customer_email: order.customerEmail,
+          total_price: order.totalPrice,
+          created_at: getNowISO()
+        };
+        this.storage.calendar_events.push(newEvent);
+        console.log(`✅ Created calendar event for order ${order.id}:`, newEvent);
       }
     }
-    
+
+    // 2) Remove orphaned pickup events (orders deleted or no delivery date)
+    const beforeCleanup = this.storage.calendar_events.length;
+    this.storage.calendar_events = this.storage.calendar_events.filter(ev => {
+      if (ev.type !== 'Récupération') return true;
+      const order = ordersById.get(ev.order_id);
+      return !!(order && order.deliveryDate);
+    });
+    const removed = beforeCleanup - this.storage.calendar_events.length;
+    if (removed > 0) {
+      console.log(`🧹 Removed ${removed} orphaned pickup events`);
+    }
+
+    // 3) Deduplicate by order_id (keep latest)
+    const seen = new Set();
+    this.storage.calendar_events = this.storage.calendar_events.filter(ev => {
+      if (ev.type !== 'Récupération' || !ev.order_id) return true;
+      const key = ev.order_id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events`);
     console.log('📅 All calendar events:', this.storage.calendar_events);
   }
