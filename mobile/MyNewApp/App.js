@@ -9,6 +9,7 @@ import CalendarScreen from './src/screens/CalendarScreen';
 import BookingSystemScreen from './src/screens/BookingSystemScreen';
 import AddOrderScreen from './src/screens/AddOrderScreen';
 import ElevageScreen from './src/screens/ElevageScreen';
+import database from './src/services/database';
 
 const Tab = createBottomTabNavigator();
 
@@ -27,7 +28,8 @@ function OrdersNavigator() {
     setCurrentScreen('BookingSystem');
   };
 
-  const handleSaveOrder = (newOrder, isEditing) => {
+  const handleSaveOrder = async (newOrder, isEditing) => {
+    // Update local UI state first for responsiveness
     if (isEditing) {
       setOrders(prevOrders => 
         prevOrders.map(o => o.id === newOrder.id ? newOrder : o)
@@ -36,6 +38,20 @@ function OrdersNavigator() {
     } else {
       setOrders(prevOrders => [newOrder, ...prevOrders]);
     }
+
+    // Persist to database and sync calendar
+    try {
+      if (isEditing) {
+        await database.updateOrder(newOrder.id, newOrder);
+      } else {
+        await database.addOrder(newOrder);
+      }
+      await database.syncOrdersWithCalendar();
+      console.log('📅 Calendar synced after saving order');
+    } catch (error) {
+      console.error('❌ Failed to persist order or sync calendar:', error);
+    }
+
     navigateToBookingSystem();
   };
 

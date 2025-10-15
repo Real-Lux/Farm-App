@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { toFrenchDate } from '../utils/dateUtils';
+import database from '../services/database';
 
 export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders }) {
   const [orders, setOrders] = useState(externalOrders || []);
@@ -101,6 +102,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     
     // Sync with calendar when orders change
     try {
+      if (isEditing) {
+        await database.updateOrder(newOrder.id, newOrder);
+      } else {
+        await database.addOrder(newOrder);
+      }
       await database.syncOrdersWithCalendar();
       console.log('📅 Calendar synced with updated orders');
     } catch (error) {
