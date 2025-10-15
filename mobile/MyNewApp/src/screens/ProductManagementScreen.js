@@ -276,15 +276,16 @@ const styles = StyleSheet.create({
   },
   headerContent: {
     padding: 10,
-    paddingTop: 10,
+    paddingTop: 20,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
+    marginHorizontal: 20,
   },
   headerButtons: {
     flexDirection: 'row',

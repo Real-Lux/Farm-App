@@ -113,8 +113,26 @@ export default function CalendarScreen() {
             mimeType: 'text/csv',
             dialogTitle: 'Exporter les données du calendrier'
           });
-          Alert.alert('Succès', 'Données du calendrier exportées avec succès!');
         }
+        
+        // Ask if user wants to send via email
+        Alert.alert(
+          'Export réussi',
+          `Fichier calendrier avec commandes exporté avec succès!\n\nVoulez-vous l'envoyer par email à ${emailService.backupEmail}?`,
+          [
+            { text: 'Non', style: 'cancel' },
+            { 
+              text: 'Envoyer par email', 
+              onPress: async () => {
+                try {
+                  await emailService.sendSingleExport('calendrier_commandes', result.fileUri);
+                } catch (emailError) {
+                  console.error('Email error:', emailError);
+                }
+              }
+            }
+          ]
+        );
       } else {
         Alert.alert('Erreur', 'Impossible d\'exporter les données');
       }
@@ -132,19 +150,99 @@ export default function CalendarScreen() {
       setIsExporting(true);
       console.log('💾 Starting full backup...');
       
-      const result = await database.backupDatabase();
+      const filesToSend = [];
+      const tables = ['products', 'orders', 'calendar_events', 'elevage_lots', 'elevage_races', 'elevage_historique'];
       
-      if (result.fileUri) {
+      // Export each table to CSV
+      for (const tableName of tables) {
+        try {
+          console.log(`Attempting to export ${tableName}...`);
+          const exportResult = await database.exportToCSV(tableName);
+          console.log(`Export result for ${tableName}:`, exportResult);
+          
+          if (exportResult.fileUri || exportResult.data) {
+            filesToSend.push({
+              uri: exportResult.fileUri,
+              filename: exportResult.fileName
+            });
+            console.log(`Added ${tableName} to files to send`);
+          }
+        } catch (error) {
+          console.log(`Skipping ${tableName} - error:`, error.message);
+        }
+      }
+      
+      // Create calendar with orders export
+      try {
+        console.log('Creating calendar with orders export...');
+        const calendarResult = await database.exportCalendarWithOrders();
+        console.log('Calendar with orders result:', calendarResult);
+        
+        if (calendarResult.fileUri || calendarResult.data) {
+          filesToSend.push({
+            uri: calendarResult.fileUri,
+            filename: calendarResult.fileName
+          });
+          console.log('Added calendar with orders to files to send');
+        }
+      } catch (error) {
+        console.log('Skipping calendar with orders - no data available');
+      }
+
+      // Create main backup JSON file
+      try {
+        console.log('Creating main backup...');
+        const backupResult = await database.backupDatabase();
+        console.log('Backup result:', backupResult);
+        
+        if (backupResult.fileUri || backupResult.data) {
+          filesToSend.push({
+            uri: backupResult.fileUri,
+            filename: backupResult.fileName
+          });
+          console.log('Added main backup to files to send');
+        }
+      } catch (error) {
+        console.error('Error creating main backup:', error);
+      }
+      
+      console.log(`Total files to send: ${filesToSend.length}`, filesToSend);
+      
+      if (filesToSend.length === 0) {
+        Alert.alert('Erreur', 'Aucune donnée à sauvegarder');
+        return;
+      }
+      
+      // Share the main backup file locally first
+      if (filesToSend.length > 0 && filesToSend[filesToSend.length - 1].uri) {
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(result.fileUri, {
+          await Sharing.shareAsync(filesToSend[filesToSend.length - 1].uri, {
             mimeType: 'application/json',
             dialogTitle: 'Sauvegarde complète de l\'application'
           });
-          Alert.alert('Succès', 'Sauvegarde complète créée avec succès!');
         }
-      } else {
-        Alert.alert('Erreur', 'Impossible de créer la sauvegarde');
       }
+      
+      // Send all files via email
+      Alert.alert(
+        'Sauvegarde prête',
+        `${filesToSend.length} fichier(s) créé(s).\n\nEnvoyer la sauvegarde complète par email à ${emailService.backupEmail}?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { 
+            text: 'Envoyer par email', 
+            onPress: async () => {
+              try {
+                await emailService.sendFullBackup(filesToSend);
+              } catch (emailError) {
+                console.error('Email backup error:', emailError);
+                Alert.alert('Erreur', 'Impossible d\'envoyer l\'email de sauvegarde');
+              }
+            }
+          }
+        ]
+      );
+      
     } catch (error) {
       console.error('Error creating backup:', error);
       Alert.alert('Erreur', 'Erreur lors de la sauvegarde: ' + error.message);
@@ -746,9 +844,9 @@ const styles = StyleSheet.create({
   },
   headerContent: {
     padding: 10,
-    paddingTop: 10,
+    paddingTop: 20,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   headerButtons: {
@@ -759,6 +857,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
+    marginHorizontal: 20,
   },
   refreshButton: {
     backgroundColor: 'rgba(255,255,255,0.15)',

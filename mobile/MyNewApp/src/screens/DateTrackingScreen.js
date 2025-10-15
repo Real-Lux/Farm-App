@@ -381,13 +381,14 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 40,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
+    marginHorizontal: 20,
   },
   addButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',

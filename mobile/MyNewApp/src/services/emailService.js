@@ -1,5 +1,5 @@
 import * as MailComposer from 'expo-mail-composer';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform, Alert } from 'react-native';
 
 class EmailService {

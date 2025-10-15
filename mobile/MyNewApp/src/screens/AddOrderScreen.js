@@ -382,6 +382,7 @@ export default function AddOrderScreen({ navigation, route }) {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
         <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={styles.headerContent}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
@@ -406,6 +407,7 @@ export default function AddOrderScreen({ navigation, route }) {
             {editingOrder ? 'Modifier' : 'Créer'}
           </Text>
         </TouchableOpacity>
+        </View>
       </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
@@ -973,10 +975,16 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B',
-    padding: 15,
     paddingTop: 10,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerContent: {
+    padding: 10,
+    paddingTop: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   backButton: {
@@ -991,9 +999,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: 'white',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 10,
+    marginHorizontal: 20,
   },
   saveButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',

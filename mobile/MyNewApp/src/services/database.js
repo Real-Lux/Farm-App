@@ -1,5 +1,5 @@
 // Simple test database service - no external dependencies
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { toISODate, getTodayISO, getNowISO } from '../utils/dateUtils';
 console.log('🔄 Loading simple database service...');
 
