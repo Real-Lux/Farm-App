@@ -7,15 +7,18 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  Modal
+  Modal,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
 export default function AddOrderScreen({ navigation, route }) {
   const { editingOrder, onSaveOrder } = route.params || {};
+  const insets = useSafeAreaInsets();
   
   const [expandedAnimals, setExpandedAnimals] = useState({ poules: true });
   const [availableStock, setAvailableStock] = useState({});
@@ -375,8 +378,10 @@ export default function AddOrderScreen({ navigation, route }) {
   const isFormValid = orderForm.customerName && orderForm.orderType;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
@@ -402,6 +407,7 @@ export default function AddOrderScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={true}>
         {/* Order Type Dropdown */}
@@ -943,7 +949,8 @@ export default function AddOrderScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -951,6 +958,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
+  },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
   },
   header: {
     backgroundColor: '#005F6B',

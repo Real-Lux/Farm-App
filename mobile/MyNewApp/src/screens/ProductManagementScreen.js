@@ -8,12 +8,15 @@ import {
   TextInput,
   Modal,
   Alert,
-  FlatList
+  FlatList,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import database from '../services/database';
 
 export default function ProductManagementScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [products, setProducts] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -148,99 +151,105 @@ export default function ProductManagementScreen({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📦 Produits</Text>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity 
-            style={styles.elevageButton} 
-            onPress={() => navigation.navigate('ElevageScreen')}
-          >
-            <Text style={styles.elevageButtonText}>🐓 Élevage</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-            <Text style={styles.addButtonText}>+ Ajouter</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <FlatList
-        data={products}
-        renderItem={({ item }) => <ProductItem item={item} />}
-        keyExtractor={item => item.id.toString()}
-        style={styles.productList}
-        showsVerticalScrollIndicator={false}
-      />
-
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
-            </Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Nom du produit"
-              value={productForm.name}
-              onChangeText={(text) => setProductForm({...productForm, name: text})}
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Prix"
-              value={productForm.price}
-              onChangeText={(text) => setProductForm({...productForm, price: text})}
-              keyboardType="decimal-pad"
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Quantité"
-              value={productForm.quantity}
-              onChangeText={(text) => setProductForm({...productForm, quantity: text})}
-              keyboardType="number-pad"
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Unité (kg, têtes, boîtes, etc.)"
-              value={productForm.unit}
-              onChangeText={(text) => setProductForm({...productForm, unit: text})}
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Catégorie"
-              value={productForm.category}
-              onChangeText={(text) => setProductForm({...productForm, category: text})}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={() => setModalVisible(false)}
-              >
-                <Text style={styles.modalBtnText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.saveBtn]}
-                onPress={saveProduct}
-              >
-                <Text style={[styles.modalBtnText, { color: 'white' }]}>
-                  {editingProduct ? 'Modifier' : 'Sauvegarder'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>📦 Produits</Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={styles.elevageButton}
+              onPress={() => navigation.navigate('ElevageScreen')}
+            >
+              <Text style={styles.elevageButtonText}>🐓 Élevage</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+              <Text style={styles.addButtonText}>+ Ajouter</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-    </SafeAreaView>
+      </View>
+      
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+        <FlatList
+          data={products}
+          renderItem={({ item }) => <ProductItem item={item} />}
+          keyExtractor={item => item.id.toString()}
+          style={styles.productList}
+          showsVerticalScrollIndicator={false}
+        />
+
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Nom du produit"
+                value={productForm.name}
+                onChangeText={(text) => setProductForm({...productForm, name: text})}
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Prix"
+                value={productForm.price}
+                onChangeText={(text) => setProductForm({...productForm, price: text})}
+                keyboardType="decimal-pad"
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Quantité"
+                value={productForm.quantity}
+                onChangeText={(text) => setProductForm({...productForm, quantity: text})}
+                keyboardType="number-pad"
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Unité (kg, têtes, boîtes, etc.)"
+                value={productForm.unit}
+                onChangeText={(text) => setProductForm({...productForm, unit: text})}
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Catégorie"
+                value={productForm.category}
+                onChangeText={(text) => setProductForm({...productForm, category: text})}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.cancelBtn]}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalBtnText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.saveBtn]}
+                  onPress={saveProduct}
+                >
+                  <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                    {editingProduct ? 'Modifier' : 'Sauvegarder'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -249,8 +258,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
+    paddingTop: 15,
+  },
+  headerContent: {
     padding: 10,
     paddingTop: 10,
     flexDirection: 'row',

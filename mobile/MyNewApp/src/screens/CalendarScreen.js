@@ -8,16 +8,21 @@ import {
   TextInput,
   Modal,
   Alert,
-  Dimensions
+  Dimensions,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Calendar, CalendarList, Agenda } from 'react-native-calendars';
 import database from '../services/database';
+import csvStorage from '../services/csvStorage';
+import * as Sharing from 'expo-sharing';
 
 const { width } = Dimensions.get('window');
 
 export default function CalendarScreen() {
+  const insets = useSafeAreaInsets();
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState('month'); // month, week, day, year
@@ -30,6 +35,7 @@ export default function CalendarScreen() {
     product: '',
     notes: ''
   });
+  const [isExporting, setIsExporting] = useState(false);
 
   const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Récupération', 'Autre'];
   const eventColors = {
@@ -68,8 +74,11 @@ export default function CalendarScreen() {
       // First sync orders with calendar to ensure all order events are created
       await database.syncOrdersWithCalendar();
       
-      // Then load all events (including order events)
+      // Save calendar events to CSV storage
       const eventsData = await database.getEvents();
+      await csvStorage.syncCalendarEvents(eventsData);
+      
+      // Then load all events (including order events)
       console.log('📅 CalendarScreen: Raw events data:', eventsData);
       setEvents(eventsData);
       console.log(`📅 CalendarScreen: Loaded ${eventsData.length} calendar events`);
@@ -82,6 +91,65 @@ export default function CalendarScreen() {
       console.log('🔍 CalendarScreen: Events for Oct 17, 2025:', oct17Events);
     } catch (error) {
       console.error('Error loading events:', error);
+    }
+  };
+
+  // Export calendar data to CSV
+  const exportCalendarData = async () => {
+    try {
+      setIsExporting(true);
+      console.log('📤 Starting calendar export...');
+      
+      // First sync orders with calendar
+      await database.syncOrdersWithCalendar();
+      
+      // Export calendar with orders to CSV
+      const result = await database.exportCalendarWithOrders();
+      
+      if (result.fileUri) {
+        // For mobile, share the file
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(result.fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: 'Exporter les données du calendrier'
+          });
+          Alert.alert('Succès', 'Données du calendrier exportées avec succès!');
+        }
+      } else {
+        Alert.alert('Erreur', 'Impossible d\'exporter les données');
+      }
+    } catch (error) {
+      console.error('Error exporting calendar:', error);
+      Alert.alert('Erreur', 'Erreur lors de l\'exportation: ' + error.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Backup all data
+  const backupAllData = async () => {
+    try {
+      setIsExporting(true);
+      console.log('💾 Starting full backup...');
+      
+      const result = await database.backupDatabase();
+      
+      if (result.fileUri) {
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(result.fileUri, {
+            mimeType: 'application/json',
+            dialogTitle: 'Sauvegarde complète de l\'application'
+          });
+          Alert.alert('Succès', 'Sauvegarde complète créée avec succès!');
+        }
+      } else {
+        Alert.alert('Erreur', 'Impossible de créer la sauvegarde');
+      }
+    } catch (error) {
+      console.error('Error creating backup:', error);
+      Alert.alert('Erreur', 'Erreur lors de la sauvegarde: ' + error.message);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -200,6 +268,8 @@ export default function CalendarScreen() {
         console.log('Update event:', eventData);
       } else {
         await database.addEvent(eventData);
+        // Also save to CSV storage
+        await csvStorage.addEvent(eventData);
       }
 
       setModalVisible(false);
@@ -446,10 +516,13 @@ export default function CalendarScreen() {
   const monthEvents = getEventsForMonth(selectedDate);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>📅 Événements</Text>
-        <View style={styles.headerButtons}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+        <View style={styles.header}>
+          <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>📅 Événements</Text>
+            <View style={styles.headerButtons}>
           <TouchableOpacity style={styles.refreshButton} onPress={loadEvents}>
             <Text style={styles.refreshButtonText}>🔄</Text>
           </TouchableOpacity>
@@ -463,11 +536,31 @@ export default function CalendarScreen() {
           }}>
             <Text style={styles.syncButtonText}>📅</Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.exportButton, isExporting && styles.exportButtonDisabled]} 
+            onPress={exportCalendarData}
+            disabled={isExporting}
+          >
+            <Text style={styles.exportButtonText}>
+              {isExporting ? '⏳' : '📤'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.backupButton, isExporting && styles.backupButtonDisabled]} 
+            onPress={backupAllData}
+            disabled={isExporting}
+          >
+            <Text style={styles.backupButtonText}>
+              {isExporting ? '⏳' : '💾'}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
             <Text style={styles.addButtonText}>+ Add Event</Text>
           </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
       <ScrollView style={styles.mainScrollView} showsVerticalScrollIndicator={true}>
         <ViewModeSelector />
@@ -622,7 +715,8 @@ export default function CalendarScreen() {
           </ScrollView>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -631,11 +725,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
   mainScrollView: {
     flex: 1,
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
+    paddingTop: 15,
+  },
+  headerContent: {
     padding: 10,
     paddingTop: 10,
     flexDirection: 'row',
@@ -1002,5 +1111,33 @@ const styles = StyleSheet.create({
   weekEventType: {
     fontSize: 12,
     color: '#666',
+  },
+  exportButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  exportButtonDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  exportButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  backupButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  backupButtonDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  backupButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });

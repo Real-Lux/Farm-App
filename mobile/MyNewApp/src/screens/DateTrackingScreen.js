@@ -8,23 +8,26 @@ import {
   TextInput,
   Modal,
   Alert,
-  FlatList
+  FlatList,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function DateTrackingScreen() {
+  const insets = useSafeAreaInsets();
   const [events, setEvents] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [eventForm, setEventForm] = useState({
     title: '',
     date: '',
-    type: 'Planting',
+    type: 'Récupération',
     product: '',
     notes: ''
   });
 
-  const eventTypes = ['Planting', 'Harvest', 'Watering', 'Fertilizing', 'Maintenance', 'Other'];
+  const eventTypes = ['Récupération', 'Préparation', 'Livraison', 'Suivi', 'Rappel', 'Autre'];
 
   useEffect(() => {
     loadEvents();
@@ -35,43 +38,43 @@ export default function DateTrackingScreen() {
     const mockEvents = [
       {
         id: 1,
-        title: 'Plant Tomato Seeds',
-        date: '2024-01-15',
-        type: 'Planting',
-        product: 'Tomatoes',
-        notes: 'Use greenhouse for early start'
+        title: 'Récupération commande Marie Dupont',
+        date: '2024-01-20',
+        type: 'Récupération',
+        product: 'Poules Marans (3 mois)',
+        notes: 'Commande adoption - 2 poules Marans, 3 mois, 2 semaines'
       },
       {
         id: 2,
-        title: 'Harvest Carrots',
-        date: '2024-01-20',
-        type: 'Harvest',
-        product: 'Carrots',
-        notes: '30kg expected yield'
+        title: 'Préparation commande Pierre Martin',
+        date: '2024-01-22',
+        type: 'Préparation',
+        product: 'Œufs de conso (24 unités)',
+        notes: 'Emballer 24 œufs frais pour livraison'
       },
       {
         id: 3,
-        title: 'Water Lettuce Field',
+        title: 'Livraison commande Sophie Bernard',
         date: '2024-01-18',
-        type: 'Watering',
-        product: 'Lettuce',
-        notes: 'Check soil moisture first'
+        type: 'Livraison',
+        product: 'Fromage de chèvre (2 pièces)',
+        notes: 'Livraison à domicile - 2 fromages de chèvre'
       },
       {
         id: 4,
-        title: 'Apple Tree Pruning',
+        title: 'Rappel client - Commande en attente',
         date: '2024-01-25',
-        type: 'Maintenance',
-        product: 'Apples',
-        notes: 'Annual winter pruning'
+        type: 'Rappel',
+        product: 'Commande #123',
+        notes: 'Rappeler client pour confirmer récupération'
       },
       {
         id: 5,
-        title: 'Strawberry Fertilizing',
+        title: 'Suivi commande adoption',
         date: '2024-01-22',
-        type: 'Fertilizing',
-        product: 'Strawberries',
-        notes: 'Organic compost application'
+        type: 'Suivi',
+        product: 'Poules Marans',
+        notes: 'Vérifier adaptation des poules chez le client'
       }
     ];
     setEvents(mockEvents.sort((a, b) => new Date(a.date) - new Date(b.date)));
@@ -82,7 +85,7 @@ export default function DateTrackingScreen() {
     setEventForm({
       title: '',
       date: '',
-      type: 'Planting',
+      type: 'Récupération',
       product: '',
       notes: ''
     });
@@ -103,7 +106,7 @@ export default function DateTrackingScreen() {
 
   const saveEvent = () => {
     if (!eventForm.title || !eventForm.date) {
-      Alert.alert('Error', 'Please fill title and date');
+      Alert.alert('Erreur', 'Veuillez remplir le titre et la date');
       return;
     }
 
@@ -125,16 +128,16 @@ export default function DateTrackingScreen() {
     }
 
     setModalVisible(false);
-    Alert.alert('Success', `Event ${editingEvent ? 'updated' : 'added'} successfully!`);
+    Alert.alert('Succès', `Événement ${editingEvent ? 'modifié' : 'ajouté'} avec succès!`);
   };
 
   const deleteEvent = (id) => {
     Alert.alert(
-      'Delete Event',
-      'Are you sure you want to delete this event?',
+      'Supprimer l\'événement',
+      'Êtes-vous sûr de vouloir supprimer cet événement ?',
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => {
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Supprimer', style: 'destructive', onPress: () => {
           setEvents(events.filter(e => e.id !== id));
         }}
       ]
@@ -143,22 +146,24 @@ export default function DateTrackingScreen() {
 
   const getEventIcon = (type) => {
     switch (type) {
-      case 'Planting': return '🌱';
-      case 'Harvest': return '🌾';
-      case 'Watering': return '💧';
-      case 'Fertilizing': return '🌿';
-      case 'Maintenance': return '🔧';
+      case 'Récupération': return '📦';
+      case 'Préparation': return '👨‍🍳';
+      case 'Livraison': return '🚚';
+      case 'Suivi': return '📞';
+      case 'Rappel': return '⏰';
+      case 'Autre': return '📋';
       default: return '📅';
     }
   };
 
   const getEventColor = (type) => {
     switch (type) {
-      case 'Planting': return '#4CAF50';
-      case 'Harvest': return '#FF9800';
-      case 'Watering': return '#2196F3';
-      case 'Fertilizing': return '#8BC34A';
-      case 'Maintenance': return '#9C27B0';
+      case 'Récupération': return '#4CAF50';
+      case 'Préparation': return '#FF9800';
+      case 'Livraison': return '#2196F3';
+      case 'Suivi': return '#8BC34A';
+      case 'Rappel': return '#9C27B0';
+      case 'Autre': return '#607D8B';
       default: return '#607D8B';
     }
   };
@@ -175,7 +180,7 @@ export default function DateTrackingScreen() {
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString('fr-FR', {
       weekday: 'short',
       month: 'short',
       day: 'numeric'
@@ -218,30 +223,33 @@ export default function DateTrackingScreen() {
           style={[styles.actionBtn, styles.editBtn]}
           onPress={() => openEditModal(item)}
         >
-          <Text style={styles.actionBtnText}>✏️ Edit</Text>
+          <Text style={styles.actionBtnText}>✏️ Modifier</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.actionBtn, styles.deleteBtn]}
           onPress={() => deleteEvent(item.id)}
         >
-          <Text style={styles.actionBtnText}>🗑️ Delete</Text>
+          <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📅 Farm Calendar</Text>
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <Text style={styles.headerTitle}>📅 Suivi des Commandes</Text>
         <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-          <Text style={styles.addButtonText}>+ Add Event</Text>
+          <Text style={styles.addButtonText}>+ Ajouter</Text>
         </TouchableOpacity>
       </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
       <View style={styles.todaySection}>
         <Text style={styles.todayText}>
-          Today: {new Date().toLocaleDateString('en-US', {
+          Aujourd'hui: {new Date().toLocaleDateString('fr-FR', {
             weekday: 'long',
             month: 'long',
             day: 'numeric'
@@ -267,12 +275,12 @@ export default function DateTrackingScreen() {
           <ScrollView contentContainerStyle={styles.modalScrollContainer}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>
-                {editingEvent ? 'Edit Event' : 'Add New Event'}
+                {editingEvent ? 'Modifier l\'événement' : 'Ajouter un événement'}
               </Text>
 
               <TextInput
                 style={styles.input}
-                placeholder="Event Title"
+                placeholder="Titre de l'événement"
                 value={eventForm.title}
                 onChangeText={(text) => setEventForm({...eventForm, title: text})}
               />
@@ -285,7 +293,7 @@ export default function DateTrackingScreen() {
               />
 
               <View style={styles.typeSelector}>
-                <Text style={styles.typeSelectorLabel}>Event Type:</Text>
+                <Text style={styles.typeSelectorLabel}>Type d'événement:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.typeOptions}>
                     {eventTypes.map((type) => (
@@ -312,14 +320,14 @@ export default function DateTrackingScreen() {
 
               <TextInput
                 style={styles.input}
-                placeholder="Product/Crop (optional)"
+                placeholder="Produit/Commande (optionnel)"
                 value={eventForm.product}
                 onChangeText={(text) => setEventForm({...eventForm, product: text})}
               />
 
               <TextInput
                 style={[styles.input, styles.notesInput]}
-                placeholder="Notes (optional)"
+                placeholder="Notes (optionnel)"
                 value={eventForm.notes}
                 onChangeText={(text) => setEventForm({...eventForm, notes: text})}
                 multiline={true}
@@ -331,14 +339,14 @@ export default function DateTrackingScreen() {
                   style={[styles.modalBtn, styles.cancelBtn]}
                   onPress={() => setModalVisible(false)}
                 >
-                  <Text style={styles.modalBtnText}>Cancel</Text>
+                  <Text style={styles.modalBtnText}>Annuler</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveEvent}
                 >
                   <Text style={[styles.modalBtnText, { color: 'white' }]}>
-                    {editingEvent ? 'Update' : 'Save'}
+                    {editingEvent ? 'Modifier' : 'Sauvegarder'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -346,7 +354,8 @@ export default function DateTrackingScreen() {
           </ScrollView>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -354,6 +363,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
   },
   header: {
     backgroundColor: '#4CAF50',

@@ -8,14 +8,17 @@ import {
   TextInput,
   Modal,
   Alert,
-  FlatList
+  FlatList,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
 export default function ElevageScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [lots, setLots] = useState([]);
   const [races, setRaces] = useState([]);
   const [historique, setHistorique] = useState([]);
@@ -449,17 +452,21 @@ export default function ElevageScreen({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backButtonText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>🐓 Gestion d'Élevage</Text>
-        <View style={styles.headerStats}>
-          <Text style={styles.headerStatsText}>{getTotalAnimals()} animaux</Text>
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={styles.headerContent}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>🐓 Gestion d'Élevage</Text>
+          <View style={styles.headerStats}>
+            <Text style={styles.headerStatsText}>{getTotalAnimals()} animaux</Text>
+          </View>
         </View>
       </View>
 
@@ -497,8 +504,9 @@ export default function ElevageScreen({ navigation }) {
           </Text>
         </TouchableOpacity>
       </View>
-
-      <View style={styles.content}>
+      
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+        <View style={styles.content}>
         {activeTab === 'lots' && (
           <>
             <View style={styles.actionBar}>
@@ -687,9 +695,9 @@ export default function ElevageScreen({ navigation }) {
             </View>
           </ScrollView>
         )}
-      </View>
+        </View>
 
-      {/* Modal pour ajout/modification */}
+        {/* Modal pour ajout/modification */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -1032,16 +1040,32 @@ export default function ElevageScreen({ navigation }) {
           </View>
         </Modal>
       </SafeAreaView>
-    );
-  }
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
   header: {
     backgroundColor: '#005F6B',
+    paddingTop: 15,
+  },
+  headerContent: {
     padding: 15,
     paddingTop: 10,
     flexDirection: 'row',

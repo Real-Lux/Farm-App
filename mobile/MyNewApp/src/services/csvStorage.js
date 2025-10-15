@@ -232,6 +232,9 @@ class CSVStorageService {
     const newEvent = {
       id: Date.now(),
       ...event,
+      // Ensure date is in proper format
+      date: event.date || event.event_date,
+      event_date: event.date || event.event_date,
       created_at: new Date().toISOString()
     };
     
@@ -242,6 +245,13 @@ class CSVStorageService {
 
   async getEvents() {
     return this.storage.calendar_events;
+  }
+
+  async syncCalendarEvents(events) {
+    console.log('🔄 Syncing calendar events to CSV storage...');
+    this.storage.calendar_events = events || [];
+    await this.saveToCSV('calendar_events');
+    console.log(`✅ Synced ${this.storage.calendar_events.length} calendar events to CSV`);
   }
 
   // ========== EXPORT/IMPORT ==========

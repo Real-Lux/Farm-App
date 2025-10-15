@@ -6,12 +6,15 @@ import {
   ScrollView, 
   TouchableOpacity,
   Alert,
-  FlatList
+  FlatList,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { toFrenchDate } from '../utils/dateUtils';
 
 export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders }) {
+  const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState(externalOrders || []);
   const [activeFilters, setActiveFilters] = useState([]); // Track active status filters
 
@@ -284,13 +287,18 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const filteredOrders = getFilteredOrders();
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Commandes</Text>
-        <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-          <Text style={styles.addButtonText}>+ Nouvelle Commande</Text>
-        </TouchableOpacity>
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>Commandes</Text>
+          <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+            <Text style={styles.addButtonText}>+ Nouvelle Commande</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtersContainer}>
         <View style={styles.filtersRow}>
@@ -368,7 +376,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         )}
       />
 
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -377,8 +386,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
   header: {
     backgroundColor: '#005F6B',
+    paddingTop: 15,
+  },
+  headerContent: {
     padding: 10,
     paddingTop: 10,
     flexDirection: 'row',

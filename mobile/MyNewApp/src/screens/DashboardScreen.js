@@ -6,14 +6,17 @@ import {
   ScrollView, 
   TouchableOpacity,
   RefreshControl,
-  Alert 
+  Alert,
+  StatusBar,
+  Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import database from '../services/database';
 import emailService from '../services/emailService';
 import * as Sharing from 'expo-sharing';
 
 export default function DashboardScreen() {
+  const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     totalProducts: 0,
@@ -262,23 +265,28 @@ export default function DashboardScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <View style={styles.header}>
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>🐓 La Ferme Aux oeufs bleus</Text>
+          <Text style={styles.headerDate}>
+            {new Date().toLocaleDateString('fr-FR', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric'
+            })}
+          </Text>
+        </View>
+      </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
       <ScrollView 
         style={styles.scrollView}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>🐓 La Ferme Aux oeufs bleus</Text>
-        <Text style={styles.headerDate}>
-          {new Date().toLocaleDateString('fr-FR', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric'
-          })}
-        </Text>
-      </View>
 
       <View style={styles.statsGrid}>
         <StatCard 
@@ -388,7 +396,8 @@ export default function DashboardScreen() {
         </View>
       </View>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -397,11 +406,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
+  statusBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
+    paddingHorizontal: 10, // Add horizontal padding
+    paddingVertical: 10,
+    zIndex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
+    paddingTop: 15,
+  },
+  headerContent: {
     padding: 10,
     paddingTop: 10,
   },
