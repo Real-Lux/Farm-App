@@ -29,12 +29,22 @@ export default function AddOrderScreen({ navigation, route }) {
   const [lotSelections, setLotSelections] = useState({}); // Track lot selections per race
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
+  const [raceConfigModal, setRaceConfigModal] = useState(false);
+  const [selectedAnimalForConfig, setSelectedAnimalForConfig] = useState(null);
+  const [currentRaceConfig, setCurrentRaceConfig] = useState({
+    race: '',
+    ageMonths: '',
+    ageWeeks: '',
+    sexPreference: 'any',
+    quantity: 1,
+    selectedLot: null
+  });
   const [orderForm, setOrderForm] = useState(editingOrder ? {
     orderType: editingOrder.orderType || 'Adoption',
     selectedAnimals: editingOrder.selectedAnimals || ['poules'],
     animalDetails: editingOrder.animalDetails || {
       poules: {
-        races: { 'Marans': 1 },
+        races: [],
         characteristics: [],
         colors: {},
         genders: {}
@@ -56,7 +66,7 @@ export default function AddOrderScreen({ navigation, route }) {
     selectedAnimals: ['poules'],
     animalDetails: {
       poules: {
-        races: { 'Marans': 1 },
+        races: [],
         characteristics: [],
         colors: {},
         genders: {}
@@ -204,7 +214,7 @@ export default function AddOrderScreen({ navigation, route }) {
       newDetails = { 
         ...orderForm.animalDetails, 
         [animal]: {
-          races: { [racesByAnimal[animal][0]]: 1 },
+          races: [], // Start with empty races array
           characteristics: [],
           colors: {},
           genders: {}
@@ -230,8 +240,8 @@ export default function AddOrderScreen({ navigation, route }) {
 
   const getAnimalTotalQuantity = (animal) => {
     if (!orderForm.animalDetails[animal]?.races) return 0;
-    return Object.values(orderForm.animalDetails[animal].races)
-      .reduce((total, quantity) => total + (parseInt(quantity) || 0), 0);
+    return orderForm.animalDetails[animal].races
+      .reduce((total, raceConfig) => total + (parseInt(raceConfig.quantity) || 0), 0);
   };
 
   const updateRaceQuantity = (animal, race, quantity) => {
@@ -345,6 +355,101 @@ export default function AddOrderScreen({ navigation, route }) {
     return lot ? { ...lot, selectedQuantity: selection.quantity } : null;
   };
 
+  // New functions for enhanced race configuration
+  const openRaceConfigModal = (animal) => {
+    setSelectedAnimalForConfig(animal);
+    setCurrentRaceConfig({
+      race: '',
+      ageMonths: '',
+      ageWeeks: '',
+      sexPreference: 'any',
+      quantity: 1,
+      selectedLot: null
+    });
+    setRaceConfigModal(true);
+  };
+
+  const getSuggestedLotsForAge = (race, ageMonths, ageWeeks, deliveryDate) => {
+    const stockInfo = availableStock[race];
+    if (!stockInfo || stockInfo.lots.length === 0) return [];
+    
+    const totalAgeInMonths = parseFloat(ageMonths || 0) + (parseFloat(ageWeeks || 0) / 4.33);
+    const targetDate = deliveryDate || getTodayISO();
+    
+    return stockInfo.lots
+      .map(lot => {
+        const ageAtDelivery = calculateAgeInMonths(lot.date_creation, targetDate);
+        const ageDifference = Math.abs(ageAtDelivery - totalAgeInMonths);
+        return {
+          ...lot,
+          ageAtDelivery,
+          ageDifference,
+          isOptimal: ageDifference <= 0.5 // Optimal if difference is less than 2 weeks
+        };
+      })
+      .sort((a, b) => a.ageDifference - b.ageDifference);
+  };
+
+  const saveRaceConfiguration = () => {
+    if (!currentRaceConfig.race || !currentRaceConfig.quantity) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une race et une quantité');
+      return;
+    }
+
+    const animal = selectedAnimalForConfig;
+    const newRaceConfig = {
+      ...currentRaceConfig,
+      id: Date.now() // Unique ID for this race configuration
+    };
+
+    const newDetails = {
+      ...orderForm.animalDetails,
+      [animal]: {
+        ...orderForm.animalDetails[animal],
+        races: [...(orderForm.animalDetails[animal]?.races || []), newRaceConfig]
+      }
+    };
+
+    setOrderForm({
+      ...orderForm,
+      animalDetails: newDetails
+    });
+
+    setRaceConfigModal(false);
+  };
+
+  const removeRaceConfiguration = (animal, raceConfigId) => {
+    const newDetails = {
+      ...orderForm.animalDetails,
+      [animal]: {
+        ...orderForm.animalDetails[animal],
+        races: orderForm.animalDetails[animal].races.filter(config => config.id !== raceConfigId)
+      }
+    };
+
+    setOrderForm({
+      ...orderForm,
+      animalDetails: newDetails
+    });
+  };
+
+  const updateRaceConfigQuantity = (animal, raceConfigId, newQuantity) => {
+    const newDetails = {
+      ...orderForm.animalDetails,
+      [animal]: {
+        ...orderForm.animalDetails[animal],
+        races: orderForm.animalDetails[animal].races.map(config => 
+          config.id === raceConfigId ? { ...config, quantity: newQuantity } : config
+        )
+      }
+    };
+
+    setOrderForm({
+      ...orderForm,
+      animalDetails: newDetails
+    });
+  };
+
   const saveOrder = () => {
     if (!orderForm.customerName) {
       Alert.alert('Erreur', 'Veuillez remplir le nom du client');
@@ -372,7 +477,6 @@ export default function AddOrderScreen({ navigation, route }) {
 
     onSaveOrder(newOrder, !!editingOrder);
     navigation.goBack();
-    Alert.alert('Succès', `Commande ${editingOrder ? 'mise à jour' : 'créée'} avec succès!`);
   };
 
   const isFormValid = orderForm.customerName && orderForm.orderType;
@@ -501,33 +605,57 @@ export default function AddOrderScreen({ navigation, route }) {
                 {/* Expandable content */}
                 {expandedAnimals[animal] && (
                   <>
-                    {/* Races for this animal - directly under animal title */}
-                    {racesByAnimal[animal]?.map((race) => (
-                      <View key={race} style={styles.raceContainer}>
-                        <View style={styles.raceInfo}>
-                          <Text style={styles.raceName}>{race}:</Text>
-                          <View style={styles.stockInfo}>
-                            <Text style={[styles.stockStatus, { color: getStockStatusColor(race) }]}>
-                              {getStockStatusText(race)}
-                            </Text>
-                            {getLotInfo(race) && !getSelectedLotInfo(animal, race) && (
-                              <Text style={styles.lotInfo}>{getLotInfo(race)}</Text>
-                            )}
-                            {getSelectedLotInfo(animal, race) && (
-                              <Text style={styles.selectedLotInfo}>
-                                📦 {getSelectedLotInfo(animal, race).lot_name} 
-                                ({getSelectedLotInfo(animal, race).ageAtDelivery || 'N/A'} mois)
-                              </Text>
-                            )}
-                          </View>
+                    {/* Add Race Configuration Button */}
+                    <TouchableOpacity 
+                      style={styles.addRaceButton}
+                      onPress={() => openRaceConfigModal(animal)}
+                    >
+                      <Text style={styles.addRaceButtonText}>
+                        ➕ Ajouter une race
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Display configured races */}
+                    {orderForm.animalDetails[animal]?.races?.map((raceConfig) => (
+                      <View key={raceConfig.id} style={styles.raceConfigContainer}>
+                        <View style={styles.raceConfigHeader}>
+                          <Text style={styles.raceConfigTitle}>
+                            {raceConfig.race} - {raceConfig.quantity} unités
+                          </Text>
+                          <TouchableOpacity 
+                            style={styles.removeRaceButton}
+                            onPress={() => removeRaceConfiguration(animal, raceConfig.id)}
+                          >
+                            <Text style={styles.removeRaceButtonText}>✕</Text>
+                          </TouchableOpacity>
                         </View>
+                        
+                        <View style={styles.raceConfigDetails}>
+                          <Text style={styles.raceConfigDetail}>
+                            📅 Âge: {raceConfig.ageMonths || 0} mois {raceConfig.ageWeeks || 0} semaines
+                          </Text>
+                          <Text style={styles.raceConfigDetail}>
+                            ⚧️ Sexe: {
+                              raceConfig.sexPreference === 'male' ? 'Mâles' :
+                              raceConfig.sexPreference === 'female' ? 'Femelles' : 'Peu importe'
+                            }
+                          </Text>
+                          {raceConfig.selectedLot && (
+                            <Text style={styles.raceConfigDetail}>
+                              📦 Lot: {raceConfig.selectedLot.lot_name} 
+                              ({raceConfig.selectedLot.ageAtDelivery?.toFixed(1)} mois)
+                            </Text>
+                          )}
+                        </View>
+
+                        {/* Quantity controls */}
                         <View style={styles.quantityControlsContainer}>
                           <TouchableOpacity 
                             style={styles.quantityButton}
                             onPress={() => {
-                              const current = parseInt(orderForm.animalDetails[animal]?.races[race]) || 0;
-                              if (current > 0) {
-                                updateRaceQuantity(animal, race, (current - 1).toString());
+                              const current = parseInt(raceConfig.quantity) || 1;
+                              if (current > 1) {
+                                updateRaceConfigQuantity(animal, raceConfig.id, current - 1);
                               }
                             }}
                           >
@@ -535,31 +663,20 @@ export default function AddOrderScreen({ navigation, route }) {
                           </TouchableOpacity>
                           <TextInput
                             style={[styles.input, styles.quantityInputWithControls]}
-                            placeholder="0"
-                            value={orderForm.animalDetails[animal]?.races[race]?.toString() || '0'}
-                            onChangeText={(text) => updateRaceQuantity(animal, race, text)}
+                            value={raceConfig.quantity.toString()}
+                            onChangeText={(text) => updateRaceConfigQuantity(animal, raceConfig.id, parseInt(text) || 1)}
                             keyboardType="number-pad"
                           />
                           <TouchableOpacity 
                             style={styles.quantityButton}
                             onPress={() => {
-                              const current = parseInt(orderForm.animalDetails[animal]?.races[race]) || 0;
-                              updateRaceQuantity(animal, race, (current + 1).toString());
+                              const current = parseInt(raceConfig.quantity) || 1;
+                              updateRaceConfigQuantity(animal, raceConfig.id, current + 1);
                             }}
                           >
                             <Text style={styles.quantityButtonText}>+</Text>
                           </TouchableOpacity>
                         </View>
-                        {parseInt(orderForm.animalDetails[animal]?.races[race]) > 0 && (
-                          <TouchableOpacity 
-                            style={styles.lotSelectionButton}
-                            onPress={() => openLotSelection(animal, race)}
-                          >
-                            <Text style={styles.lotSelectionButtonText}>
-                              🎯 Choisir lot
-                            </Text>
-                          </TouchableOpacity>
-                        )}
                       </View>
                     ))}
                   </>
@@ -567,107 +684,6 @@ export default function AddOrderScreen({ navigation, route }) {
               </View>
             ))}
 
-            {/* Age */}
-            <View style={styles.ageContainer}>
-              <Text style={styles.dropdownLabel}>Âge souhaité</Text>
-              <View style={styles.ageInputs}>
-                <View style={styles.ageInputContainer}>
-                  <Text style={styles.ageLabel}>Mois:</Text>
-                  <View style={styles.quantityControlsContainer}>
-                    <TouchableOpacity 
-                      style={styles.quantityButton}
-                      onPress={() => {
-                        const current = parseInt(orderForm.ageMonths) || 0;
-                        if (current > 0) {
-                          setOrderForm({...orderForm, ageMonths: (current - 1).toString()});
-                        }
-                      }}
-                    >
-                      <Text style={styles.quantityButtonText}>-</Text>
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.input, styles.ageInputWithControls]}
-                      placeholder="0"
-                      value={orderForm.ageMonths}
-                      onChangeText={(text) => setOrderForm({...orderForm, ageMonths: text})}
-                      keyboardType="number-pad"
-                    />
-                    <TouchableOpacity 
-                      style={styles.quantityButton}
-                      onPress={() => {
-                        const current = parseInt(orderForm.ageMonths) || 0;
-                        setOrderForm({...orderForm, ageMonths: (current + 1).toString()});
-                      }}
-                    >
-                      <Text style={styles.quantityButtonText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <View style={styles.ageInputContainer}>
-                  <Text style={styles.ageLabel}>Semaines:</Text>
-                  <View style={styles.quantityControlsContainer}>
-                    <TouchableOpacity 
-                      style={styles.quantityButton}
-                      onPress={() => {
-                        const current = parseInt(orderForm.ageWeeks) || 0;
-                        if (current > 0) {
-                          setOrderForm({...orderForm, ageWeeks: (current - 1).toString()});
-                        }
-                      }}
-                    >
-                      <Text style={styles.quantityButtonText}>-</Text>
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.input, styles.ageInputWithControls]}
-                      placeholder="0"
-                      value={orderForm.ageWeeks}
-                      onChangeText={(text) => setOrderForm({...orderForm, ageWeeks: text})}
-                      keyboardType="number-pad"
-                    />
-                    <TouchableOpacity 
-                      style={styles.quantityButton}
-                      onPress={() => {
-                        const current = parseInt(orderForm.ageWeeks) || 0;
-                        setOrderForm({...orderForm, ageWeeks: (current + 1).toString()});
-                      }}
-                    >
-                      <Text style={styles.quantityButtonText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* Sex Preference */}
-            <View style={styles.dropdownContainer}>
-              <Text style={styles.dropdownLabel}>Préférence de sexe</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.dropdownOptions}>
-                  {[
-                    { key: 'any', label: 'Peu importe', icon: '🐓' },
-                    { key: 'male', label: 'Mâles', icon: '♂️' },
-                    { key: 'female', label: 'Femelles', icon: '♀️' },
-                    { key: 'unsexed', label: 'Non-sexés', icon: '❓' }
-                  ].map((option) => (
-                    <TouchableOpacity
-                      key={option.key}
-                      style={[
-                        styles.dropdownOption,
-                        { backgroundColor: (orderForm.sexPreference || 'any') === option.key ? '#005F6B' : '#f0f0f0' }
-                      ]}
-                      onPress={() => setOrderForm({...orderForm, sexPreference: option.key})}
-                    >
-                      <Text style={[
-                        styles.dropdownOptionText,
-                        (orderForm.sexPreference || 'any') === option.key && { color: 'white' }
-                      ]}>
-                        {option.icon} {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
           </>
         )}
 
@@ -948,6 +964,248 @@ export default function AddOrderScreen({ navigation, route }) {
             >
               <Text style={styles.calendarCancelBtnText}>Annuler</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Race Configuration Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={raceConfigModal}
+        onRequestClose={() => setRaceConfigModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.raceConfigModalContent}>
+            <View style={styles.modalTitleContainer}>
+              <Text style={styles.modalTitle}>
+                Configuration de race - {selectedAnimalForConfig}
+              </Text>
+            </View>
+
+            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={true}>
+              {/* Race Selection */}
+              <View style={styles.raceSelectionContainer}>
+                <Text style={styles.raceSelectionLabel}>Race *</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.raceOptions}>
+                    {racesByAnimal[selectedAnimalForConfig]?.map((race) => (
+                      <TouchableOpacity
+                        key={race}
+                        style={[
+                          styles.raceOption,
+                          { backgroundColor: currentRaceConfig.race === race ? '#005F6B' : '#f0f0f0' }
+                        ]}
+                        onPress={() => setCurrentRaceConfig({...currentRaceConfig, race})}
+                      >
+                        <Text style={[
+                          styles.raceOptionText,
+                          currentRaceConfig.race === race && { color: 'white' }
+                        ]}>
+                          {race}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Age Selection */}
+              <View style={styles.ageSelectionContainer}>
+                <Text style={styles.ageSelectionLabel}>Âge souhaité</Text>
+                <View style={styles.ageInputsRow}>
+                  <View style={styles.ageInputGroup}>
+                    <Text style={styles.ageLabel}>Mois</Text>
+                    <View style={styles.compactQuantityControls}>
+                      <TouchableOpacity 
+                        style={styles.compactQuantityButton}
+                        onPress={() => {
+                          const current = parseInt(currentRaceConfig.ageMonths) || 0;
+                          if (current > 0) {
+                            setCurrentRaceConfig({...currentRaceConfig, ageMonths: (current - 1).toString()});
+                          }
+                        }}
+                      >
+                        <Text style={styles.compactQuantityButtonText}>-</Text>
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.compactInput}
+                        placeholder="0"
+                        value={currentRaceConfig.ageMonths}
+                        onChangeText={(text) => setCurrentRaceConfig({...currentRaceConfig, ageMonths: text})}
+                        keyboardType="number-pad"
+                      />
+                      <TouchableOpacity 
+                        style={styles.compactQuantityButton}
+                        onPress={() => {
+                          const current = parseInt(currentRaceConfig.ageMonths) || 0;
+                          setCurrentRaceConfig({...currentRaceConfig, ageMonths: (current + 1).toString()});
+                        }}
+                      >
+                        <Text style={styles.compactQuantityButtonText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.ageInputGroup}>
+                    <Text style={styles.ageLabel}>Semaines</Text>
+                    <View style={styles.compactQuantityControls}>
+                      <TouchableOpacity 
+                        style={styles.compactQuantityButton}
+                        onPress={() => {
+                          const current = parseInt(currentRaceConfig.ageWeeks) || 0;
+                          if (current > 0) {
+                            setCurrentRaceConfig({...currentRaceConfig, ageWeeks: (current - 1).toString()});
+                          }
+                        }}
+                      >
+                        <Text style={styles.compactQuantityButtonText}>-</Text>
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.compactInput}
+                        placeholder="0"
+                        value={currentRaceConfig.ageWeeks}
+                        onChangeText={(text) => setCurrentRaceConfig({...currentRaceConfig, ageWeeks: text})}
+                        keyboardType="number-pad"
+                      />
+                      <TouchableOpacity 
+                        style={styles.compactQuantityButton}
+                        onPress={() => {
+                          const current = parseInt(currentRaceConfig.ageWeeks) || 0;
+                          setCurrentRaceConfig({...currentRaceConfig, ageWeeks: (current + 1).toString()});
+                        }}
+                      >
+                        <Text style={styles.compactQuantityButtonText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Sex Preference */}
+              <View style={styles.sexSelectionContainer}>
+                <Text style={styles.sexSelectionLabel}>Préférence de sexe</Text>
+                <View style={styles.sexOptions}>
+                  {[
+                    { key: 'any', label: 'Peu importe', icon: '🐓' },
+                    { key: 'male', label: 'Mâles', icon: '♂️' },
+                    { key: 'female', label: 'Femelles', icon: '♀️' }
+                  ].map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.sexOption,
+                        { backgroundColor: currentRaceConfig.sexPreference === option.key ? '#005F6B' : '#f0f0f0' }
+                      ]}
+                      onPress={() => setCurrentRaceConfig({...currentRaceConfig, sexPreference: option.key})}
+                    >
+                      <Text style={[
+                        styles.sexOptionText,
+                        currentRaceConfig.sexPreference === option.key && { color: 'white' }
+                      ]}>
+                        {option.icon} {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Quantity */}
+              <View style={styles.quantitySelectionContainer}>
+                <Text style={styles.quantitySelectionLabel}>Quantité</Text>
+                <View style={styles.compactQuantityControls}>
+                  <TouchableOpacity 
+                    style={styles.compactQuantityButton}
+                    onPress={() => {
+                      const current = parseInt(currentRaceConfig.quantity) || 1;
+                      if (current > 1) {
+                        setCurrentRaceConfig({...currentRaceConfig, quantity: current - 1});
+                      }
+                    }}
+                  >
+                    <Text style={styles.compactQuantityButtonText}>-</Text>
+                  </TouchableOpacity>
+                  <TextInput
+                    style={styles.compactInput}
+                    value={currentRaceConfig.quantity.toString()}
+                    onChangeText={(text) => setCurrentRaceConfig({...currentRaceConfig, quantity: parseInt(text) || 1})}
+                    keyboardType="number-pad"
+                  />
+                  <TouchableOpacity 
+                    style={styles.compactQuantityButton}
+                    onPress={() => {
+                      const current = parseInt(currentRaceConfig.quantity) || 1;
+                      setCurrentRaceConfig({...currentRaceConfig, quantity: current + 1});
+                    }}
+                  >
+                    <Text style={styles.compactQuantityButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Suggested Lots */}
+              {currentRaceConfig.race && (currentRaceConfig.ageMonths || currentRaceConfig.ageWeeks) && (
+                <View style={styles.suggestedLotsContainer}>
+                  <Text style={styles.suggestedLotsLabel}>Lots suggérés:</Text>
+                  <View style={styles.suggestedLotsList}>
+                    {getSuggestedLotsForAge(
+                      currentRaceConfig.race, 
+                      currentRaceConfig.ageMonths, 
+                      currentRaceConfig.ageWeeks, 
+                      orderForm.deliveryDate
+                    ).slice(0, 3).map((lot) => (
+                      <TouchableOpacity
+                        key={lot.lot_id}
+                        style={[
+                          styles.suggestedLotOption,
+                          lot.isOptimal && styles.suggestedLotOptionOptimal,
+                          currentRaceConfig.selectedLot?.lot_id === lot.lot_id && styles.suggestedLotOptionSelected
+                        ]}
+                        onPress={() => setCurrentRaceConfig({...currentRaceConfig, selectedLot: lot})}
+                      >
+                        <View style={styles.suggestedLotHeader}>
+                          <Text style={styles.suggestedLotName}>
+                            {lot.isOptimal ? '⭐ ' : ''}{lot.lot_name}
+                          </Text>
+                          <Text style={[
+                            styles.suggestedLotAge,
+                            { color: lot.isOptimal ? '#4CAF50' : '#666' }
+                          ]}>
+                            {lot.ageAtDelivery.toFixed(1)} mois
+                          </Text>
+                        </View>
+                        <Text style={styles.suggestedLotDetails}>
+                          📦 {lot.available} disponibles
+                        </Text>
+                        <Text style={styles.suggestedLotDetails}>
+                          🎯 Différence: {lot.ageDifference.toFixed(1)} mois
+                        </Text>
+                        {lot.isOptimal && (
+                          <Text style={styles.optimalBadge}>
+                            ✅ Âge optimal
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Modal Actions - Always visible at bottom */}
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.cancelBtn]}
+                onPress={() => setRaceConfigModal(false)}
+              >
+                <Text style={styles.modalBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.saveBtn]}
+                onPress={saveRaceConfiguration}
+              >
+                <Text style={[styles.modalBtnText, { color: 'white' }]}>Ajouter</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1232,7 +1490,10 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 15,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    backgroundColor: 'white',
   },
   modalBtn: {
     paddingVertical: 10,
@@ -1283,10 +1544,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
   },
   ageLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#666',
-    marginBottom: 8,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   ageInputWithControls: {
     marginBottom: 0,
@@ -1412,5 +1674,234 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     fontWeight: '600',
+  },
+  // New styles for enhanced race configuration
+  addRaceButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  addRaceButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  raceConfigContainer: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  raceConfigHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  raceConfigTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  removeRaceButton: {
+    backgroundColor: '#F44336',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeRaceButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  raceConfigDetails: {
+    marginBottom: 8,
+  },
+  raceConfigDetail: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  raceConfigModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '95%',
+    height: '85%',
+    flexDirection: 'column',
+  },
+  modalTitleContainer: {
+    padding: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalScrollView: {
+    flex: 1,
+    padding: 16,
+    paddingBottom: 0,
+  },
+  raceSelectionContainer: {
+    marginBottom: 16,
+  },
+  raceSelectionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  raceOptions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  raceOption: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+  },
+  raceOptionText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  ageSelectionContainer: {
+    marginBottom: 16,
+  },
+  ageSelectionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  ageInputsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  ageInputGroup: {
+    flex: 1,
+  },
+  sexSelectionContainer: {
+    marginBottom: 16,
+  },
+  sexSelectionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  sexOptions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  sexOption: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  sexOptionText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  quantitySelectionContainer: {
+    marginBottom: 16,
+  },
+  quantitySelectionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  suggestedLotsContainer: {
+    marginBottom: 16,
+  },
+  suggestedLotsLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+  },
+  suggestedLotsList: {
+    // Remove maxHeight to allow natural flow within scrollable modal
+  },
+  suggestedLotOption: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  suggestedLotOptionOptimal: {
+    backgroundColor: '#f0f8f0',
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+  },
+  suggestedLotOptionSelected: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#2196F3',
+    borderWidth: 2,
+  },
+  suggestedLotHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  suggestedLotName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  suggestedLotAge: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  suggestedLotDetails: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 2,
+  },
+  saveBtn: {
+    backgroundColor: '#4CAF50',
+  },
+  // Compact styles for better modal ergonomics
+  compactQuantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  compactQuantityButton: {
+    backgroundColor: '#005F6B',
+    borderRadius: 4,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  compactQuantityButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  compactInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    padding: 6,
+    fontSize: 14,
+    backgroundColor: 'white',
+    textAlign: 'center',
+    minWidth: 40,
+    maxWidth: 60,
   },
 });

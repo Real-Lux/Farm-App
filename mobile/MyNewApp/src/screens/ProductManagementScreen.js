@@ -89,7 +89,6 @@ export default function ProductManagementScreen({ navigation }) {
 
       setModalVisible(false);
       loadProducts(); // Reload the list
-      Alert.alert('Succès', `Produit ${editingProduct ? 'mis à jour' : 'ajouté'} avec succès!`);
     } catch (error) {
       console.error('Error saving product:', error);
       Alert.alert('Erreur', `Impossible de ${editingProduct ? 'mettre à jour' : 'ajouter'} le produit`);
@@ -106,7 +105,6 @@ export default function ProductManagementScreen({ navigation }) {
           try {
             await database.deleteProduct(id);
             loadProducts(); // Reload the list
-            Alert.alert('Succès', 'Produit supprimé avec succès!');
           } catch (error) {
             console.error('Error deleting product:', error);
             Alert.alert('Erreur', 'Impossible de supprimer le produit');
@@ -278,14 +276,15 @@ const styles = StyleSheet.create({
     padding: 10,
     paddingTop: 20,
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 15,
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
-    marginHorizontal: 20,
+    flex: 1,
   },
   headerButtons: {
     flexDirection: 'row',

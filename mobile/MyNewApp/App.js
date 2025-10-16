@@ -13,10 +13,22 @@ import ElevageScreen from './src/screens/ElevageScreen';
 const Tab = createBottomTabNavigator();
 
 // Create a navigator component that handles both order screens
-function OrdersNavigator() {
+function OrdersNavigator({ route }) {
   const [currentScreen, setCurrentScreen] = useState('BookingSystem');
   const [editingOrder, setEditingOrder] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [highlightOrderId, setHighlightOrderId] = useState(null);
+  const [customerName, setCustomerName] = useState(null);
+
+  // Handle navigation parameters from other tabs
+  React.useEffect(() => {
+    if (route?.params) {
+      if (route.params.highlightOrderId) {
+        setHighlightOrderId(route.params.highlightOrderId);
+        setCustomerName(route.params.customerName);
+      }
+    }
+  }, [route?.params]);
 
   const navigateToAddOrder = (order = null) => {
     setEditingOrder(order);
@@ -69,6 +81,8 @@ function OrdersNavigator() {
       navigation={mockNavigation}
       orders={orders}
       setOrders={setOrders}
+      highlightOrderId={highlightOrderId}
+      customerName={customerName}
     />
   );
 }

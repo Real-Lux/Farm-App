@@ -21,7 +21,7 @@ import * as Sharing from 'expo-sharing';
 
 const { width } = Dimensions.get('window');
 
-export default function CalendarScreen() {
+export default function CalendarScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -44,8 +44,13 @@ export default function CalendarScreen() {
     'Soins': '#2196F3',
     'Reproduction': '#8BC34A',
     'Vétérinaire': '#9C27B0',
-    'Récupération': '#FF5722', // Orange-red for order pickups
-    'Autre': '#607D8B'
+    'Récupération': '#2196F3', // Blue for order pickups (commandes)
+    'Autre': '#607D8B',
+    // Gestion-related events (purple)
+    'Création lot': '#9C27B0',
+    'Éclosion': '#9C27B0',
+    'Mort': '#9C27B0',
+    'Sexage': '#9C27B0'
   };
 
   // Define view mode options with French labels
@@ -71,24 +76,27 @@ export default function CalendarScreen() {
     try {
       console.log('🔄 CalendarScreen: Starting to load events...');
       
-      // First sync orders with calendar to ensure all order events are created
-      await database.syncOrdersWithCalendar();
+      // First sync all data with calendar to ensure all events are created
+      await database.syncAllWithCalendar();
       
       // Save calendar events to CSV storage
       const eventsData = await database.getEvents();
       await csvStorage.syncCalendarEvents(eventsData);
       
       // Then load all events (including order events)
-      console.log('📅 CalendarScreen: Raw events data:', eventsData);
       setEvents(eventsData);
-      console.log(`📅 CalendarScreen: Loaded ${eventsData.length} calendar events`);
       
       // Debug: Check for October 17, 2025 events specifically
       const oct17Events = eventsData.filter(event => {
         const eventDate = (event.date || event.event_date)?.split('T')[0];
         return eventDate === '2025-10-17';
       });
-      console.log('🔍 CalendarScreen: Events for Oct 17, 2025:', oct17Events);
+      // console.log('🔍 CalendarScreen: Events for Oct 17, 2025:', oct17Events);
+      
+      // Debug: Show all events with their dates
+      eventsData.forEach(event => {
+        // console.log(`📅 Event: ${event.title} - Date: ${event.date || event.event_date} - Type: ${event.type}`);
+      });
     } catch (error) {
       console.error('Error loading events:', error);
     }
@@ -268,7 +276,7 @@ export default function CalendarScreen() {
         }
         
         marked[eventDate].dots.push({
-          color: eventColors[event.type] || eventColors['Other'],
+          color: eventColors[event.type] || eventColors['Autre'],
           key: event.id
         });
       }
@@ -345,6 +353,46 @@ export default function CalendarScreen() {
     setModalVisible(true);
   };
 
+  const handleEventPress = (event) => {
+    // Check if this is a commande-related event
+    if (event.type === 'Récupération' && event.order_id) {
+      // Navigate to orders screen using the navigation prop
+      if (navigation && navigation.navigate) {
+        navigation.navigate('Commandes', { 
+          highlightOrderId: event.order_id,
+          customerName: event.customer_name 
+        });
+      } else {
+        // Fallback: show alert if navigation is not available
+        Alert.alert(
+          'Commande Event',
+          `This is a pickup event for: ${event.title}\n\nCustomer: ${event.customer_name || 'N/A'}\nDate: ${event.date}\n\nNavigate to Orders tab to see details.`,
+          [{ text: 'OK' }]
+        );
+      }
+      return;
+    }
+    
+    // Check if this is a gestion-related event
+    if (['Création lot', 'Éclosion', 'Mort', 'Sexage'].includes(event.type)) {
+      // Navigate to products screen using the navigation prop
+      if (navigation && navigation.navigate) {
+        navigation.navigate('Gestion');
+      } else {
+        // Fallback: show alert if navigation is not available
+        Alert.alert(
+          'Gestion Event',
+          `This is a management event: ${event.title}\n\nType: ${event.type}\nDate: ${event.date}\n\nNavigate to Products tab to see elevage details.`,
+          [{ text: 'OK' }]
+        );
+      }
+      return;
+    }
+    
+    // For other events, open edit modal
+    openEditModal(event);
+  };
+
   const saveEvent = async () => {
     if (!eventForm.title || !eventForm.date) {
       Alert.alert('Error', 'Please fill title and date');
@@ -363,7 +411,7 @@ export default function CalendarScreen() {
 
       if (editingEvent) {
         // Update existing event (would need updateEvent method)
-        console.log('Update event:', eventData);
+        // console.log('Update event:', eventData);
       } else {
         await database.addEvent(eventData);
         // Also save to CSV storage
@@ -372,7 +420,6 @@ export default function CalendarScreen() {
 
       setModalVisible(false);
       await loadEvents();
-      Alert.alert('Success', `Event ${editingEvent ? 'updated' : 'added'} successfully!`);
     } catch (error) {
       console.error('Error saving event:', error);
       Alert.alert('Error', 'Failed to save event');
@@ -381,11 +428,17 @@ export default function CalendarScreen() {
 
   const getEventIcon = (type) => {
     switch (type) {
-      case 'Planting': return '🌱';
-      case 'Harvest': return '🌾';
-      case 'Watering': return '💧';
-      case 'Fertilizing': return '🌿';
-      case 'Maintenance': return '🔧';
+      case 'Alimentation': return '🌾';
+      case 'Entretien': return '🔧';
+      case 'Soins': return '💊';
+      case 'Reproduction': return '🥚';
+      case 'Vétérinaire': return '🩺';
+      case 'Récupération': return '📦';
+      case 'Création lot': return '🐣';
+      case 'Éclosion': return '🥚';
+      case 'Mort': return '💀';
+      case 'Sexage': return '⚧️';
+      case 'Autre': return '📅';
       default: return '📅';
     }
   };
@@ -508,8 +561,8 @@ export default function CalendarScreen() {
             weekEvents.map(event => (
               <TouchableOpacity
                 key={event.id}
-                style={[styles.weekEventItem, { borderLeftColor: eventColors[event.type] }]}
-                onPress={() => openEditModal(event)}
+                style={[styles.weekEventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                onPress={() => handleEventPress(event)}
               >
                 <Text style={styles.weekEventDate}>
                   {new Date(event.date || event.event_date).toLocaleDateString('fr-FR')}
@@ -545,8 +598,8 @@ export default function CalendarScreen() {
             dayEvents.map(event => (
               <TouchableOpacity
                 key={event.id}
-                style={[styles.dayEventItem, { borderLeftColor: eventColors[event.type] }]}
-                onPress={() => openEditModal(event)}
+                style={[styles.dayEventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                onPress={() => handleEventPress(event)}
               >
                 <View style={styles.dayEventHeader}>
                   <Text style={styles.dayEventIcon}>{getEventIcon(event.type)}</Text>
@@ -620,42 +673,9 @@ export default function CalendarScreen() {
           <View style={[styles.statusBarOverlay, { height: insets.top }]} />
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>📅 Événements</Text>
-            <View style={styles.headerButtons}>
-          <TouchableOpacity style={styles.refreshButton} onPress={loadEvents}>
-            <Text style={styles.refreshButtonText}>🔄</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.syncButton} onPress={async () => {
-            console.log('🔄 Manual sync triggered');
-            // Debug: Show all orders first
-            const allOrders = await database.getOrders();
-            console.log('🔍 All orders in database:', allOrders);
-            await database.syncOrdersWithCalendar();
-            await loadEvents();
-          }}>
-            <Text style={styles.syncButtonText}>📅</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.exportButton, isExporting && styles.exportButtonDisabled]} 
-            onPress={exportCalendarData}
-            disabled={isExporting}
-          >
-            <Text style={styles.exportButtonText}>
-              {isExporting ? '⏳' : '📤'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.backupButton, isExporting && styles.backupButtonDisabled]} 
-            onPress={backupAllData}
-            disabled={isExporting}
-          >
-            <Text style={styles.backupButtonText}>
-              {isExporting ? '⏳' : '💾'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
-            <Text style={styles.addButtonText}>+ Add Event</Text>
-          </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
+              <Text style={styles.addButtonText}>+ Ajouter</Text>
+            </TouchableOpacity>
           </View>
         </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
@@ -679,8 +699,8 @@ export default function CalendarScreen() {
                 monthEvents.map(event => (
                   <TouchableOpacity
                     key={event.id}
-                    style={[styles.eventItem, { borderLeftColor: eventColors[event.type] }]}
-                    onPress={() => openEditModal(event)}
+                    style={[styles.eventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                    onPress={() => handleEventPress(event)}
                   >
                     <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
                     <View style={styles.eventDetails}>
@@ -709,8 +729,8 @@ export default function CalendarScreen() {
                 selectedDateEvents.map(event => (
                   <TouchableOpacity
                     key={event.id}
-                    style={[styles.eventItem, { borderLeftColor: eventColors[event.type] }]}
-                    onPress={() => openEditModal(event)}
+                    style={[styles.eventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                    onPress={() => handleEventPress(event)}
                   >
                     <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
                     <View style={styles.eventDetails}>
@@ -846,8 +866,9 @@ const styles = StyleSheet.create({
     padding: 10,
     paddingTop: 20,
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 15,
   },
   headerButtons: {
     flexDirection: 'row',
@@ -857,7 +878,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
-    marginHorizontal: 20,
+    flex: 1,
   },
   refreshButton: {
     backgroundColor: 'rgba(255,255,255,0.15)',

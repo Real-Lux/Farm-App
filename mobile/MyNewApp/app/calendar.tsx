@@ -1,6 +1,8 @@
 import React from 'react';
-import DateTrackingScreen from '../src/screens/DateTrackingScreen';
+import CalendarScreen from '../src/screens/CalendarScreen';
+import { useNavigation } from '@react-navigation/native';
 
 export default function Calendar() {
-  return <DateTrackingScreen />;
+  const navigation = useNavigation();
+  return <CalendarScreen navigation={navigation} />;
 }

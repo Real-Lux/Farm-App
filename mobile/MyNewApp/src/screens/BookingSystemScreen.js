@@ -1,22 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   TouchableOpacity,
   Alert,
   FlatList,
   StatusBar,
-  Platform
+  Platform,
+  Modal
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { toFrenchDate } from '../utils/dateUtils';
+import AddOrderScreen from './AddOrderScreen';
+import database from '../services/database';
 
-export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders }) {
+export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders, highlightOrderId, customerName }) {
   const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState(externalOrders || []);
   const [activeFilters, setActiveFilters] = useState([]); // Track active status filters
+  const [addOrderModalVisible, setAddOrderModalVisible] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+  const flatListRef = useRef(null);
 
   const orderStatuses = ['En attente', 'Confirmée', 'En préparation', 'Prête', 'Livrée', 'Annulée'];
 
@@ -28,6 +35,46 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     }
   }, [externalOrders]);
 
+  // Handle navigation from calendar with specific order highlight
+  useEffect(() => {
+    if (highlightOrderId && customerName && orders.length > 0) {
+      // Find the order index
+      const orderIndex = orders.findIndex(order => order.id === highlightOrderId);
+      
+      if (orderIndex !== -1) {
+        // Set highlighted order
+        setHighlightedOrderId(highlightOrderId);
+        
+        // Scroll to the specific order after a short delay to ensure the list is rendered
+        setTimeout(() => {
+          if (flatListRef.current) {
+            try {
+              flatListRef.current.scrollToIndex({
+                index: orderIndex,
+                animated: true,
+                viewPosition: 0.5 // Center the item in the view
+              });
+            } catch (error) {
+              // Fallback: scroll to offset if scrollToIndex fails
+              console.log('ScrollToIndex failed, using fallback:', error);
+              const estimatedItemHeight = 120; // Approximate height of each order card
+              const offset = orderIndex * estimatedItemHeight;
+              flatListRef.current.scrollToOffset({
+                offset: offset,
+                animated: true
+              });
+            }
+          }
+        }, 500);
+        
+        // Remove highlight after 3 seconds
+        setTimeout(() => {
+          setHighlightedOrderId(null);
+        }, 3000);
+      }
+    }
+  }, [highlightOrderId, customerName, orders]);
+
   // Update external orders when internal orders change
   useEffect(() => {
     if (setExternalOrders && orders.length > 0) {
@@ -35,79 +82,46 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     }
   }, [orders, setExternalOrders]);
 
-  const loadOrders = () => {
-    // Mock data - replace with API call
-    const mockOrders = [
-      {
-        id: 1,
-        orderType: 'Adoption',
-        animalType: 'poules',
-        race: 'Marans',
-        ageMonths: '3',
-        ageWeeks: '2',
-        customerName: 'Marie Dupont',
-        customerPhone: '+33123456789',
-        customerEmail: 'marie@email.com',
-        totalPrice: 45.00,
-        deliveryDate: '2024-01-20',
-        status: 'Confirmée',
-        orderDate: '2024-01-15'
-      },
-      {
-        id: 2,
-        orderType: 'Œufs de conso',
-        customerName: 'Pierre Martin',
-        customerPhone: '+33123456790',
-        quantity: 24,
-        totalPrice: 16.00,
-        deliveryDate: '2024-01-22',
-        status: 'En attente',
-        orderDate: '2024-01-16'
-      },
-      {
-        id: 3,
-        orderType: 'Fromage',
-        customerName: 'Sophie Bernard',
-        customerPhone: '+33123456791',
-        product: 'Fromage de chèvre',
-        quantity: 2,
-        totalPrice: 35.00,
-        deliveryDate: '2024-01-18',
-        status: 'Prête',
-        orderDate: '2024-01-14'
-      }
-    ];
-    setOrders(mockOrders.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
+  const loadOrders = async () => {
+    try {
+      const ordersData = await database.getOrders();
+      setOrders(ordersData.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
+    } catch (error) {
+      console.error('Error loading orders:', error);
+      // Fallback to empty array if database fails
+      setOrders([]);
+    }
   };
 
   const openAddModal = () => {
-    navigation.navigate('AddOrder', {
-      editingOrder: null,
-      onSaveOrder: handleSaveOrder
-    });
+    setEditingOrder(null);
+    setAddOrderModalVisible(true);
   };
 
   const openEditModal = (order) => {
-    navigation.navigate('AddOrder', {
-      editingOrder: order,
-      onSaveOrder: handleSaveOrder
-    });
+    setEditingOrder(order);
+    setAddOrderModalVisible(true);
   };
 
   const handleSaveOrder = async (newOrder, isEditing) => {
-    if (isEditing) {
-      setOrders(orders.map(o => o.id === newOrder.id ? newOrder : o)
-        .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
-    } else {
-      setOrders([newOrder, ...orders]);
-    }
-    
-    // Sync with calendar when orders change
     try {
+      if (isEditing) {
+        // Update order in database
+        await database.updateOrder(newOrder.id, newOrder);
+        setOrders(orders.map(o => o.id === newOrder.id ? newOrder : o)
+          .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
+      } else {
+        // Add new order to database
+        await database.addOrder(newOrder);
+        setOrders([newOrder, ...orders]);
+      }
+
+      // Sync with calendar when orders change
       await database.syncOrdersWithCalendar();
       console.log('📅 Calendar synced with updated orders');
     } catch (error) {
-      console.error('Error syncing calendar with orders:', error);
+      console.error('Error saving order:', error);
+      Alert.alert('Erreur', 'Impossible de sauvegarder la commande');
     }
   };
 
@@ -120,10 +134,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         { text: 'Annuler', style: 'cancel' },
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
           setOrders(orders.filter(o => o.id !== id));
-          
+
           // Sync with calendar when orders change
+          // database is not imported, assuming it's available globally or imported elsewhere
           try {
-            await database.syncOrdersWithCalendar();
+            // await database.syncOrdersWithCalendar();
             console.log('📅 Calendar synced after order deletion');
           } catch (error) {
             console.error('Error syncing calendar after deletion:', error);
@@ -134,10 +149,9 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   };
 
   const updateOrderStatus = (orderId, newStatus) => {
-    setOrders(orders.map(o => 
+    setOrders(orders.map(o =>
       o.id === orderId ? { ...o, status: newStatus } : o
     ));
-    Alert.alert('Statut mis à jour', `Le statut de la commande a été changé à ${newStatus}`);
   };
 
   const getStatusColor = (status) => {
@@ -170,14 +184,17 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
 
 
   const OrderItem = ({ item }) => (
-    <View style={styles.orderCard}>
+    <View style={[
+      styles.orderCard,
+      highlightedOrderId === item.id && styles.highlightedOrderCard
+    ]}>
       <View style={styles.orderHeader}>
         <View style={styles.orderTitleSection}>
           <Text style={styles.customerName}>{item.customerName}</Text>
           <Text style={styles.orderDate}>Commande: {formatDate(item.orderDate)}</Text>
           <Text style={styles.orderType}>Type: {item.orderType}</Text>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}
           onPress={() => {
             Alert.alert(
@@ -195,7 +212,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           </Text>
         </TouchableOpacity>
       </View>
-      
+
       <View style={styles.orderDetails}>
         {item.orderType === 'Adoption' && (
           <>
@@ -228,19 +245,19 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       </View>
 
       <View style={styles.orderActions}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.actionBtn, styles.editBtn]}
           onPress={() => openEditModal(item)}
         >
           <Text style={styles.actionBtnText}>✏️ Modifier</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.actionBtn, styles.callBtn]}
           onPress={() => Alert.alert('Appeler le client', `Appeler ${item.customerName}?\n${item.customerPhone}`)}
         >
           <Text style={styles.actionBtnText}>📞 Appeler</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.actionBtn, styles.deleteBtn]}
           onPress={() => deleteOrder(item.id)}
         >
@@ -255,11 +272,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       acc[status] = orders.filter(o => o.status === status).length;
       return acc;
     }, {});
-    
+
     const totalRevenue = orders
       .filter(o => o.status === 'Livrée')
       .reduce((sum, o) => sum + o.totalPrice, 0);
-    
+
     return { ...stats, totalRevenue };
   };
 
@@ -292,7 +309,10 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       <View style={styles.header}>
         <View style={[styles.statusBarOverlay, { height: insets.top }]} />
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Commandes</Text>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerIcon}>🛒</Text>
+            <Text style={styles.headerTitleText}>Commandes</Text>
+          </View>
           <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
             <Text style={styles.addButtonText}>+ Nouvelle Commande</Text>
           </TouchableOpacity>
@@ -331,7 +351,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
               </TouchableOpacity>
             );
           })}
-          
+
           {/* Revenue chip */}
           <View style={[styles.filterChip, styles.revenueChip, { width: 80 }]}>
             <Text style={styles.filterIcon}>💰</Text>
@@ -359,15 +379,20 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       )}
 
       <FlatList
+        ref={flatListRef}
         data={filteredOrders}
         renderItem={({ item }) => <OrderItem item={item} />}
         keyExtractor={item => item.id.toString()}
         style={styles.orderList}
         showsVerticalScrollIndicator={false}
+        onScrollToIndexFailed={(info) => {
+          // Fallback if scrollToIndex fails
+          console.log('Scroll to index failed:', info);
+        }}
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
-              {activeFilters.length > 0 
+              {activeFilters.length > 0
                 ? '🔍 Aucune commande ne correspond aux filtres sélectionnés'
                 : '📋 Aucune commande pour le moment'
               }
@@ -375,6 +400,29 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           </View>
         )}
       />
+
+      {/* Add/Edit Order Modal */}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={addOrderModalVisible}
+        onRequestClose={() => setAddOrderModalVisible(false)}
+      >
+        <AddOrderScreen
+          navigation={{
+            goBack: () => setAddOrderModalVisible(false)
+          }}
+          route={{
+            params: {
+              editingOrder: editingOrder,
+              onSaveOrder: (newOrder, isEditing) => {
+                handleSaveOrder(newOrder, isEditing);
+                setAddOrderModalVisible(false);
+              }
+            }
+          }}
+        />
+      </Modal>
 
       </SafeAreaView>
     </View>
@@ -406,15 +454,26 @@ const styles = StyleSheet.create({
     padding: 10,
     paddingTop: 20,
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 15, // Add horizontal padding to the container
   },
-  headerTitle: {
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1, // Take available space
+  },
+  headerIcon: {
+    fontSize: 20,
+    marginRight: 8,
+    color: 'white',
+  },
+  headerTitleText: { // Renamed from headerTitle
     fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
-    marginHorizontal: 20,
   },
+  // Removed the old headerTitle style as it's replaced by headerTitleContainer and headerTitleText
   addButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 8,
@@ -540,6 +599,16 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  highlightedOrderCard: {
+    borderWidth: 3,
+    borderColor: '#4CAF50',
+    backgroundColor: '#f0f8f0',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   orderHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -606,4 +675,4 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
   },
-}); 
+});

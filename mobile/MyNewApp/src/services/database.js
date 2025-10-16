@@ -14,19 +14,55 @@ class SimpleTestDatabaseService {
         { id: 4, name: 'Visite guidée', price: 5.00, quantity: 100, category: 'visites', description: 'Visite de la ferme pédagogique' }
       ],
       orders: [
-        { id: 1, customer_name: 'Marie Dupont', total_amount: 25.50, status: 'en attente', product: 'Œufs de consommation' },
-        { id: 2, customer_name: 'Pierre Martin', total_amount: 15.00, status: 'terminé', product: 'Visite guidée' }
+        { 
+          id: 1, 
+          customerName: 'Marie Dupont', 
+          customerPhone: '+33123456789',
+          customerEmail: 'marie@email.com',
+          orderType: 'Adoption',
+          animalType: 'poules',
+          race: 'Marans',
+          ageMonths: '3',
+          ageWeeks: '2',
+          totalPrice: 45.00,
+          deliveryDate: '2025-10-17',
+          status: 'Confirmée',
+          orderDate: '2025-10-10'
+        },
+        { 
+          id: 2, 
+          customerName: 'Pierre Martin', 
+          customerPhone: '+33123456790',
+          orderType: 'Œufs de conso',
+          quantity: 24,
+          totalPrice: 16.00,
+          deliveryDate: '2025-10-20',
+          status: 'En attente',
+          orderDate: '2025-10-12'
+        },
+        { 
+          id: 3, 
+          customerName: 'Sophie Bernard', 
+          customerPhone: '+33123456791',
+          orderType: 'Fromage',
+          product: 'Fromage de chèvre',
+          quantity: 2,
+          totalPrice: 35.00,
+          deliveryDate: '2025-10-25',
+          status: 'Prête',
+          orderDate: '2025-10-08'
+        }
       ],
       calendar_events: [
-        { id: 1, title: 'Nettoyage poulaillers', date: '2024-01-20', type: 'Entretien', product: 'Poules', notes: 'Nettoyage hebdomadaire' },
-        { id: 2, title: 'Alimentation lapins', date: '2024-01-21', type: 'Alimentation', product: 'Lapins', notes: 'Foin et granulés' }
+        { id: 1, title: 'Nettoyage poulaillers', date: '2025-01-20', type: 'Entretien', product: 'Poules', notes: 'Nettoyage hebdomadaire' },
+        { id: 2, title: 'Alimentation lapins', date: '2025-01-21', type: 'Alimentation', product: 'Lapins', notes: 'Foin et granulés' }
       ],
       elevage_lots: [
         { 
           id: 1, 
-          name: 'Lot Janvier 2024', 
-          date_creation: '2024-01-15',
-          date_eclosion: '2024-02-05',
+          name: 'Lot Janvier 2025', 
+          date_creation: '2025-01-15',
+          date_eclosion: '2025-02-05',
           races: {
             'Marans': { 
               initial: 50, 
@@ -56,9 +92,9 @@ class SimpleTestDatabaseService {
         },
         { 
           id: 2, 
-          name: 'Lot Février 2024', 
-          date_creation: '2024-02-15',
-          date_eclosion: '2024-03-07',
+          name: 'Lot Février 2025', 
+          date_creation: '2025-02-15',
+          date_eclosion: '2025-03-07',
           races: {
             'Marans': { 
               initial: 35, 
@@ -112,7 +148,7 @@ class SimpleTestDatabaseService {
         {
           id: 1,
           lot_id: 1,
-          date: '2024-01-20',
+          date: '2025-01-20',
           type: 'Mort',
           description: 'Mort de 2 Marans - cause naturelle',
           race: 'Marans',
@@ -121,7 +157,7 @@ class SimpleTestDatabaseService {
         {
           id: 2,
           lot_id: 1,
-          date: '2024-01-25',
+          date: '2025-01-25',
           type: 'Sexage',
           description: 'Identification des sexes pour les Araucana',
           race: 'Araucana',
@@ -184,6 +220,16 @@ class SimpleTestDatabaseService {
   async getOrders() {
     console.log('📋 getOrders called - returning test data');
     return this.storage.orders;
+  }
+
+  async updateOrder(id, order) {
+    console.log('✏️ updateOrder called');
+    const index = this.storage.orders.findIndex(o => o.id == id);
+    if (index !== -1) {
+      this.storage.orders[index] = { ...this.storage.orders[index], ...order };
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
   }
 
   // Calendar events CRUD
@@ -324,7 +370,7 @@ class SimpleTestDatabaseService {
     
     // Create calendar events for orders with delivery dates
     for (const order of orders) {
-      console.log(`🔍 Processing order ${order.id}:`, order);
+      // console.log(`🔍 Processing order ${order.id}:`, order);
       if (order.deliveryDate) {
         // Ensure delivery date is in ISO format
         const isoDeliveryDate = toISODate(order.deliveryDate);
@@ -356,7 +402,7 @@ class SimpleTestDatabaseService {
           };
           
           this.storage.calendar_events.push(newEvent);
-          console.log(`✅ Created calendar event for order ${order.id}:`, newEvent);
+          // console.log(`✅ Created calendar event for order ${order.id}:`, newEvent);
         } else {
           console.log(`⚠️ Event already exists for order ${order.id}`);
         }
@@ -365,8 +411,108 @@ class SimpleTestDatabaseService {
       }
     }
     
-    console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events`);
-    console.log('📅 All calendar events:', this.storage.calendar_events);
+    // console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events`);
+    // console.log('📅 All calendar events:', this.storage.calendar_events);
+  }
+
+  // Sync elevage events with calendar
+  async syncElevageWithCalendar() {
+    console.log('🔄 Syncing elevage events with calendar...');
+    
+    const lots = this.storage.elevage_lots || [];
+    const historique = this.storage.elevage_historique || [];
+    const existingEvents = this.storage.calendar_events || [];
+    
+    // Create events for lot creation dates
+    for (const lot of lots) {
+      if (lot.date_creation) {
+        const eventTitle = `Création lot: ${lot.name}`;
+        const existingEvent = existingEvents.find(event => 
+          event.date === lot.date_creation && 
+          event.title === eventTitle
+        );
+        
+        if (!existingEvent) {
+          const newEvent = {
+            id: Date.now() + Math.random(),
+            title: eventTitle,
+            date: lot.date_creation,
+            type: 'Entretien',
+            product: 'Élevage',
+            notes: `Nouveau lot créé avec ${Object.keys(lot.races).length} race(s)`,
+            lot_id: lot.id,
+            created_at: getNowISO()
+          };
+          
+          this.storage.calendar_events.push(newEvent);
+          // console.log(`✅ Created calendar event for lot ${lot.id}:`, newEvent);
+        }
+      }
+      
+      // Create events for eclosion dates
+      if (lot.date_eclosion) {
+        const eventTitle = `Éclosion: ${lot.name}`;
+        const existingEvent = existingEvents.find(event => 
+          event.date === lot.date_eclosion && 
+          event.title === eventTitle
+        );
+        
+        if (!existingEvent) {
+          const newEvent = {
+            id: Date.now() + Math.random(),
+            title: eventTitle,
+            date: lot.date_eclosion,
+            type: 'Reproduction',
+            product: 'Élevage',
+            notes: `Éclosion prévue pour le lot ${lot.name}`,
+            lot_id: lot.id,
+            created_at: getNowISO()
+          };
+          
+          this.storage.calendar_events.push(newEvent);
+          // console.log(`✅ Created calendar event for eclosion ${lot.id}:`, newEvent);
+        }
+      }
+    }
+    
+    // Create events for historique entries
+    for (const entry of historique) {
+      if (entry.date && entry.type === 'Mort') {
+        const eventTitle = `Mort: ${entry.race}`;
+        const existingEvent = existingEvents.find(event => 
+          event.date === entry.date && 
+          event.title === eventTitle &&
+          event.historique_id === entry.id
+        );
+        
+        if (!existingEvent) {
+          const newEvent = {
+            id: Date.now() + Math.random(),
+            title: eventTitle,
+            date: entry.date,
+            type: 'Soins',
+            product: 'Élevage',
+            notes: entry.description,
+            lot_id: entry.lot_id,
+            historique_id: entry.id,
+            created_at: getNowISO()
+          };
+          
+          this.storage.calendar_events.push(newEvent);
+          // console.log(`✅ Created calendar event for historique ${entry.id}:`, newEvent);
+        }
+      }
+    }
+    
+    console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events after elevage sync`);
+  }
+
+  // Sync all data with calendar
+  async syncAllWithCalendar() {
+    console.log('🔄 Syncing all data with calendar...');
+    await this.syncOrdersWithCalendar();
+    await this.syncElevageWithCalendar();
+    console.log('✅ All data synced with calendar');
   }
 
   // Generate description for order calendar events

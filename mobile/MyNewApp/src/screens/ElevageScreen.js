@@ -152,11 +152,13 @@ export default function ElevageScreen({ navigation }) {
     try {
       if (editingItem) {
         await database.updateLot(editingItem.id, lotForm);
-        Alert.alert('Succès', 'Lot mis à jour avec succès!');
       } else {
         await database.addLot(lotForm);
-        Alert.alert('Succès', 'Nouveau lot créé avec succès!');
       }
+      
+      // Sync with calendar after saving lot
+      await database.syncElevageWithCalendar();
+      
       setModalVisible(false);
       loadData();
     } catch (error) {
@@ -174,10 +176,8 @@ export default function ElevageScreen({ navigation }) {
     try {
       if (editingItem) {
         await database.updateRace(editingItem.id, raceForm);
-        Alert.alert('Succès', 'Race mise à jour avec succès!');
       } else {
         await database.addRace(raceForm);
-        Alert.alert('Succès', 'Nouvelle race ajoutée avec succès!');
       }
       setModalVisible(false);
       loadData();
@@ -216,7 +216,9 @@ export default function ElevageScreen({ navigation }) {
         });
       }
       
-      Alert.alert('Succès', 'Données mises à jour avec succès!');
+      // Sync with calendar after updating
+      await database.syncElevageWithCalendar();
+      
       setModalVisible(false);
       loadData();
     } catch (error) {
@@ -234,7 +236,8 @@ export default function ElevageScreen({ navigation }) {
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
           try {
             await database.deleteLot(id);
-            Alert.alert('Succès', 'Lot supprimé avec succès!');
+            // Sync with calendar after deletion
+            await database.syncElevageWithCalendar();
             loadData();
           } catch (error) {
             console.error('Erreur lors de la suppression:', error);
@@ -1069,8 +1072,9 @@ const styles = StyleSheet.create({
     padding: 15,
     paddingTop: 10,
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 15,
   },
   backButton: {
     padding: 8,
@@ -1084,7 +1088,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: 'white',
-    marginHorizontal: 20,
+    flex: 1,
+    textAlign: 'center',
   },
   headerStats: {
     alignItems: 'center',
