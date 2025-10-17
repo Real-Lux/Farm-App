@@ -30,6 +30,7 @@ export default function ElevageScreen({ navigation }) {
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
+  const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
   
   const [lotForm, setLotForm] = useState({
     name: '',
@@ -684,16 +685,24 @@ export default function ElevageScreen({ navigation }) {
 
                     {/* Détail par race */}
                     <Text style={styles.raceStatsTitle}>Détail par race:</Text>
-                    {Object.entries(lot.races).map(([raceName, raceData]) => (
-                      <View key={raceName} style={styles.raceStatsRow}>
-                        <Text style={styles.raceStatsName}>{raceName}:</Text>
-                        <Text style={styles.raceStatsDetail}>
-                          {raceData.current}/{raceData.initial} 
-                          (♂️ {raceData.males||0} | ♀️ {raceData.females||0} | ❓ {raceData.unsexed||0}) 
-                          💀 {raceData.deaths||0} (♂️ {raceData.deaths_males||0} | ♀️ {raceData.deaths_females||0} | ❓ {raceData.deaths_unsexed||0})
-                        </Text>
-                      </View>
-                    ))}
+                    {Object.entries(lot.races).map(([raceName, raceData]) => {
+                      const totalAlive = (raceData.males || 0) + (raceData.females || 0) + (raceData.unsexed || 0);
+                      const totalDeaths = (raceData.deaths_males || 0) + (raceData.deaths_females || 0) + (raceData.deaths_unsexed || 0);
+                      
+                      const maleAlivePercent = totalAlive > 0 ? ((raceData.males || 0) / totalAlive * 100).toFixed(1) : '0.0';
+                      const femaleAlivePercent = totalAlive > 0 ? ((raceData.females || 0) / totalAlive * 100).toFixed(1) : '0.0';
+                      const maleDeathPercent = totalDeaths > 0 ? ((raceData.deaths_males || 0) / totalDeaths * 100).toFixed(1) : '0.0';
+                      const femaleDeathPercent = totalDeaths > 0 ? ((raceData.deaths_females || 0) / totalDeaths * 100).toFixed(1) : '0.0';
+                      
+                      return (
+                        <View key={raceName} style={styles.raceStatsRow}>
+                          <Text style={styles.raceStatsName}>{raceName}:</Text>
+                          <Text style={styles.raceStatsDetail}>
+                            {raceData.current}/{raceData.initial} (♂️ {raceData.males||0} [{maleAlivePercent}%] | ♀️ {raceData.females||0} [{femaleAlivePercent}%] | ❓ {raceData.unsexed||0}) 💀 {raceData.deaths||0} (♂️ {raceData.deaths_males||0} [{maleDeathPercent}%] | ♀️ {raceData.deaths_females||0} [{femaleDeathPercent}%] | ❓ {raceData.deaths_unsexed||0})
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
                 );
               })}
@@ -739,7 +748,33 @@ export default function ElevageScreen({ navigation }) {
                     </View>
 
                     <View style={styles.genderStatsRow}>
-                      <Text style={styles.genderStatText}>(♂️ {totalMales} | ♀️ {totalFemales} | ❓ {lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)})</Text>
+                      {(() => {
+                        const totalAlive = totalMales + totalFemales + lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0);
+                        const totalDeaths = lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].deaths_males || 0), 0) + 
+                                           lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].deaths_females || 0), 0) + 
+                                           lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].deaths_unsexed || 0), 0);
+                        const totalDeathsMales = lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].deaths_males || 0), 0);
+                        const totalDeathsFemales = lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].deaths_females || 0), 0);
+                        const totalDeathsUnsexed = lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].deaths_unsexed || 0), 0);
+                        
+                        const maleAlivePercent = totalAlive > 0 ? ((totalMales / totalAlive * 100).toFixed(1)) : '0.0';
+                        const femaleAlivePercent = totalAlive > 0 ? ((totalFemales / totalAlive * 100).toFixed(1)) : '0.0';
+                        const maleDeathPercent = totalDeaths > 0 ? ((totalDeathsMales / totalDeaths * 100).toFixed(1)) : '0.0';
+                        const femaleDeathPercent = totalDeaths > 0 ? ((totalDeathsFemales / totalDeaths * 100).toFixed(1)) : '0.0';
+                        
+                        return (
+                          <View style={styles.raceGenderStatsContainer}>
+                            <View style={styles.raceGenderStatGroup}>
+                              <Text style={styles.raceGenderStatTitle}>Vivants:</Text>
+                              <Text style={styles.raceGenderStatText}>(♂️ {totalMales} [{maleAlivePercent}%] | ♀️ {totalFemales} [{femaleAlivePercent}%] | ❓ {lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)})</Text>
+                            </View>
+                            <View style={styles.raceGenderStatGroup}>
+                              <Text style={styles.raceGenderStatTitle}>Morts:</Text>
+                              <Text style={styles.raceGenderStatText}>(♂️ {totalDeathsMales} [{maleDeathPercent}%] | ♀️ {totalDeathsFemales} [{femaleDeathPercent}%] | ❓ {totalDeathsUnsexed})</Text>
+                            </View>
+                          </View>
+                        );
+                      })()}
                     </View>
                   </View>
                 );
@@ -946,9 +981,6 @@ export default function ElevageScreen({ navigation }) {
                     </View>
                   </View>
 
-                  {/* Interactive Actions */}
-                  <Text style={styles.sectionTitle}>🔧 Actions rapides</Text>
-                  
                   {/* Add Deaths Section */}
                   <View style={styles.actionSection}>
                     <Text style={styles.actionSectionTitle}>➕ Ajouter un décès</Text>
@@ -1064,76 +1096,89 @@ export default function ElevageScreen({ navigation }) {
                   </View>
 
                   {/* Manual Input Section */}
-                  <Text style={styles.sectionTitle}>✏️ Saisie manuelle</Text>
-                  <View style={styles.manualInputSection}>
-                    <Text style={styles.manualInputSubtitle}>Animaux vivants:</Text>
-                    <View style={styles.threeColumnInputs}>
-                      <View style={styles.inputWithLabel}>
-                        <Text style={styles.inputLabel}>♂️ Mâles:</Text>
-                        <TextInput
-                          style={[styles.input, styles.thirdInput]}
-                          placeholder="0"
-                          value={updateForm.males}
-                          onChangeText={(text) => setUpdateForm({...updateForm, males: text})}
-                          keyboardType="number-pad"
-                        />
-                      </View>
-                      <View style={styles.inputWithLabel}>
-                        <Text style={styles.inputLabel}>♀️ Femelles:</Text>
-                        <TextInput
-                          style={[styles.input, styles.thirdInput]}
-                          placeholder="0"
-                          value={updateForm.females}
-                          onChangeText={(text) => setUpdateForm({...updateForm, females: text})}
-                          keyboardType="number-pad"
-                        />
-                      </View>
-                      <View style={styles.inputWithLabel}>
-                        <Text style={styles.inputLabel}>❓ Non-sexés:</Text>
-                        <TextInput
-                          style={[styles.input, styles.thirdInput]}
-                          placeholder="0"
-                          value={updateForm.unsexed}
-                          onChangeText={(text) => setUpdateForm({...updateForm, unsexed: text})}
-                          keyboardType="number-pad"
-                        />
-                      </View>
+                  <TouchableOpacity 
+                    style={styles.manualInputHeader}
+                    onPress={() => setIsManualInputExpanded(!isManualInputExpanded)}
+                  >
+                    <View style={styles.manualInputHeaderLeft}>
+                      <Text style={styles.expandIndicator}>
+                        {isManualInputExpanded ? '▼' : '▶'}
+                      </Text>
+                      <Text style={styles.sectionTitle}>✏️ Saisie manuelle</Text>
                     </View>
+                  </TouchableOpacity>
+                  
+                  {isManualInputExpanded && (
+                    <View style={styles.manualInputSection}>
+                      <Text style={styles.manualInputSubtitle}>Animaux vivants:</Text>
+                      <View style={styles.threeColumnInputs}>
+                        <View style={styles.inputWithLabel}>
+                          <Text style={styles.inputLabel}>♂️ Mâles:</Text>
+                          <TextInput
+                            style={[styles.input, styles.thirdInput]}
+                            placeholder="0"
+                            value={updateForm.males}
+                            onChangeText={(text) => setUpdateForm({...updateForm, males: text})}
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                        <View style={styles.inputWithLabel}>
+                          <Text style={styles.inputLabel}>♀️ Femelles:</Text>
+                          <TextInput
+                            style={[styles.input, styles.thirdInput]}
+                            placeholder="0"
+                            value={updateForm.females}
+                            onChangeText={(text) => setUpdateForm({...updateForm, females: text})}
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                        <View style={styles.inputWithLabel}>
+                          <Text style={styles.inputLabel}>❓ Non-sexés:</Text>
+                          <TextInput
+                            style={[styles.input, styles.thirdInput]}
+                            placeholder="0"
+                            value={updateForm.unsexed}
+                            onChangeText={(text) => setUpdateForm({...updateForm, unsexed: text})}
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                      </View>
 
-                    <Text style={styles.manualInputSubtitle}>Morts cumulés:</Text>
-                    <View style={styles.threeColumnInputs}>
-                      <View style={styles.inputWithLabel}>
-                        <Text style={styles.inputLabel}>💀♂️ Morts mâles:</Text>
-                        <TextInput
-                          style={[styles.input, styles.thirdInput]}
-                          placeholder="0"
-                          value={updateForm.deaths_males}
-                          onChangeText={(text) => setUpdateForm({...updateForm, deaths_males: text})}
-                          keyboardType="number-pad"
-                        />
-                      </View>
-                      <View style={styles.inputWithLabel}>
-                        <Text style={styles.inputLabel}>💀♀️ Morts femelles:</Text>
-                        <TextInput
-                          style={[styles.input, styles.thirdInput]}
-                          placeholder="0"
-                          value={updateForm.deaths_females}
-                          onChangeText={(text) => setUpdateForm({...updateForm, deaths_females: text})}
-                          keyboardType="number-pad"
-                        />
-                      </View>
-                      <View style={styles.inputWithLabel}>
-                        <Text style={styles.inputLabel}>💀❓ Morts non-sexés:</Text>
-                        <TextInput
-                          style={[styles.input, styles.thirdInput]}
-                          placeholder="0"
-                          value={updateForm.deaths_unsexed}
-                          onChangeText={(text) => setUpdateForm({...updateForm, deaths_unsexed: text})}
-                          keyboardType="number-pad"
-                        />
+                      <Text style={styles.manualInputSubtitle}>Morts cumulés:</Text>
+                      <View style={styles.threeColumnInputs}>
+                        <View style={styles.inputWithLabel}>
+                          <Text style={styles.inputLabel}>💀♂️ Morts mâles:</Text>
+                          <TextInput
+                            style={[styles.input, styles.thirdInput]}
+                            placeholder="0"
+                            value={updateForm.deaths_males}
+                            onChangeText={(text) => setUpdateForm({...updateForm, deaths_males: text})}
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                        <View style={styles.inputWithLabel}>
+                          <Text style={styles.inputLabel}>💀♀️ Morts femelles:</Text>
+                          <TextInput
+                            style={[styles.input, styles.thirdInput]}
+                            placeholder="0"
+                            value={updateForm.deaths_females}
+                            onChangeText={(text) => setUpdateForm({...updateForm, deaths_females: text})}
+                            keyboardType="number-pad"
+                          />
+                        </View>
+                        <View style={styles.inputWithLabel}>
+                          <Text style={styles.inputLabel}>💀❓ Morts non-sexés:</Text>
+                          <TextInput
+                            style={[styles.input, styles.thirdInput]}
+                            placeholder="0"
+                            value={updateForm.deaths_unsexed}
+                            onChangeText={(text) => setUpdateForm({...updateForm, deaths_unsexed: text})}
+                            keyboardType="number-pad"
+                          />
+                        </View>
                       </View>
                     </View>
-                  </View>
+                  )}
 
                   {/* Notes Section */}
                   <Text style={styles.sectionTitle}>📝 Notes</Text>
@@ -1777,18 +1822,22 @@ const styles = StyleSheet.create({
   raceStatsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 2,
+    paddingVertical: 3,
+    marginBottom: 2,
   },
   raceStatsName: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#666',
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#005F6B',
     flex: 1,
+    marginRight: 8,
   },
   raceStatsDetail: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#333',
     fontFamily: 'monospace',
+    flex: 2,
+    textAlign: 'right',
   },
   raceStatsCard: {
     backgroundColor: '#f9f9f9',
@@ -1826,6 +1875,27 @@ const styles = StyleSheet.create({
   raceStatLabel: {
     fontSize: 9,
     color: '#666',
+  },
+  raceGenderStatsContainer: {
+    backgroundColor: 'white',
+    borderRadius: 6,
+    padding: 8,
+    marginTop: 8,
+  },
+  raceGenderStatGroup: {
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  raceGenderStatTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 2,
+  },
+  raceGenderStatText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
   },
   dateFieldContainer: {
     marginBottom: 15,
@@ -2038,5 +2108,18 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 8,
     marginTop: 5,
+  },
+  manualInputHeader: {
+    marginBottom: 10,
+  },
+  manualInputHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expandIndicator: {
+    fontSize: 16,
+    color: '#005F6B',
+    fontWeight: 'bold',
+    marginRight: 8,
   },
 });

@@ -614,32 +614,34 @@ export default function AddOrderScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={[styles.statusBarOverlay, { height: Math.max(insets.top, 24) }]} />
         <View style={styles.headerContent}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backButtonText}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {editingOrder ? 'Modifier la commande' : 'Nouvelle Commande'}
-        </Text>
-        <TouchableOpacity 
-          style={[
-            styles.saveButton,
-            !isFormValid && styles.saveButtonDisabled
-          ]}
-          onPress={saveOrder}
-          disabled={!isFormValid}
-        >
-          <Text style={[
-            styles.saveButtonText,
-            !isFormValid && styles.saveButtonTextDisabled
-          ]}>
-            {editingOrder ? 'Modifier' : 'Créer'}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>←</Text>
+          </TouchableOpacity>
+          <View style={styles.titleContainer}>
+            <Text style={styles.headerTitle}>
+              {editingOrder ? 'Modifier la commande' : 'Nouvelle Commande'}
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={[
+              styles.saveButton,
+              !isFormValid && styles.saveButtonDisabled
+            ]}
+            onPress={saveOrder}
+            disabled={!isFormValid}
+          >
+            <Text style={[
+              styles.saveButtonText,
+              !isFormValid && styles.saveButtonTextDisabled
+            ]}>
+              {editingOrder ? 'Modifier' : 'Créer'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
@@ -1423,6 +1425,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
     paddingHorizontal: 10, // Add horizontal padding
     zIndex: 1,
+    minHeight: 24, // Ensure minimum height for status bar
   },
   safeArea: {
     flex: 1,
@@ -1435,11 +1438,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerContent: {
-    padding: 10,
-    paddingTop: 20,
+    padding: 15,
+    paddingTop: 10,
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 15,
   },
   backButton: {
     padding: 8,
@@ -1449,11 +1453,16 @@ const styles = StyleSheet.create({
     fontSize: 25,
     fontWeight: '600',
   },
+  titleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: 'white',
-    marginHorizontal: 20,
+    textAlign: 'center',
   },
   saveButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
