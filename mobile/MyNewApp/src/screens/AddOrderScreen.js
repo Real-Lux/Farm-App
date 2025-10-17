@@ -98,6 +98,32 @@ export default function AddOrderScreen({ navigation, route }) {
   useEffect(() => {
     loadAvailableStock();
     loadCalendarEvents();
+    
+    // Ensure all race configurations have unique IDs
+    if (editingOrder && editingOrder.animalDetails) {
+      const updatedAnimalDetails = {};
+      Object.keys(editingOrder.animalDetails).forEach(animal => {
+        const animalDetail = editingOrder.animalDetails[animal];
+        if (animalDetail.races && Array.isArray(animalDetail.races)) {
+          updatedAnimalDetails[animal] = {
+            ...animalDetail,
+            races: animalDetail.races.map((race, index) => ({
+              ...race,
+              id: race.id || `${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
+            }))
+          };
+        } else {
+          updatedAnimalDetails[animal] = animalDetail;
+        }
+      });
+      
+      if (Object.keys(updatedAnimalDetails).length > 0) {
+        setOrderForm(prev => ({
+          ...prev,
+          animalDetails: updatedAnimalDetails
+        }));
+      }
+    }
   }, []);
 
   const loadCalendarEvents = async () => {
@@ -127,7 +153,7 @@ export default function AddOrderScreen({ navigation, route }) {
         
         marked[eventDate].dots.push({
           color: '#4CAF50', // Green for events
-          key: event.id
+          key: event.id || `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         });
       }
     });
@@ -397,16 +423,26 @@ export default function AddOrderScreen({ navigation, route }) {
     }
 
     const animal = selectedAnimalForConfig;
+    
+    // Check if this race already exists for this animal
+    const existingRaces = orderForm.animalDetails[animal]?.races || [];
+    const raceExists = existingRaces.some(race => race.race === currentRaceConfig.race);
+    
+    if (raceExists) {
+      Alert.alert('Erreur', 'Cette race a déjà été ajoutée pour cet animal');
+      return;
+    }
+
     const newRaceConfig = {
       ...currentRaceConfig,
-      id: Date.now() // Unique ID for this race configuration
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}` // More unique ID
     };
 
     const newDetails = {
       ...orderForm.animalDetails,
       [animal]: {
         ...orderForm.animalDetails[animal],
-        races: [...(orderForm.animalDetails[animal]?.races || []), newRaceConfig]
+        races: [...existingRaces, newRaceConfig]
       }
     };
 
@@ -616,8 +652,8 @@ export default function AddOrderScreen({ navigation, route }) {
                     </TouchableOpacity>
 
                     {/* Display configured races */}
-                    {orderForm.animalDetails[animal]?.races?.map((raceConfig) => (
-                      <View key={raceConfig.id} style={styles.raceConfigContainer}>
+                    {orderForm.animalDetails[animal]?.races?.map((raceConfig, index) => (
+                      <View key={`${raceConfig.id}_${index}`} style={styles.raceConfigContainer}>
                         <View style={styles.raceConfigHeader}>
                           <Text style={styles.raceConfigTitle}>
                             {raceConfig.race} - {raceConfig.quantity} unités

@@ -10,7 +10,8 @@ import {
   Alert,
   Dimensions,
   StatusBar,
-  Platform
+  Platform,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -36,6 +37,7 @@ export default function CalendarScreen({ navigation }) {
     notes: ''
   });
   const [isExporting, setIsExporting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Récupération', 'Autre'];
   const eventColors = {
@@ -68,7 +70,7 @@ export default function CalendarScreen({ navigation }) {
   // Refresh calendar when screen comes into focus (e.g., after adding orders)
   useFocusEffect(
     React.useCallback(() => {
-      loadEvents();
+      syncAllData();
     }, [])
   );
 
@@ -99,6 +101,42 @@ export default function CalendarScreen({ navigation }) {
       });
     } catch (error) {
       console.error('Error loading events:', error);
+    }
+  };
+
+  // Comprehensive sync function that updates all data
+  const syncAllData = async () => {
+    try {
+      console.log('🔄 CalendarScreen: Starting comprehensive data sync...');
+      
+      // Sync orders with calendar (creates pickup events)
+      await database.syncOrdersWithCalendar();
+      
+      // Sync all data with calendar (including management events)
+      await database.syncAllWithCalendar();
+      
+      // Sync CSV storage with all data
+      const eventsData = await database.getEvents();
+      await csvStorage.syncCalendarEvents(eventsData);
+      
+      // Update events state
+      setEvents(eventsData);
+      
+      console.log('✅ CalendarScreen: Comprehensive sync completed successfully');
+    } catch (error) {
+      console.error('❌ CalendarScreen: Error during comprehensive sync:', error);
+    }
+  };
+
+  // Pull-to-refresh handler
+  const onRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncAllData();
+    } catch (error) {
+      console.error('Error during refresh:', error);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -672,7 +710,9 @@ export default function CalendarScreen({ navigation }) {
         <View style={styles.header}>
           <View style={[styles.statusBarOverlay, { height: insets.top }]} />
           <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>📅 Événements</Text>
+            <Text style={styles.headerTitle}>
+              📅 Événements {isRefreshing && '🔄'}
+            </Text>
             <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
               <Text style={styles.addButtonText}>+ Ajouter</Text>
             </TouchableOpacity>
@@ -680,7 +720,20 @@ export default function CalendarScreen({ navigation }) {
         </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
-      <ScrollView style={styles.mainScrollView} showsVerticalScrollIndicator={true}>
+      <ScrollView 
+        style={styles.mainScrollView} 
+        showsVerticalScrollIndicator={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={['#005F6B']} // Android
+            tintColor="#005F6B" // iOS
+            title="Mise à jour des données..."
+            titleColor="#005F6B"
+          />
+        }
+      >
         <ViewModeSelector />
 
         <View style={styles.calendarContainer}>
