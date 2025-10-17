@@ -19,6 +19,7 @@ import { Calendar, CalendarList, Agenda } from 'react-native-calendars';
 import database from '../services/database';
 import csvStorage from '../services/csvStorage';
 import * as Sharing from 'expo-sharing';
+import { getEventColor } from '../../constants/StatusConstants';
 
 const { width } = Dimensions.get('window');
 
@@ -40,20 +41,7 @@ export default function CalendarScreen({ navigation }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Récupération', 'Autre'];
-  const eventColors = {
-    'Alimentation': '#4CAF50',
-    'Entretien': '#FF9800', 
-    'Soins': '#2196F3',
-    'Reproduction': '#8BC34A',
-    'Vétérinaire': '#9C27B0',
-    'Récupération': '#2196F3', // Blue for order pickups (commandes)
-    'Autre': '#607D8B',
-    // Gestion-related events (purple)
-    'Création lot': '#9C27B0',
-    'Éclosion': '#9C27B0',
-    'Mort': '#9C27B0',
-    'Sexage': '#9C27B0'
-  };
+  // Event colors are now imported from StatusConstants
 
   // Define view mode options with French labels
   const viewModeOptions = [
@@ -85,8 +73,9 @@ export default function CalendarScreen({ navigation }) {
       const eventsData = await database.getEvents();
       await csvStorage.syncCalendarEvents(eventsData);
       
-      // Then load all events (including order events)
-      setEvents(eventsData);
+      // Filter out old events and then load all events (including order events)
+      const filteredEvents = filterOldEvents(eventsData);
+      setEvents(filteredEvents);
       
       // Debug: Check for October 17, 2025 events specifically
       const oct17Events = eventsData.filter(event => {
@@ -119,8 +108,9 @@ export default function CalendarScreen({ navigation }) {
       const eventsData = await database.getEvents();
       await csvStorage.syncCalendarEvents(eventsData);
       
-      // Update events state
-      setEvents(eventsData);
+      // Filter out old events and update events state
+      const filteredEvents = filterOldEvents(eventsData);
+      setEvents(filteredEvents);
       
       console.log('✅ CalendarScreen: Comprehensive sync completed successfully');
     } catch (error) {
@@ -300,8 +290,9 @@ export default function CalendarScreen({ navigation }) {
   // Convert events to calendar format for marked dates
   const getMarkedDates = () => {
     const marked = {};
+    const filteredEvents = filterOldEvents(events);
     
-    events.forEach(event => {
+    filteredEvents.forEach(event => {
       const date = event.date || event.event_date;
       if (date) {
         const eventDate = date.split('T')[0]; // Get YYYY-MM-DD format
@@ -314,7 +305,7 @@ export default function CalendarScreen({ navigation }) {
         }
         
         marked[eventDate].dots.push({
-          color: eventColors[event.type] || eventColors['Autre'],
+          color: getEventColor(event.type),
           key: event.id
         });
       }
@@ -333,9 +324,21 @@ export default function CalendarScreen({ navigation }) {
 
   // Get events for selected date
   const getEventsForDate = (date) => {
-    return events.filter(event => {
+    const filteredEvents = filterOldEvents(events);
+    return filteredEvents.filter(event => {
       const eventDate = (event.date || event.event_date)?.split('T')[0];
       return eventDate === date;
+    });
+  };
+
+  // Filter out old events (older than 30 days)
+  const filterOldEvents = (eventsList) => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    return eventsList.filter(event => {
+      const eventDate = new Date(event.date || event.event_date);
+      return eventDate >= thirtyDaysAgo;
     });
   };
 
@@ -349,7 +352,8 @@ export default function CalendarScreen({ navigation }) {
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     
-    return events.filter(event => {
+    const filteredEvents = filterOldEvents(events);
+    return filteredEvents.filter(event => {
       const eventDate = new Date(event.date || event.event_date);
       return eventDate >= startOfWeek && eventDate <= endOfWeek;
     });
@@ -361,7 +365,8 @@ export default function CalendarScreen({ navigation }) {
     const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
     const endOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0);
     
-    return events.filter(event => {
+    const filteredEvents = filterOldEvents(events);
+    return filteredEvents.filter(event => {
       const eventDate = new Date(event.date || event.event_date);
       return eventDate >= startOfMonth && eventDate <= endOfMonth;
     });
@@ -507,6 +512,15 @@ export default function CalendarScreen({ navigation }) {
     <Calendar
       current={selectedDate}
       onDayPress={(day) => setSelectedDate(day.dateString)}
+      onMonthChange={(month) => {
+        // Update selected date to first day of the new month if current selected date is not in the new month
+        const newMonth = new Date(month.year, month.month - 1, 1);
+        const currentSelected = new Date(selectedDate);
+        
+        if (currentSelected.getMonth() !== newMonth.getMonth() || currentSelected.getFullYear() !== newMonth.getFullYear()) {
+          setSelectedDate(newMonth.toISOString().split('T')[0]);
+        }
+      }}
       markedDates={getMarkedDates()}
       markingType={'multi-dot'}
       theme={{
@@ -579,7 +593,7 @@ export default function CalendarScreen({ navigation }) {
                   {dayEvents.slice(0, 3).map((event, eventIndex) => (
                     <View
                       key={eventIndex}
-                      style={[styles.weekEventDot, { backgroundColor: eventColors[event.type] || eventColors['Autre'] }]}
+                      style={[styles.weekEventDot, { backgroundColor: getEventColor(event.type) }]}
                     />
                   ))}
                   {dayEvents.length > 3 && (
@@ -599,7 +613,7 @@ export default function CalendarScreen({ navigation }) {
             weekEvents.map(event => (
               <TouchableOpacity
                 key={event.id}
-                style={[styles.weekEventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                style={[styles.weekEventItem, { borderLeftColor: getEventColor(event.type) }]}
                 onPress={() => handleEventPress(event)}
               >
                 <Text style={styles.weekEventDate}>
@@ -636,7 +650,7 @@ export default function CalendarScreen({ navigation }) {
             dayEvents.map(event => (
               <TouchableOpacity
                 key={event.id}
-                style={[styles.dayEventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                style={[styles.dayEventItem, { borderLeftColor: getEventColor(event.type) }]}
                 onPress={() => handleEventPress(event)}
               >
                 <View style={styles.dayEventHeader}>
@@ -671,6 +685,15 @@ export default function CalendarScreen({ navigation }) {
           scrollEnabled={true}
           showScrollIndicator={true}
           onDayPress={(day) => setSelectedDate(day.dateString)}
+          onMonthChange={(month) => {
+            // Update selected date to first day of the new month if current selected date is not in the new month
+            const newMonth = new Date(month.year, month.month - 1, 1);
+            const currentSelected = new Date(selectedDate);
+            
+            if (currentSelected.getMonth() !== newMonth.getMonth() || currentSelected.getFullYear() !== newMonth.getFullYear()) {
+              setSelectedDate(newMonth.toISOString().split('T')[0]);
+            }
+          }}
           markedDates={getMarkedDates()}
           markingType={'multi-dot'}
           calendarWidth={width - 30}
@@ -734,6 +757,38 @@ export default function CalendarScreen({ navigation }) {
           />
         }
       >
+        {/* Événements du jour - Show first, above calendar */}
+        <View style={styles.selectedDateSection}>
+          <Text style={styles.selectedDateTitle}>
+            Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')}):
+          </Text>
+          <View style={styles.eventsList}>
+            {selectedDateEvents.length === 0 ? (
+              <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
+            ) : (
+              selectedDateEvents.map(event => (
+                <TouchableOpacity
+                  key={event.id}
+                  style={[styles.eventItem, { borderLeftColor: getEventColor(event.type) }]}
+                  onPress={() => handleEventPress(event)}
+                >
+                  <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
+                  <View style={styles.eventDetails}>
+                    <Text style={styles.eventTitle}>{event.title}</Text>
+                    <Text style={styles.eventType}>{event.type}</Text>
+                    {event.product && (
+                      <Text style={styles.eventProduct}>🏷️ {event.product}</Text>
+                    )}
+                    {event.notes && (
+                      <Text style={styles.eventNotes}>📝 {event.notes}</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </View>
+
         <ViewModeSelector />
 
         <View style={styles.calendarContainer}>
@@ -752,7 +807,7 @@ export default function CalendarScreen({ navigation }) {
                 monthEvents.map(event => (
                   <TouchableOpacity
                     key={event.id}
-                    style={[styles.eventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
+                    style={[styles.eventItem, { borderLeftColor: getEventColor(event.type) }]}
                     onPress={() => handleEventPress(event)}
                   >
                     <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
@@ -770,32 +825,6 @@ export default function CalendarScreen({ navigation }) {
           </View>
         )}
 
-        {(viewMode === 'month' || viewMode === 'year') && (
-          <View style={styles.selectedDateSection}>
-            <Text style={styles.selectedDateTitle}>
-              Événements pour le {new Date(selectedDate).toLocaleDateString('fr-FR')}:
-            </Text>
-            <View style={styles.eventsList}>
-              {selectedDateEvents.length === 0 ? (
-                <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
-              ) : (
-                selectedDateEvents.map(event => (
-                  <TouchableOpacity
-                    key={event.id}
-                    style={[styles.eventItem, { borderLeftColor: eventColors[event.type] || eventColors['Autre'] }]}
-                    onPress={() => handleEventPress(event)}
-                  >
-                    <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
-                    <View style={styles.eventDetails}>
-                      <Text style={styles.eventTitle}>{event.title}</Text>
-                      <Text style={styles.eventType}>{event.type}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))
-              )}
-            </View>
-          </View>
-        )}
       </ScrollView>
 
       <Modal
@@ -834,7 +863,7 @@ export default function CalendarScreen({ navigation }) {
                         key={type}
                         style={[
                           styles.typeOption,
-                          { backgroundColor: eventForm.type === type ? eventColors[type] : '#f0f0f0' }
+                          { backgroundColor: eventForm.type === type ? getEventColor(type) : '#f0f0f0' }
                         ]}
                         onPress={() => setEventForm({...eventForm, type})}
                       >
@@ -968,7 +997,9 @@ const styles = StyleSheet.create({
   viewModeSelector: {
     flexDirection: 'row',
     backgroundColor: 'white',
-    margin: 15,
+    marginHorizontal: 15,
+    marginTop: 5,
+    marginBottom: 15,
     borderRadius: 8,
     padding: 4,
   },
@@ -1057,7 +1088,7 @@ const styles = StyleSheet.create({
   selectedDateSection: {
     backgroundColor: 'white',
     marginHorizontal: 15,
-    marginBottom: 15,
+    marginBottom: 5,
     borderRadius: 12,
     padding: 15,
   },
@@ -1114,6 +1145,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#999',
     fontStyle: 'italic',
+  },
+  eventProduct: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  eventNotes: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
   },
   noEventsText: {
     textAlign: 'center',

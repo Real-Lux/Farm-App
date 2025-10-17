@@ -155,7 +155,7 @@ export default function App() {
           >
             <Tab.Screen 
               name="Accueil" 
-              component={DashboardScreen}
+              component={({ navigation }) => <DashboardScreen navigation={navigation} />}
               options={{
                 tabBarIcon: ({ color }) => (
                   <Text style={{ fontSize: 20, color }}>🏠</Text>

@@ -117,8 +117,18 @@ export default function ElevageScreen({ navigation }) {
     setModalVisible(true);
   };
 
-  const openUpdateModal = (lot, race) => {
+  const openUpdateModal = async (lot, race) => {
     setModalType('update');
+    
+    // Load existing notes for this lot and race
+    let existingNotes = '';
+    try {
+      const notes = await database.getLotNotes(lot.id, race);
+      existingNotes = notes || '';
+    } catch (error) {
+      console.log('No existing notes found');
+    }
+    
     setUpdateForm({
       lot_id: lot.id,
       race: race,
@@ -128,7 +138,7 @@ export default function ElevageScreen({ navigation }) {
       males: lot.races[race].males?.toString() || '0',
       females: lot.races[race].females?.toString() || '0',
       unsexed: lot.races[race].unsexed?.toString() || '0',
-      notes: ''
+      notes: existingNotes
     });
     setModalVisible(true);
   };
@@ -205,7 +215,11 @@ export default function ElevageScreen({ navigation }) {
 
       await database.updateLotRaceQuantity(updateForm.lot_id, updateForm.race, updates);
       
-      if (updateForm.notes) {
+      // Save notes persistently
+      if (updateForm.notes.trim()) {
+        await database.saveLotNotes(updateForm.lot_id, updateForm.race, updateForm.notes);
+        
+        // Also add to historique for tracking
         await database.addHistorique({
           lot_id: updateForm.lot_id,
           date: new Date().toISOString().split('T')[0],
@@ -315,6 +329,42 @@ export default function ElevageScreen({ navigation }) {
     return { status: 'Actif', color: '#4CAF50' };
   };
 
+  // Helper functions for interactive corrections
+  const addDeath = (gender) => {
+    const currentDeaths = parseInt(updateForm[`deaths_${gender}`]) || 0;
+    const currentAlive = parseInt(updateForm[gender]) || 0;
+    
+    if (currentAlive > 0) {
+      setUpdateForm({
+        ...updateForm,
+        [`deaths_${gender}`]: (currentDeaths + 1).toString(),
+        [gender]: (currentAlive - 1).toString()
+      });
+    } else {
+      Alert.alert('Erreur', 'Aucun animal vivant de ce sexe à marquer comme mort');
+    }
+  };
+
+  const correctSex = (fromGender, toGender) => {
+    const currentFrom = parseInt(updateForm[fromGender]) || 0;
+    
+    if (currentFrom > 0) {
+      setUpdateForm({
+        ...updateForm,
+        [fromGender]: (currentFrom - 1).toString(),
+        [toGender]: (parseInt(updateForm[toGender]) + 1).toString()
+      });
+    } else {
+      Alert.alert('Erreur', 'Aucun animal de ce sexe à corriger');
+    }
+  };
+
+  const getCurrentTotals = () => {
+    const totalAlive = (parseInt(updateForm.males) || 0) + (parseInt(updateForm.females) || 0) + (parseInt(updateForm.unsexed) || 0);
+    const totalDeaths = (parseInt(updateForm.deaths_males) || 0) + (parseInt(updateForm.deaths_females) || 0) + (parseInt(updateForm.deaths_unsexed) || 0);
+    return { totalAlive, totalDeaths };
+  };
+
   const LotItem = ({ item }) => {
     const isCollapsed = collapsedLots[item.id];
     const lotStatus = getLotStatus(item);
@@ -372,10 +422,9 @@ export default function ElevageScreen({ navigation }) {
                       </Text>
                     </View>
                     <View style={styles.raceStats}>
-                      <Text style={styles.raceStatText}>🐓 {raceData.current} restants</Text>
-                      <Text style={styles.raceStatText}>♂️ {raceData.males || 0} | ♀️ {raceData.females || 0} | ❓ {raceData.unsexed || 0}</Text>
+                      <Text style={styles.raceStatText}>🐓 {raceData.current} restants (♂️ {raceData.males || 0} | ♀️ {raceData.females || 0} | ❓ {raceData.unsexed || 0})</Text>
                       <Text style={styles.raceStatText}>
-                        💀 {raceData.deaths || 0} morts (♂️{raceData.deaths_males || 0} | ♀️{raceData.deaths_females || 0} | ❓{raceData.deaths_unsexed || 0})
+                        💀 {raceData.deaths || 0} morts (♂️ {raceData.deaths_males || 0} | ♀️ {raceData.deaths_females || 0} | ❓ {raceData.deaths_unsexed || 0})
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -625,11 +674,11 @@ export default function ElevageScreen({ navigation }) {
                     <View style={styles.genderStatsRow}>
                       <View style={styles.genderStatGroup}>
                         <Text style={styles.genderStatTitle}>Vivants:</Text>
-                        <Text style={styles.genderStatText}>♂️ {totalMales} | ♀️ {totalFemales} | ? {Object.values(lot.races).reduce((sum, race) => sum + (race.unsexed || 0), 0)}</Text>
+                        <Text style={styles.genderStatText}>(♂️ {totalMales} | ♀️ {totalFemales} | ❓ {Object.values(lot.races).reduce((sum, race) => sum + (race.unsexed || 0), 0)})</Text>
                       </View>
                       <View style={styles.genderStatGroup}>
                         <Text style={styles.genderStatTitle}>Morts:</Text>
-                        <Text style={styles.genderStatText}>♂️ {totalDeathsMales} | ♀️ {totalDeathsFemales} | ? {Object.values(lot.races).reduce((sum, race) => sum + (race.deaths_unsexed || 0), 0)}</Text>
+                        <Text style={styles.genderStatText}>(♂️ {totalDeathsMales} | ♀️ {totalDeathsFemales} | ❓ {Object.values(lot.races).reduce((sum, race) => sum + (race.deaths_unsexed || 0), 0)})</Text>
                       </View>
                     </View>
 
@@ -640,8 +689,8 @@ export default function ElevageScreen({ navigation }) {
                         <Text style={styles.raceStatsName}>{raceName}:</Text>
                         <Text style={styles.raceStatsDetail}>
                           {raceData.current}/{raceData.initial} 
-                          (♂️{raceData.males||0}|♀️{raceData.females||0}|?{raceData.unsexed||0}) 
-                          💀{raceData.deaths||0}(♂️{raceData.deaths_males||0}|♀️{raceData.deaths_females||0}|?{raceData.deaths_unsexed||0})
+                          (♂️ {raceData.males||0} | ♀️ {raceData.females||0} | ❓ {raceData.unsexed||0}) 
+                          💀 {raceData.deaths||0} (♂️ {raceData.deaths_males||0} | ♀️ {raceData.deaths_females||0} | ❓ {raceData.deaths_unsexed||0})
                         </Text>
                       </View>
                     ))}
@@ -690,7 +739,7 @@ export default function ElevageScreen({ navigation }) {
                     </View>
 
                     <View style={styles.genderStatsRow}>
-                      <Text style={styles.genderStatText}>♂️ {totalMales} | ♀️ {totalFemales} | ? {lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)}</Text>
+                      <Text style={styles.genderStatText}>(♂️ {totalMales} | ♀️ {totalFemales} | ❓ {lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)})</Text>
                     </View>
                   </View>
                 );
@@ -872,90 +921,229 @@ export default function ElevageScreen({ navigation }) {
                     Mettre à jour {updateForm.race}
                   </Text>
 
-                  <Text style={styles.sectionTitle}>Animaux vivants:</Text>
-                  <View style={styles.threeColumnInputs}>
-                    <View style={styles.inputWithLabel}>
-                      <Text style={styles.inputLabel}>♂️ Mâles:</Text>
-                      <TextInput
-                        style={[styles.input, styles.thirdInput]}
-                        placeholder="0"
-                        value={updateForm.males}
-                        onChangeText={(text) => setUpdateForm({...updateForm, males: text})}
-                        keyboardType="number-pad"
-                      />
-                    </View>
-                    <View style={styles.inputWithLabel}>
-                      <Text style={styles.inputLabel}>♀️ Femelles:</Text>
-                      <TextInput
-                        style={[styles.input, styles.thirdInput]}
-                        placeholder="0"
-                        value={updateForm.females}
-                        onChangeText={(text) => setUpdateForm({...updateForm, females: text})}
-                        keyboardType="number-pad"
-                      />
-                    </View>
-                    <View style={styles.inputWithLabel}>
-                      <Text style={styles.inputLabel}>❓ Non-sexés:</Text>
-                      <TextInput
-                        style={[styles.input, styles.thirdInput]}
-                        placeholder="0"
-                        value={updateForm.unsexed}
-                        onChangeText={(text) => setUpdateForm({...updateForm, unsexed: text})}
-                        keyboardType="number-pad"
-                      />
+                  {/* Current Status Display */}
+                  <View style={styles.statusDisplayContainer}>
+                    <Text style={styles.statusDisplayTitle}>📊 État actuel</Text>
+                    <View style={styles.statusDisplayGrid}>
+                      <View style={styles.statusDisplayItem}>
+                        <Text style={styles.statusDisplayLabel}>Vivants</Text>
+                        <Text style={[styles.statusDisplayValue, { color: '#4CAF50' }]}>
+                          {getCurrentTotals().totalAlive}
+                        </Text>
+                        <Text style={styles.statusDisplayBreakdown}>
+                          (♂️ {updateForm.males} | ♀️ {updateForm.females} | ❓ {updateForm.unsexed})
+                        </Text>
+                      </View>
+                      <View style={styles.statusDisplayItem}>
+                        <Text style={styles.statusDisplayLabel}>Morts</Text>
+                        <Text style={[styles.statusDisplayValue, { color: '#F44336' }]}>
+                          {getCurrentTotals().totalDeaths}
+                        </Text>
+                        <Text style={styles.statusDisplayBreakdown}>
+                          (♂️ {updateForm.deaths_males} | ♀️ {updateForm.deaths_females} | ❓ {updateForm.deaths_unsexed})
+                        </Text>
+                      </View>
                     </View>
                   </View>
 
-                  <Text style={styles.sectionTitle}>Morts cumulés:</Text>
-                  <View style={styles.threeColumnInputs}>
-                    <View style={styles.inputWithLabel}>
-                      <Text style={styles.inputLabel}>💀♂️ Morts mâles:</Text>
-                      <TextInput
-                        style={[styles.input, styles.thirdInput]}
-                        placeholder="0"
-                        value={updateForm.deaths_males}
-                        onChangeText={(text) => setUpdateForm({...updateForm, deaths_males: text})}
-                        keyboardType="number-pad"
-                      />
-                    </View>
-                    <View style={styles.inputWithLabel}>
-                      <Text style={styles.inputLabel}>💀♀️ Morts femelles:</Text>
-                      <TextInput
-                        style={[styles.input, styles.thirdInput]}
-                        placeholder="0"
-                        value={updateForm.deaths_females}
-                        onChangeText={(text) => setUpdateForm({...updateForm, deaths_females: text})}
-                        keyboardType="number-pad"
-                      />
-                    </View>
-                    <View style={styles.inputWithLabel}>
-                      <Text style={styles.inputLabel}>💀❓ Morts non-sexés:</Text>
-                      <TextInput
-                        style={[styles.input, styles.thirdInput]}
-                        placeholder="0"
-                        value={updateForm.deaths_unsexed}
-                        onChangeText={(text) => setUpdateForm({...updateForm, deaths_unsexed: text})}
-                        keyboardType="number-pad"
-                      />
+                  {/* Interactive Actions */}
+                  <Text style={styles.sectionTitle}>🔧 Actions rapides</Text>
+                  
+                  {/* Add Deaths Section */}
+                  <View style={styles.actionSection}>
+                    <Text style={styles.actionSectionTitle}>➕ Ajouter un décès</Text>
+                    <View style={styles.actionButtonsRow}>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.deathButton]}
+                        onPress={() => addDeath('males')}
+                        disabled={parseInt(updateForm.males) === 0}
+                      >
+                        <Text style={styles.actionButtonText}>♂️ Mâle</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.deathButton]}
+                        onPress={() => addDeath('females')}
+                        disabled={parseInt(updateForm.females) === 0}
+                      >
+                        <Text style={styles.actionButtonText}>♀️ Femelle</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.deathButton]}
+                        onPress={() => addDeath('unsexed')}
+                        disabled={parseInt(updateForm.unsexed) === 0}
+                      >
+                        <Text style={styles.actionButtonText}>❓ Non-sexé</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
 
-                  <View style={styles.calculationHelper}>
-                    <Text style={styles.calculationText}>
-                      Total vivants: {(parseInt(updateForm.males) || 0) + (parseInt(updateForm.females) || 0) + (parseInt(updateForm.unsexed) || 0)}
-                    </Text>
-                    <Text style={styles.calculationText}>
-                      Total morts: {(parseInt(updateForm.deaths_males) || 0) + (parseInt(updateForm.deaths_females) || 0) + (parseInt(updateForm.deaths_unsexed) || 0)}
-                    </Text>
+                  {/* Sex Correction Section */}
+                  <View style={styles.actionSection}>
+                    <Text style={styles.actionSectionTitle}>🔄 Corriger le sexe</Text>
+                    <Text style={styles.correctionSubtitle}>Cliquez pour transférer 1 animal d'un sexe vers un autre</Text>
+                    <View style={styles.correctionGrid}>
+                      <View style={styles.correctionColumn}>
+                        <View style={styles.correctionHeader}>
+                          <Text style={styles.correctionLabel}>♂️ Mâles</Text>
+                          <Text style={styles.correctionCount}>({parseInt(updateForm.males) || 0})</Text>
+                        </View>
+                        <TouchableOpacity 
+                          style={[
+                            styles.correctionButtonFixed,
+                            parseInt(updateForm.males) === 0 && styles.correctionButtonDisabled
+                          ]}
+                          onPress={() => correctSex('males', 'females')}
+                          disabled={parseInt(updateForm.males) === 0}
+                        >
+                          <Text style={styles.correctionButtonText}>→ ♀️ Femelle</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={[
+                            styles.correctionButtonFixed,
+                            parseInt(updateForm.males) === 0 && styles.correctionButtonDisabled
+                          ]}
+                          onPress={() => correctSex('males', 'unsexed')}
+                          disabled={parseInt(updateForm.males) === 0}
+                        >
+                          <Text style={styles.correctionButtonText}>→ ❓ Non-sexé</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.correctionColumn}>
+                        <View style={styles.correctionHeader}>
+                          <Text style={styles.correctionLabel}>♀️ Femelles</Text>
+                          <Text style={styles.correctionCount}>({parseInt(updateForm.females) || 0})</Text>
+                        </View>
+                        <TouchableOpacity 
+                          style={[
+                            styles.correctionButtonFixed,
+                            parseInt(updateForm.females) === 0 && styles.correctionButtonDisabled
+                          ]}
+                          onPress={() => correctSex('females', 'males')}
+                          disabled={parseInt(updateForm.females) === 0}
+                        >
+                          <Text style={styles.correctionButtonText}>→ ♂️ Mâle</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={[
+                            styles.correctionButtonFixed,
+                            parseInt(updateForm.females) === 0 && styles.correctionButtonDisabled
+                          ]}
+                          onPress={() => correctSex('females', 'unsexed')}
+                          disabled={parseInt(updateForm.females) === 0}
+                        >
+                          <Text style={styles.correctionButtonText}>→ ❓ Non-sexé</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.correctionColumn}>
+                        <View style={styles.correctionHeader}>
+                          <Text style={styles.correctionLabel}>❓ Non-sexés</Text>
+                          <Text style={styles.correctionCount}>({parseInt(updateForm.unsexed) || 0})</Text>
+                        </View>
+                        <TouchableOpacity 
+                          style={[
+                            styles.correctionButtonFixed,
+                            parseInt(updateForm.unsexed) === 0 && styles.correctionButtonDisabled
+                          ]}
+                          onPress={() => correctSex('unsexed', 'males')}
+                          disabled={parseInt(updateForm.unsexed) === 0}
+                        >
+                          <Text style={styles.correctionButtonText}>→ ♂️ Mâle</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={[
+                            styles.correctionButtonFixed,
+                            parseInt(updateForm.unsexed) === 0 && styles.correctionButtonDisabled
+                          ]}
+                          onPress={() => correctSex('unsexed', 'females')}
+                          disabled={parseInt(updateForm.unsexed) === 0}
+                        >
+                          <Text style={styles.correctionButtonText}>→ ♀️ Femelle</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
 
+                  {/* Manual Input Section */}
+                  <Text style={styles.sectionTitle}>✏️ Saisie manuelle</Text>
+                  <View style={styles.manualInputSection}>
+                    <Text style={styles.manualInputSubtitle}>Animaux vivants:</Text>
+                    <View style={styles.threeColumnInputs}>
+                      <View style={styles.inputWithLabel}>
+                        <Text style={styles.inputLabel}>♂️ Mâles:</Text>
+                        <TextInput
+                          style={[styles.input, styles.thirdInput]}
+                          placeholder="0"
+                          value={updateForm.males}
+                          onChangeText={(text) => setUpdateForm({...updateForm, males: text})}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                      <View style={styles.inputWithLabel}>
+                        <Text style={styles.inputLabel}>♀️ Femelles:</Text>
+                        <TextInput
+                          style={[styles.input, styles.thirdInput]}
+                          placeholder="0"
+                          value={updateForm.females}
+                          onChangeText={(text) => setUpdateForm({...updateForm, females: text})}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                      <View style={styles.inputWithLabel}>
+                        <Text style={styles.inputLabel}>❓ Non-sexés:</Text>
+                        <TextInput
+                          style={[styles.input, styles.thirdInput]}
+                          placeholder="0"
+                          value={updateForm.unsexed}
+                          onChangeText={(text) => setUpdateForm({...updateForm, unsexed: text})}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                    </View>
+
+                    <Text style={styles.manualInputSubtitle}>Morts cumulés:</Text>
+                    <View style={styles.threeColumnInputs}>
+                      <View style={styles.inputWithLabel}>
+                        <Text style={styles.inputLabel}>💀♂️ Morts mâles:</Text>
+                        <TextInput
+                          style={[styles.input, styles.thirdInput]}
+                          placeholder="0"
+                          value={updateForm.deaths_males}
+                          onChangeText={(text) => setUpdateForm({...updateForm, deaths_males: text})}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                      <View style={styles.inputWithLabel}>
+                        <Text style={styles.inputLabel}>💀♀️ Morts femelles:</Text>
+                        <TextInput
+                          style={[styles.input, styles.thirdInput]}
+                          placeholder="0"
+                          value={updateForm.deaths_females}
+                          onChangeText={(text) => setUpdateForm({...updateForm, deaths_females: text})}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                      <View style={styles.inputWithLabel}>
+                        <Text style={styles.inputLabel}>💀❓ Morts non-sexés:</Text>
+                        <TextInput
+                          style={[styles.input, styles.thirdInput]}
+                          placeholder="0"
+                          value={updateForm.deaths_unsexed}
+                          onChangeText={(text) => setUpdateForm({...updateForm, deaths_unsexed: text})}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Notes Section */}
+                  <Text style={styles.sectionTitle}>📝 Notes</Text>
                   <TextInput
                     style={[styles.input, styles.textArea]}
-                    placeholder="Notes sur cette mise à jour"
+                    placeholder="Ajouter des notes sur cette mise à jour..."
                     value={updateForm.notes}
                     onChangeText={(text) => setUpdateForm({...updateForm, notes: text})}
                     multiline={true}
-                    numberOfLines={3}
+                    numberOfLines={4}
                   />
                 </>
               )}
@@ -1709,5 +1897,146 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     fontWeight: '600',
+  },
+  
+  // New styles for interactive update modal
+  statusDisplayContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  statusDisplayTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  statusDisplayGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  statusDisplayItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statusDisplayLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 5,
+  },
+  statusDisplayValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  statusDisplayBreakdown: {
+    fontSize: 10,
+    color: '#666',
+    textAlign: 'center',
+  },
+  
+  actionSection: {
+    marginBottom: 20,
+  },
+  actionSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
+  },
+  actionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  deathButton: {
+    backgroundColor: '#F44336',
+  },
+  correctionButton: {
+    backgroundColor: '#2196F3',
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  
+  correctionSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 12,
+    fontStyle: 'italic',
+  },
+  correctionGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  correctionColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  correctionHeader: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  correctionLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+  },
+  correctionCount: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '600',
+  },
+  correctionButtonFixed: {
+    backgroundColor: '#2196F3',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    marginBottom: 6,
+    width: '100%',
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  correctionButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
+  correctionButtonText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  
+  manualInputSection: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+  },
+  manualInputSubtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+    marginTop: 5,
   },
 });

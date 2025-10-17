@@ -15,6 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { toFrenchDate } from '../utils/dateUtils';
 import AddOrderScreen from './AddOrderScreen';
 import database from '../services/database';
+import { ORDER_STATUSES, getStatusColor, getStatusIcon } from '../../constants/StatusConstants';
 
 export default function BookingSystemScreen({ navigation, orders: externalOrders, setOrders: setExternalOrders, highlightOrderId, customerName }) {
   const insets = useSafeAreaInsets();
@@ -25,7 +26,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
   const flatListRef = useRef(null);
 
-  const orderStatuses = ['En attente', 'Confirmée', 'En préparation', 'Prête', 'Livrée', 'Annulée'];
+  const orderStatuses = ORDER_STATUSES;
 
   useEffect(() => {
     if (externalOrders && externalOrders.length > 0) {
@@ -154,29 +155,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     ));
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'En attente': return '#FF9800';
-      case 'Confirmée': return '#2196F3';
-      case 'En préparation': return '#9C27B0';
-      case 'Prête': return '#4CAF50';
-      case 'Livrée': return '#4CAF50';
-      case 'Annulée': return '#F44336';
-      default: return '#607D8B';
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'En attente': return '⏳';
-      case 'Confirmée': return '✅';
-      case 'En préparation': return '👨‍🍳';
-      case 'Prête': return '📦';
-      case 'Livrée': return '🚚';
-      case 'Annulée': return '❌';
-      default: return '📋';
-    }
-  };
+  // Status colors and icons are now imported from StatusConstants
 
   const formatDate = (dateString) => {
     return toFrenchDate(dateString);

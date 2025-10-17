@@ -163,7 +163,8 @@ class SimpleTestDatabaseService {
           race: 'Araucana',
           quantity: 0
         }
-      ]
+      ],
+      lot_notes: {}
     };
     console.log('✅ Simple storage initialized with test data');
   }
@@ -315,6 +316,7 @@ class SimpleTestDatabaseService {
       elevage_lots: this.storage.elevage_lots,
       elevage_races: this.storage.elevage_races,
       elevage_historique: this.storage.elevage_historique,
+      lot_notes: this.storage.lot_notes,
       backup_date: getNowISO()
     };
 
@@ -787,6 +789,33 @@ class SimpleTestDatabaseService {
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
+  }
+
+  // Notes management for lots
+  async saveLotNotes(lotId, race, notes) {
+    console.log('💾 saveLotNotes called');
+    const noteKey = `${lotId}_${race}`;
+    this.storage.lot_notes = this.storage.lot_notes || {};
+    this.storage.lot_notes[noteKey] = {
+      lot_id: lotId,
+      race: race,
+      notes: notes,
+      updated_at: getNowISO()
+    };
+    return { rowsAffected: 1 };
+  }
+
+  async getLotNotes(lotId, race) {
+    console.log('📝 getLotNotes called');
+    const noteKey = `${lotId}_${race}`;
+    this.storage.lot_notes = this.storage.lot_notes || {};
+    return this.storage.lot_notes[noteKey]?.notes || '';
+  }
+
+  async getAllLotNotes() {
+    console.log('📋 getAllLotNotes called');
+    this.storage.lot_notes = this.storage.lot_notes || {};
+    return Object.values(this.storage.lot_notes);
   }
 }
 

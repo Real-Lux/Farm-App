@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -11,11 +11,13 @@ import {
   Platform
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import database from '../services/database';
 import emailService from '../services/emailService';
 import * as Sharing from 'expo-sharing';
+import { getStatusColor, getStatusIcon } from '../../constants/StatusConstants';
 
-export default function DashboardScreen() {
+export default function DashboardScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
@@ -25,20 +27,32 @@ export default function DashboardScreen() {
     totalRevenue: 0,
     lowStockItems: 0
   });
+  const [weeklyEvents, setWeeklyEvents] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
 
   useEffect(() => {
     loadDashboardData();
   }, []);
 
+  // Refresh data when screen comes into focus (user navigates back to dashboard)
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboardData();
+    }, [])
+  );
+
   const loadDashboardData = async () => {
     try {
-      const [products, orders] = await Promise.all([
+      const [products, orders, events, lots, historique] = await Promise.all([
         database.getProducts(),
-        database.getOrders()
+        database.getOrders(),
+        database.getEvents(),
+        database.getLots(),
+        database.getHistorique()
       ]);
 
-      const pendingOrders = orders.filter(order => order.status === 'pending');
-      const totalRevenue = orders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
+      const pendingOrders = orders.filter(order => order.status === 'En attente');
+      const totalRevenue = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
       const lowStockItems = products.filter(product => (product.quantity || 0) < 10).length;
 
       setStats({
@@ -48,6 +62,21 @@ export default function DashboardScreen() {
         totalRevenue: totalRevenue,
         lowStockItems: lowStockItems
       });
+
+      // Get events for the next 7 days
+      const today = new Date();
+      const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      const upcomingEvents = events.filter(event => {
+        const eventDate = new Date(event.date);
+        return eventDate >= today && eventDate <= nextWeek;
+      });
+
+      setWeeklyEvents(upcomingEvents);
+
+      // Generate recent activity from all data sources
+      const activity = generateRecentActivity(orders, products, events, lots, historique);
+      setRecentActivity(activity);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       Alert.alert('Error', 'Failed to load dashboard data');
@@ -71,39 +100,7 @@ export default function DashboardScreen() {
       console.log(`Export result for ${tableName}:`, exportResult);
       
       if (exportResult.fileUri) {
-        // List all files after creation
-        await database.listDocumentFiles();
-        
-        // Share the file locally first
-        if (await Sharing.isAvailableAsync()) {
-          console.log('📤 Sharing file:', exportResult.fileUri);
-          await Sharing.shareAsync(exportResult.fileUri, {
-            mimeType: 'text/csv',
-            dialogTitle: `Export ${tableName}`
-          });
-          console.log('✅ Share dialog completed');
-        } else {
-          console.log('❌ Sharing not available');
-        }
-        
-        // Ask if user wants to send via email
-        Alert.alert(
-          'Export réussi',
-          `Fichier ${tableName} exporté avec succès!\n\nVoulez-vous l'envoyer par email à ${emailService.backupEmail}?`,
-          [
-            { text: 'Non', style: 'cancel' },
-            { 
-              text: 'Envoyer par email', 
-              onPress: async () => {
-                try {
-                  await emailService.sendSingleExport(tableName, exportResult.fileUri);
-                } catch (emailError) {
-                  console.error('Email error:', emailError);
-                }
-              }
-            }
-          ]
-        );
+        Alert.alert('Export réussi', `Fichier ${tableName} exporté avec succès!\n\nLe fichier a été sauvegardé sur votre appareil.`);
       } else {
         Alert.alert('Succès', `${tableName} exporté avec succès!`);
       }
@@ -122,39 +119,7 @@ export default function DashboardScreen() {
       console.log('Calendar with orders export result:', exportResult);
       
       if (exportResult.fileUri) {
-        // List all files after creation
-        await database.listDocumentFiles();
-        
-        // Share the file locally first
-        if (await Sharing.isAvailableAsync()) {
-          console.log('📤 Sharing calendar file:', exportResult.fileUri);
-          await Sharing.shareAsync(exportResult.fileUri, {
-            mimeType: 'text/csv',
-            dialogTitle: 'Export Calendrier + Commandes'
-          });
-          console.log('✅ Share dialog completed');
-        } else {
-          console.log('❌ Sharing not available');
-        }
-        
-        // Ask if user wants to send via email
-        Alert.alert(
-          'Export réussi',
-          `Fichier calendrier avec commandes exporté avec succès!\n\nVoulez-vous l'envoyer par email à ${emailService.backupEmail}?`,
-          [
-            { text: 'Non', style: 'cancel' },
-            { 
-              text: 'Envoyer par email', 
-              onPress: async () => {
-                try {
-                  await emailService.sendSingleExport('calendrier_commandes', exportResult.fileUri);
-                } catch (emailError) {
-                  console.error('Email error:', emailError);
-                }
-              }
-            }
-          ]
-        );
+        Alert.alert('Export réussi', 'Fichier calendrier avec commandes exporté avec succès!\n\nLe fichier a été sauvegardé sur votre appareil.');
       } else {
         Alert.alert('Succès', 'Calendrier avec commandes exporté avec succès!');
       }
@@ -257,6 +222,142 @@ export default function DashboardScreen() {
     }
   };
 
+  // Status colors and icons are now imported from StatusConstants
+
+  const generateRecentActivity = (orders, products, events, lots, historique) => {
+    const activities = [];
+    const now = new Date();
+
+    // Helper function to calculate time ago
+    const getTimeAgo = (dateString) => {
+      const date = new Date(dateString);
+      const diffMs = now - date;
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffHours < 1) return 'Il y a moins d\'une heure';
+      if (diffHours < 24) return `Il y a ${diffHours} heure${diffHours > 1 ? 's' : ''}`;
+      if (diffDays < 7) return `Il y a ${diffDays} jour${diffDays > 1 ? 's' : ''}`;
+      return `Il y a ${Math.floor(diffDays / 7)} semaine${Math.floor(diffDays / 7) > 1 ? 's' : ''}`;
+    };
+
+    // Recent orders (last 7 days)
+    const recentOrders = orders
+      .filter(order => {
+        const orderDate = new Date(order.orderDate);
+        const daysDiff = (now - orderDate) / (1000 * 60 * 60 * 24);
+        return daysDiff <= 7;
+      })
+      .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
+      .slice(0, 3);
+
+    recentOrders.forEach(order => {
+      let activityText = '';
+      if (order.orderType === 'Adoption') {
+        activityText = `🦆 Nouvelle adoption: ${order.customerName} - ${order.animalType} ${order.race}`;
+      } else if (order.orderType === 'Œufs de conso') {
+        activityText = `🥚 Nouvelle commande d'œufs: ${order.customerName} (${order.quantity} douzaines)`;
+      } else if (order.orderType === 'Fromage') {
+        activityText = `🧀 Nouvelle commande de fromage: ${order.customerName} - ${order.product}`;
+      } else {
+        activityText = `📦 Nouvelle commande: ${order.customerName} - ${order.orderType}`;
+      }
+
+      activities.push({
+        id: `order-${order.id}`,
+        text: activityText,
+        time: getTimeAgo(order.orderDate),
+        type: 'order',
+        timestamp: new Date(order.orderDate)
+      });
+    });
+
+    // Recent events (last 7 days)
+    const recentEvents = events
+      .filter(event => {
+        const eventDate = new Date(event.date);
+        const daysDiff = (now - eventDate) / (1000 * 60 * 60 * 24);
+        return daysDiff <= 7;
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 2);
+
+    recentEvents.forEach(event => {
+      let activityText = '';
+      if (event.type === 'Récupération') {
+        activityText = `📅 Récupération prévue: ${event.customer_name || 'Client'} - ${event.title}`;
+      } else if (event.type === 'Alimentation') {
+        activityText = `🌾 Alimentation: ${event.title}`;
+      } else if (event.type === 'Entretien') {
+        activityText = `🧹 Entretien: ${event.title}`;
+      } else {
+        activityText = `📅 ${event.type}: ${event.title}`;
+      }
+
+      activities.push({
+        id: `event-${event.id}`,
+        text: activityText,
+        time: getTimeAgo(event.date),
+        type: 'event',
+        timestamp: new Date(event.date)
+      });
+    });
+
+    // Recent lots (last 7 days)
+    const recentLots = lots
+      .filter(lot => {
+        const lotDate = new Date(lot.date_creation);
+        const daysDiff = (now - lotDate) / (1000 * 60 * 60 * 24);
+        return daysDiff <= 7;
+      })
+      .sort((a, b) => new Date(b.date_creation) - new Date(a.date_creation))
+      .slice(0, 2);
+
+    recentLots.forEach(lot => {
+      activities.push({
+        id: `lot-${lot.id}`,
+        text: `🐣 Nouveau lot créé: ${lot.name}`,
+        time: getTimeAgo(lot.date_creation),
+        type: 'lot',
+        timestamp: new Date(lot.date_creation)
+      });
+    });
+
+    // Recent historique entries (last 7 days)
+    const recentHistorique = historique
+      .filter(entry => {
+        const entryDate = new Date(entry.date);
+        const daysDiff = (now - entryDate) / (1000 * 60 * 60 * 24);
+        return daysDiff <= 7;
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 2);
+
+    recentHistorique.forEach(entry => {
+      let activityText = '';
+      if (entry.type === 'Mort') {
+        activityText = `💀 Mort enregistrée: ${entry.race} - ${entry.description}`;
+      } else if (entry.type === 'Naissance') {
+        activityText = `🐣 Naissance enregistrée: ${entry.race}`;
+      } else {
+        activityText = `📝 ${entry.type}: ${entry.race} - ${entry.description}`;
+      }
+
+      activities.push({
+        id: `hist-${entry.id}`,
+        text: activityText,
+        time: getTimeAgo(entry.date),
+        type: 'historique',
+        timestamp: new Date(entry.date)
+      });
+    });
+
+    // Sort all activities by timestamp (most recent first) and take top 5
+    return activities
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 5);
+  };
+
   const StatCard = ({ title, value, color, icon }) => (
     <View style={[styles.statCard, { borderLeftColor: color }]}>
       <Text style={styles.statTitle}>{title}</Text>
@@ -288,48 +389,95 @@ export default function DashboardScreen() {
         }
       >
 
-      <View style={styles.statsGrid}>
-        <StatCard 
-          title="Total Produits" 
-          value={stats.totalProducts} 
-          color="#4CAF50" 
-        />
-        <StatCard 
-          title="Total Commandes" 
-          value={stats.totalOrders} 
-          color="#2196F3" 
-        />
-        <StatCard 
-          title="Commandes en Attente" 
-          value={stats.pendingOrders} 
-          color="#FF9800" 
-        />
-        <StatCard 
-          title="Revenus" 
-          value={`${stats.totalRevenue.toFixed(2)}€`} 
-          color="#4CAF50" 
-        />
-        <StatCard 
-          title="Stock Faible" 
-          value={stats.lowStockItems} 
-          color="#F44336" 
-        />
+      {/* Compact General Status */}
+      <View style={styles.compactStatusContainer}>
+        <View style={styles.statusRow}>
+          <View style={styles.statusItem}>
+            <Text style={styles.statusLabel}>Produits</Text>
+            <Text style={[styles.statusValue, { color: '#4CAF50' }]}>{stats.totalProducts}</Text>
+          </View>
+          <View style={styles.statusItem}>
+            <Text style={styles.statusLabel}>Commandes</Text>
+            <Text style={[styles.statusValue, { color: '#2196F3' }]}>{stats.totalOrders}</Text>
+          </View>
+          <View style={styles.statusItem}>
+            <Text style={styles.statusLabel}>En Attente</Text>
+            <Text style={[styles.statusValue, { color: '#FF9800' }]}>{stats.pendingOrders}</Text>
+          </View>
+          <View style={styles.statusItem}>
+            <Text style={styles.statusLabel}>Revenus</Text>
+            <Text style={[styles.statusValue, { color: '#4CAF50' }]}>{stats.totalRevenue.toFixed(0)}€</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Weekly Events Preview */}
+      <View style={styles.weeklyEventsContainer}>
+        <TouchableOpacity 
+          style={styles.weeklyEventsHeader}
+          onPress={() => {
+            if (navigation && navigation.navigate) {
+              navigation.navigate('Calendrier');
+            }
+          }}
+        >
+          <Text style={styles.weeklyEventsTitle}>
+            📅 {weeklyEvents.length} événement{weeklyEvents.length > 1 ? 's' : ''} de la semaine
+          </Text>
+          <Text style={styles.arrowText}>→</Text>
+        </TouchableOpacity>
+        
+        {weeklyEvents.length > 0 ? (
+          <View style={styles.eventsList}>
+            {weeklyEvents.slice(0, 3).map((event, index) => (
+              <View key={index} style={styles.eventItem}>
+                <View style={styles.eventInfo}>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  <Text style={styles.eventDate}>
+                    {new Date(event.date).toLocaleDateString('fr-FR', { 
+                      weekday: 'short', 
+                      day: 'numeric',
+                      month: 'short'
+                    })}
+                  </Text>
+                </View>
+                {event.type === 'Récupération' && event.customer_name && (
+                  <View style={styles.eventStatus}>
+                    <Text style={[styles.statusBadge, { 
+                      backgroundColor: getStatusColor(event.status || 'En attente') 
+                    }]}>
+                      {getStatusIcon(event.status || 'En attente')} {event.status || 'En attente'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ))}
+            {weeklyEvents.length > 3 && (
+              <Text style={styles.moreEventsText}>
+                +{weeklyEvents.length - 3} autres événements...
+              </Text>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.noEventsText}>Pas d'événement pour la semaine à venir</Text>
+        )}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Activité Récente</Text>
-        <View style={styles.activityItem}>
-          <Text style={styles.activityText}>🥚 Nouvelle commande d'œufs de consommation (2 douzaines)</Text>
-          <Text style={styles.activityTime}>Il y a 2 heures</Text>
-        </View>
-        <View style={styles.activityItem}>
-          <Text style={styles.activityText}>🐓 Inventaire des poules pondeuses mis à jour</Text>
-          <Text style={styles.activityTime}>Il y a 4 heures</Text>
-        </View>
-        <View style={styles.activityItem}>
-          <Text style={styles.activityText}>✅ Adoption #1234 finalisée</Text>
-          <Text style={styles.activityTime}>Il y a 1 jour</Text>
-        </View>
+        {recentActivity.length > 0 ? (
+          recentActivity.map((activity) => (
+            <View key={activity.id} style={styles.activityItem}>
+              <Text style={styles.activityText}>{activity.text}</Text>
+              <Text style={styles.activityTime}>{activity.time}</Text>
+            </View>
+          ))
+        ) : (
+          <View style={styles.activityItem}>
+            <Text style={styles.activityText}>📋 Aucune activité récente</Text>
+            <Text style={styles.activityTime}>Les nouvelles activités apparaîtront ici</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -382,18 +530,6 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
         
-        <View style={styles.quickActions}>
-          <TouchableOpacity 
-            style={[styles.actionButton, { backgroundColor: '#9C27B0' }]}
-            onPress={async () => {
-              console.log('🔍 DEBUG: Listing all files...');
-              await database.listDocumentFiles();
-              Alert.alert('Debug', 'Check console for file list');
-            }}
-          >
-            <Text style={styles.actionButtonText}>🔍 Debug: List Files</Text>
-          </TouchableOpacity>
-        </View>
       </View>
       </ScrollView>
       </SafeAreaView>
@@ -440,29 +576,110 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: 'rgba(255,255,255,0.9)',
   },
-  statsGrid: {
-    padding: 15,
-    gap: 10,
-  },
-  statCard: {
+  compactStatusContainer: {
     backgroundColor: 'white',
+    margin: 15,
     borderRadius: 12,
-    padding: 20,
-    borderLeftWidth: 4,
+    padding: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  statTitle: {
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  statusItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statusLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  statusValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  weeklyEventsContainer: {
+    backgroundColor: 'white',
+    margin: 15,
+    marginTop: 0,
+    borderRadius: 12,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  weeklyEventsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  weeklyEventsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  arrowText: {
+    fontSize: 18,
+    color: '#005F6B',
+    fontWeight: 'bold',
+  },
+  eventsList: {
+    gap: 8,
+  },
+  eventItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  eventInfo: {
+    flex: 1,
+  },
+  eventTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  eventDate: {
+    fontSize: 12,
+    color: '#666',
+  },
+  eventStatus: {
+    marginLeft: 10,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'white',
+  },
+  moreEventsText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  noEventsText: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 5,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingVertical: 10,
   },
   section: {
     margin: 15,
