@@ -30,7 +30,7 @@ export default function ElevageScreen({ navigation }) {
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
-  const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
+  const [isManualInputExpanded, setIsManualInputExpanded] = useState(true); // Track manual input expansion
   
   const [lotForm, setLotForm] = useState({
     name: '',
@@ -424,9 +424,7 @@ export default function ElevageScreen({ navigation }) {
                     </View>
                     <View style={styles.raceStats}>
                       <Text style={styles.raceStatText}>🐓 {raceData.current} restants (♂️ {raceData.males || 0} | ♀️ {raceData.females || 0} | ❓ {raceData.unsexed || 0})</Text>
-                      <Text style={styles.raceStatText}>
-                        💀 {raceData.deaths || 0} morts (♂️ {raceData.deaths_males || 0} | ♀️ {raceData.deaths_females || 0} | ❓ {raceData.deaths_unsexed || 0})
-                      </Text>
+                      <Text style={styles.raceStatText}>💀 {raceData.deaths || 0} morts (♂️ {raceData.deaths_males || 0} | ♀️ {raceData.deaths_females || 0} | ❓ {raceData.deaths_unsexed || 0})</Text>
                     </View>
                   </TouchableOpacity>
                 );
@@ -695,11 +693,25 @@ export default function ElevageScreen({ navigation }) {
                       const femaleDeathPercent = totalDeaths > 0 ? ((raceData.deaths_females || 0) / totalDeaths * 100).toFixed(1) : '0.0';
                       
                       return (
-                        <View key={raceName} style={styles.raceStatsRow}>
-                          <Text style={styles.raceStatsName}>{raceName}:</Text>
-                          <Text style={styles.raceStatsDetail}>
-                            {raceData.current}/{raceData.initial} (♂️ {raceData.males||0} [{maleAlivePercent}%] | ♀️ {raceData.females||0} [{femaleAlivePercent}%] | ❓ {raceData.unsexed||0}) 💀 {raceData.deaths||0} (♂️ {raceData.deaths_males||0} [{maleDeathPercent}%] | ♀️ {raceData.deaths_females||0} [{femaleDeathPercent}%] | ❓ {raceData.deaths_unsexed||0})
-                          </Text>
+                        <View key={raceName} style={styles.compactRaceRow}>
+                          <View style={styles.compactRaceHeader}>
+                            <Text style={styles.compactRaceName}>{raceName}</Text>
+                            <Text style={styles.compactRaceTotal}>{raceData.current}/{raceData.initial}</Text>
+                          </View>
+                          <View style={styles.compactRaceDetails}>
+                            <View style={styles.compactRaceSection}>
+                              <Text style={styles.compactRaceLabel}>Vivants:</Text>
+                              <Text style={styles.compactRaceData}>
+                                ♂️ {raceData.males||0} [{maleAlivePercent}%] | ♀️ {raceData.females||0} [{femaleAlivePercent}%] | ❓ {raceData.unsexed||0}
+                        </Text>
+                      </View>
+                            <View style={styles.compactRaceSection}>
+                              <Text style={styles.compactRaceLabel}>Morts:</Text>
+                              <Text style={styles.compactRaceData}>
+                                ♂️ {raceData.deaths_males||0} [{maleDeathPercent}%] | ♀️ {raceData.deaths_females||0} [{femaleDeathPercent}%] | ❓ {raceData.deaths_unsexed||0}
+                              </Text>
+                            </View>
+                          </View>
                         </View>
                       );
                     })}
@@ -1100,84 +1112,82 @@ export default function ElevageScreen({ navigation }) {
                     style={styles.manualInputHeader}
                     onPress={() => setIsManualInputExpanded(!isManualInputExpanded)}
                   >
-                    <View style={styles.manualInputHeaderLeft}>
-                      <Text style={styles.expandIndicator}>
-                        {isManualInputExpanded ? '▼' : '▶'}
-                      </Text>
-                      <Text style={styles.sectionTitle}>✏️ Saisie manuelle</Text>
-                    </View>
+                    <Text style={styles.sectionTitle}>✏️ Saisie manuelle</Text>
+                    <Text style={styles.expandIndicator}>
+                      {isManualInputExpanded ? '▼' : '▶'}
+                    </Text>
                   </TouchableOpacity>
                   
                   {isManualInputExpanded && (
                     <View style={styles.manualInputSection}>
                       <Text style={styles.manualInputSubtitle}>Animaux vivants:</Text>
-                      <View style={styles.threeColumnInputs}>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>♂️ Mâles:</Text>
-                          <TextInput
-                            style={[styles.input, styles.thirdInput]}
-                            placeholder="0"
-                            value={updateForm.males}
-                            onChangeText={(text) => setUpdateForm({...updateForm, males: text})}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>♀️ Femelles:</Text>
-                          <TextInput
-                            style={[styles.input, styles.thirdInput]}
-                            placeholder="0"
-                            value={updateForm.females}
-                            onChangeText={(text) => setUpdateForm({...updateForm, females: text})}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>❓ Non-sexés:</Text>
-                          <TextInput
-                            style={[styles.input, styles.thirdInput]}
-                            placeholder="0"
-                            value={updateForm.unsexed}
-                            onChangeText={(text) => setUpdateForm({...updateForm, unsexed: text})}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                      </View>
+                  <View style={styles.threeColumnInputs}>
+                    <View style={styles.inputWithLabel}>
+                      <Text style={styles.inputLabel}>♂️ Mâles:</Text>
+                      <TextInput
+                        style={[styles.input, styles.thirdInput]}
+                        placeholder="0"
+                        value={updateForm.males}
+                        onChangeText={(text) => setUpdateForm({...updateForm, males: text})}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                    <View style={styles.inputWithLabel}>
+                      <Text style={styles.inputLabel}>♀️ Femelles:</Text>
+                      <TextInput
+                        style={[styles.input, styles.thirdInput]}
+                        placeholder="0"
+                        value={updateForm.females}
+                        onChangeText={(text) => setUpdateForm({...updateForm, females: text})}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                    <View style={styles.inputWithLabel}>
+                      <Text style={styles.inputLabel}>❓ Non-sexés:</Text>
+                      <TextInput
+                        style={[styles.input, styles.thirdInput]}
+                        placeholder="0"
+                        value={updateForm.unsexed}
+                        onChangeText={(text) => setUpdateForm({...updateForm, unsexed: text})}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                  </View>
 
                       <Text style={styles.manualInputSubtitle}>Morts cumulés:</Text>
-                      <View style={styles.threeColumnInputs}>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>💀♂️ Morts mâles:</Text>
-                          <TextInput
-                            style={[styles.input, styles.thirdInput]}
-                            placeholder="0"
-                            value={updateForm.deaths_males}
-                            onChangeText={(text) => setUpdateForm({...updateForm, deaths_males: text})}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>💀♀️ Morts femelles:</Text>
-                          <TextInput
-                            style={[styles.input, styles.thirdInput]}
-                            placeholder="0"
-                            value={updateForm.deaths_females}
-                            onChangeText={(text) => setUpdateForm({...updateForm, deaths_females: text})}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>💀❓ Morts non-sexés:</Text>
-                          <TextInput
-                            style={[styles.input, styles.thirdInput]}
-                            placeholder="0"
-                            value={updateForm.deaths_unsexed}
-                            onChangeText={(text) => setUpdateForm({...updateForm, deaths_unsexed: text})}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                      </View>
+                  <View style={styles.threeColumnInputs}>
+                    <View style={styles.inputWithLabel}>
+                      <Text style={styles.inputLabel}>💀♂️ Morts mâles:</Text>
+                      <TextInput
+                        style={[styles.input, styles.thirdInput]}
+                        placeholder="0"
+                        value={updateForm.deaths_males}
+                        onChangeText={(text) => setUpdateForm({...updateForm, deaths_males: text})}
+                        keyboardType="number-pad"
+                      />
                     </View>
+                    <View style={styles.inputWithLabel}>
+                      <Text style={styles.inputLabel}>💀♀️ Morts femelles:</Text>
+                      <TextInput
+                        style={[styles.input, styles.thirdInput]}
+                        placeholder="0"
+                        value={updateForm.deaths_females}
+                        onChangeText={(text) => setUpdateForm({...updateForm, deaths_females: text})}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                    <View style={styles.inputWithLabel}>
+                      <Text style={styles.inputLabel}>💀❓ Morts non-sexés:</Text>
+                      <TextInput
+                        style={[styles.input, styles.thirdInput]}
+                        placeholder="0"
+                        value={updateForm.deaths_unsexed}
+                        onChangeText={(text) => setUpdateForm({...updateForm, deaths_unsexed: text})}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                  </View>
+                  </View>
                   )}
 
                   {/* Notes Section */}
@@ -1479,8 +1489,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   raceStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
   },
   raceStatText: {
     fontSize: 11,
@@ -2110,16 +2119,63 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   manualInputHeader: {
-    marginBottom: 10,
-  },
-  manualInputHeaderLeft: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 10,
   },
   expandIndicator: {
     fontSize: 16,
     color: '#005F6B',
     fontWeight: 'bold',
-    marginRight: 8,
+  },
+  
+  // Compact race display styles
+  compactRaceRow: {
+    backgroundColor: 'white',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#005F6B',
+  },
+  compactRaceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  compactRaceName: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  compactRaceTotal: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  compactRaceDetails: {
+    gap: 2,
+  },
+  compactRaceSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  compactRaceLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#666',
+    width: 50,
+  },
+  compactRaceData: {
+    fontSize: 11,
+    color: '#333',
+    fontFamily: 'monospace',
+    flex: 1,
   },
 });

@@ -41,6 +41,11 @@ export default function AddOrderScreen({ navigation, route }) {
     selectedLot: null
   });
   const [multipleRaceConfigs, setMultipleRaceConfigs] = useState([]); // Track multiple configs in modal
+  const [calculatedPrice, setCalculatedPrice] = useState(0);
+  const [priceAdjustment, setPriceAdjustment] = useState(0);
+  const [priceBreakdown, setPriceBreakdown] = useState([]);
+  const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
+  const [pricingGridAvailable, setPricingGridAvailable] = useState(true);
   const [orderForm, setOrderForm] = useState(editingOrder ? {
     orderType: editingOrder.orderType || 'Adoption',
     selectedAnimals: editingOrder.selectedAnimals || ['poules'],
@@ -127,6 +132,45 @@ export default function AddOrderScreen({ navigation, route }) {
       }
     }
   }, []);
+
+  // Calculate price whenever order details change
+  useEffect(() => {
+    calculatePrice();
+  }, [orderForm.orderType, orderForm.animalDetails, orderForm.quantity]);
+
+  const calculatePrice = async () => {
+    try {
+      // Check if pricing grids are available for the selected animal types
+      const pricingGrids = await database.getAllPricingGrids();
+      const selectedAnimalTypes = Object.keys(orderForm.animalDetails || {});
+      
+      // Check if at least one selected animal type has a pricing grid
+      const hasPricingGrid = selectedAnimalTypes.some(animalType => 
+        pricingGrids[animalType] && pricingGrids[animalType].length > 0
+      );
+      
+      if (!hasPricingGrid) {
+        setPricingGridAvailable(false);
+        setCalculatedPrice(0);
+        setPriceBreakdown([]);
+        return;
+      }
+      
+      setPricingGridAvailable(true);
+      const pricingData = database.calculateOrderPrice(orderForm);
+      setCalculatedPrice(pricingData.estimatedPrice);
+      setPriceBreakdown(pricingData.priceBreakdown);
+      
+      // Update the total price field with calculated price + adjustment
+      const finalPrice = pricingData.estimatedPrice + parseFloat(priceAdjustment || 0);
+      setOrderForm(prev => ({
+        ...prev,
+        totalPrice: finalPrice.toFixed(2)
+      }));
+    } catch (error) {
+      console.error('Error calculating price:', error);
+    }
+  };
 
   const loadCalendarEvents = async () => {
     try {
@@ -579,14 +623,15 @@ export default function AddOrderScreen({ navigation, route }) {
     });
   };
 
-  const saveOrder = () => {
+  const saveOrder = async () => {
     if (!orderForm.customerName) {
       Alert.alert('Erreur', 'Veuillez remplir le nom du client');
       return;
     }
 
+    const orderId = editingOrder ? editingOrder.id : Date.now();
     const newOrder = {
-      id: editingOrder ? editingOrder.id : Date.now(),
+      id: orderId,
       orderType: orderForm.orderType,
       selectedAnimals: orderForm.selectedAnimals,
       animalDetails: orderForm.animalDetails,
@@ -603,6 +648,20 @@ export default function AddOrderScreen({ navigation, route }) {
       status: orderForm.status,
       orderDate: editingOrder ? editingOrder.orderDate : getTodayISO()
     };
+
+    // Save pricing data to database
+    try {
+      const pricingData = {
+        calculatedPrice: calculatedPrice,
+        priceAdjustment: parseFloat(priceAdjustment || 0),
+        finalPrice: parseFloat(orderForm.totalPrice || 0),
+        priceBreakdown: priceBreakdown,
+        calculationDate: new Date().toISOString()
+      };
+      await database.saveOrderPricing(orderId, pricingData);
+    } catch (error) {
+      console.error('Error saving pricing data:', error);
+    }
 
     onSaveOrder(newOrder, !!editingOrder);
     navigation.goBack();
@@ -912,13 +971,119 @@ export default function AddOrderScreen({ navigation, route }) {
           numberOfLines={3}
         />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Prix total"
-          value={orderForm.totalPrice}
-          onChangeText={(text) => setOrderForm({...orderForm, totalPrice: text})}
-          keyboardType="decimal-pad"
-        />
+        {/* Pricing Section */}
+        <View style={styles.pricingSection}>
+          <Text style={styles.sectionTitle}>💰 Calcul du prix</Text>
+          
+          {!pricingGridAvailable ? (
+            <View style={styles.noPricingGridContainer}>
+              <Text style={styles.noPricingGridText}>
+                ⚠️ Aucune grille tarifaire configurée
+              </Text>
+              <Text style={styles.noPricingGridSubtext}>
+                Veuillez configurer la grille tarifaire dans la section "Productions" pour calculer automatiquement les prix.
+              </Text>
+              <TouchableOpacity 
+                style={styles.goToPricingButton}
+                onPress={() => navigation.navigate('Gestion')}
+              >
+                <Text style={styles.goToPricingButtonText}>
+                  📊 Configurer la grille tarifaire
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              {/* Calculated Price Display */}
+              <View style={styles.calculatedPriceContainer}>
+                <Text style={styles.calculatedPriceLabel}>Prix calculé:</Text>
+                <Text style={styles.calculatedPriceValue}>
+                  {calculatedPrice.toFixed(2)} €
+                </Text>
+              </View>
+
+              {/* Price Adjustment */}
+              <View style={styles.priceAdjustmentContainer}>
+                <Text style={styles.priceAdjustmentLabel}>Ajustement (+ ou -):</Text>
+                <View style={styles.priceAdjustmentInputContainer}>
+                  <TextInput
+                    style={[styles.input, styles.priceAdjustmentInput]}
+                    placeholder="0.00"
+                    value={priceAdjustment.toString()}
+                    onChangeText={(text) => {
+                      setPriceAdjustment(text);
+                      const adjustment = parseFloat(text || 0);
+                      const finalPrice = calculatedPrice + adjustment;
+                      setOrderForm({...orderForm, totalPrice: finalPrice.toFixed(2)});
+                    }}
+                    keyboardType="decimal-pad"
+                  />
+                  <Text style={styles.currencySymbol}>€</Text>
+                </View>
+              </View>
+
+              {/* Final Price Display */}
+              <View style={styles.finalPriceContainer}>
+                <Text style={styles.finalPriceLabel}>Prix total final:</Text>
+                <Text style={styles.finalPriceValue}>
+                  {orderForm.totalPrice || '0.00'} €
+                </Text>
+              </View>
+
+              {/* Price Breakdown Toggle */}
+              {priceBreakdown.length > 0 && (
+                <TouchableOpacity 
+                  style={styles.priceBreakdownToggle}
+                  onPress={() => setShowPriceBreakdown(!showPriceBreakdown)}
+                >
+                  <Text style={styles.priceBreakdownToggleText}>
+                    {showPriceBreakdown ? '▼' : '▶'} Détail du calcul
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Price Breakdown Details */}
+              {showPriceBreakdown && priceBreakdown.length > 0 && (
+                <View style={styles.priceBreakdownContainer}>
+                  {priceBreakdown.map((item, index) => (
+                    <View key={index} style={styles.priceBreakdownItem}>
+                      {item.animalType ? (
+                        // Adoption order breakdown
+                        <>
+                          <Text style={styles.priceBreakdownItemTitle}>
+                            {item.animalType} - {item.race} ({item.sexPreference === 'male' ? '♂️' : item.sexPreference === 'female' ? '♀️' : '❓'})
+                          </Text>
+                          <Text style={styles.priceBreakdownItemDetails}>
+                            {item.quantity} × {item.costPerAnimal}€ = {item.configTotal}€
+                          </Text>
+                          <Text style={styles.priceBreakdownItemAge}>
+                            Âge: {item.ageMonths.toFixed(1)} mois
+                          </Text>
+                          <Text style={styles.priceBreakdownItemSource}>
+                            Source: {item.pricingSource}
+                          </Text>
+                        </>
+                      ) : (
+                        // Product order breakdown
+                        <>
+                          <Text style={styles.priceBreakdownItemTitle}>
+                            {item.product}
+                          </Text>
+                          <Text style={styles.priceBreakdownItemDetails}>
+                            {item.quantity} {item.unit} × {item.unitPrice}€ = {item.total}€
+                          </Text>
+                          <Text style={styles.priceBreakdownItemSource}>
+                            Source: {item.pricingSource}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+        </View>
 
         {orderForm.orderType !== 'Adoption' && (
           <View style={styles.dateContainer}>
@@ -2225,5 +2390,161 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#666',
     marginBottom: 2,
+  },
+  // Pricing section styles
+  pricingSection: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+  },
+  calculatedPriceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f0f8f0',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+  },
+  calculatedPriceLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  calculatedPriceValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  priceAdjustmentContainer: {
+    marginBottom: 12,
+  },
+  priceAdjustmentLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 6,
+  },
+  priceAdjustmentInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  priceAdjustmentInput: {
+    flex: 1,
+    marginRight: 8,
+    marginBottom: 0,
+    textAlign: 'center',
+  },
+  currencySymbol: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  finalPriceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingVertical: 10,
+    backgroundColor: '#e3f2fd',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderColor: '#2196F3',
+  },
+  finalPriceLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  finalPriceValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
+  },
+  priceBreakdownToggle: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 6,
+    padding: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  priceBreakdownToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+  },
+  priceBreakdownContainer: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+  },
+  priceBreakdownItem: {
+    backgroundColor: 'white',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  priceBreakdownItemTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  priceBreakdownItemDetails: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 2,
+  },
+  priceBreakdownItemAge: {
+    fontSize: 10,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  priceBreakdownItemSource: {
+    fontSize: 10,
+    color: '#4CAF50',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  // No pricing grid styles
+  noPricingGridContainer: {
+    backgroundColor: '#fff3cd',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  noPricingGridText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#856404',
+    marginBottom: 8,
+  },
+  noPricingGridSubtext: {
+    fontSize: 14,
+    color: '#856404',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  goToPricingButton: {
+    backgroundColor: '#ffc107',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  goToPricingButtonText: {
+    color: '#856404',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

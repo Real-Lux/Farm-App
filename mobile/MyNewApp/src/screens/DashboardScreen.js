@@ -134,7 +134,7 @@ export default function DashboardScreen({ navigation }) {
       Alert.alert('Sauvegarde en cours', 'Création de la sauvegarde complète...');
       
       const filesToSend = [];
-      const tables = ['products', 'orders', 'calendar_events', 'elevage_lots', 'elevage_races', 'elevage_historique'];
+      const tables = ['products', 'orders', 'calendar_events', 'elevage_lots', 'elevage_races', 'elevage_historique', 'caprin_animals', 'caprin_settings', 'saved_formulas', 'order_pricing', 'pricing_grids'];
       
       // Export each table to CSV
       for (const tableName of tables) {

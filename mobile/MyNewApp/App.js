@@ -9,6 +9,7 @@ import CalendarScreen from './src/screens/CalendarScreen';
 import BookingSystemScreen from './src/screens/BookingSystemScreen';
 import AddOrderScreen from './src/screens/AddOrderScreen';
 import ElevageScreen from './src/screens/ElevageScreen';
+import CaprinScreen from './src/screens/CaprinScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -87,12 +88,16 @@ function OrdersNavigator({ route }) {
   );
 }
 
-// Create a navigator component that handles ProductManagement and Elevage screens
+// Create a navigator component that handles ProductManagement, Elevage, and Caprin screens
 function GestionNavigator() {
   const [currentScreen, setCurrentScreen] = useState('ProductManagement');
 
   const navigateToElevage = () => {
     setCurrentScreen('Elevage');
+  };
+
+  const navigateToCaprin = () => {
+    setCurrentScreen('Caprin');
   };
 
   const navigateToProductManagement = () => {
@@ -103,6 +108,8 @@ function GestionNavigator() {
     navigate: (screenName, params) => {
       if (screenName === 'ElevageScreen') {
         navigateToElevage();
+      } else if (screenName === 'CaprinScreen') {
+        navigateToCaprin();
       } else {
         navigateToProductManagement();
       }
@@ -113,6 +120,14 @@ function GestionNavigator() {
   if (currentScreen === 'Elevage') {
     return (
       <ElevageScreen 
+        navigation={mockNavigation}
+      />
+    );
+  }
+
+  if (currentScreen === 'Caprin') {
+    return (
+      <CaprinScreen 
         navigation={mockNavigation}
       />
     );

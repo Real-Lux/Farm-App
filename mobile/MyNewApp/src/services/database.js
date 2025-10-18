@@ -164,7 +164,117 @@ class SimpleTestDatabaseService {
           quantity: 0
         }
       ],
-      lot_notes: {}
+      lot_notes: {},
+      caprin_settings: {
+        milkRecordingMethod: 'individual', // 'individual' or 'group'
+        groupMilkProduction: [] // For group recording: [{ date, total, notes }]
+      },
+      caprin_animals: [
+        {
+          id: 1,
+          name: 'Bella',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2023-03-15',
+          mother: 'Luna',
+          father: 'Max',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Très productive',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.5, evening: 2.8, total: 5.3, notes: '' },
+            { date: '2025-01-14', morning: 2.3, evening: 2.6, total: 4.9, notes: '' },
+            { date: '2025-01-13', morning: 2.7, evening: 2.9, total: 5.6, notes: 'Excellente production' },
+            { date: '2025-01-12', morning: 2.4, evening: 2.5, total: 4.9, notes: '' }
+          ],
+          offspring: ['Bella Jr', 'Luna Jr'],
+          parents: { mother: 'Luna', father: 'Max' }
+        },
+        {
+          id: 2,
+          name: 'Max',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2022-05-20',
+          mother: 'Daisy',
+          father: 'Rocky',
+          gender: 'mâle',
+          status: 'vivant',
+          notes: 'Excellent reproducteur',
+          offspring: ['Bella', 'Charlie'],
+          parents: { mother: 'Daisy', father: 'Rocky' }
+        },
+        {
+          id: 3,
+          name: 'Luna',
+          species: 'brebis',
+          breed: 'Mérinos',
+          birthDate: '2021-08-10',
+          mother: 'Sheila',
+          father: 'Rambo',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Ancienne, très expérimentée',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.8, evening: 2.0, total: 3.8, notes: '' },
+            { date: '2025-01-14', morning: 1.9, evening: 2.1, total: 4.0, notes: '' },
+            { date: '2025-01-13', morning: 1.7, evening: 1.9, total: 3.6, notes: '' }
+          ],
+          offspring: ['Bella', 'Luna Jr'],
+          parents: { mother: 'Sheila', father: 'Rambo' }
+        },
+        {
+          id: 4,
+          name: 'Charlie',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2023-07-12',
+          mother: 'Bella',
+          father: 'Max',
+          gender: 'mâle',
+          status: 'vivant',
+          notes: 'Jeune mâle prometteur',
+          offspring: [],
+          parents: { mother: 'Bella', father: 'Max' }
+        },
+        {
+          id: 5,
+          name: 'Daisy',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2020-11-03',
+          mother: 'Maya',
+          father: 'Bruno',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Matriarche du troupeau',
+          milkProduction: [
+            { date: '2025-01-15', morning: 3.2, evening: 3.5, total: 6.7, notes: 'Production exceptionnelle' },
+            { date: '2025-01-14', morning: 3.0, evening: 3.3, total: 6.3, notes: '' },
+            { date: '2025-01-13', morning: 3.1, evening: 3.4, total: 6.5, notes: '' }
+          ],
+          offspring: ['Max', 'Luna Jr'],
+          parents: { mother: 'Maya', father: 'Bruno' }
+        },
+        {
+          id: 6,
+          name: 'Sheila',
+          species: 'brebis',
+          breed: 'Mérinos',
+          birthDate: '2019-04-22',
+          mother: 'Fiona',
+          father: 'Rex',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Très docile, parfaite pour les enfants',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.1, evening: 2.3, total: 4.4, notes: '' },
+            { date: '2025-01-14', morning: 2.0, evening: 2.2, total: 4.2, notes: '' }
+          ],
+          offspring: ['Luna', 'Sheila Jr'],
+          parents: { mother: 'Fiona', father: 'Rex' }
+        }
+      ]
     };
     console.log('✅ Simple storage initialized with test data');
   }
@@ -258,8 +368,20 @@ class SimpleTestDatabaseService {
       throw new Error(`Aucune donnée à exporter pour ${tableName}`);
     }
 
-    // Generate CSV content
-    const csvContent = this.generateCSV(data);
+        // Generate CSV content - use specialized method for specific data types
+        let csvContent;
+        if (tableName === 'caprin_animals') {
+          csvContent = this.generateCaprinCSV(data);
+        } else if (tableName === 'caprin_settings') {
+          csvContent = this.generateCaprinSettingsCSV(data);
+        } else if (tableName === 'order_pricing') {
+          csvContent = this.generateOrderPricingCSV(data);
+        } else if (tableName === 'pricing_grids') {
+          csvContent = this.generatePricingGridsCSV(data);
+        } else {
+          csvContent = this.generateCSV(data);
+        }
+    
     const fileName = `${tableName}_${getTodayISO()}.csv`;
     
     console.log(`📝 Generated CSV content (${csvContent.length} chars):`, csvContent.substring(0, 200) + '...');
@@ -301,9 +423,140 @@ class SimpleTestDatabaseService {
     return csvRows.join('\n');
   }
 
+  generateCaprinCSV(animals) {
+    if (!animals || animals.length === 0) return '';
+    
+    const headers = [
+      'id', 'name', 'species', 'breed', 'birthDate', 'mother', 'father', 
+      'gender', 'status', 'notes', 'totalMilkProduction', 'averageMilkProduction', 
+      'offspringCount', 'milkProductionDays'
+    ];
+    
+    const csvRows = [
+      headers.join(','),
+      ...animals.map(animal => {
+        const totalMilk = animal.milkProduction ? 
+          animal.milkProduction.reduce((total, day) => total + day.total, 0) : 0;
+        const avgMilk = animal.milkProduction && animal.milkProduction.length > 0 ? 
+          (totalMilk / animal.milkProduction.length).toFixed(1) : 0;
+        const offspringCount = animal.offspring ? animal.offspring.length : 0;
+        const milkDays = animal.milkProduction ? animal.milkProduction.length : 0;
+        
+        return [
+          animal.id,
+          animal.name,
+          animal.species,
+          animal.breed,
+          animal.birthDate,
+          animal.mother || '',
+          animal.father || '',
+          animal.gender,
+          animal.status,
+          animal.notes || '',
+          totalMilk.toFixed(1),
+          avgMilk,
+          offspringCount,
+          milkDays
+        ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
+      })
+    ];
+    
+    return csvRows.join('\n');
+  }
+
+  generateCaprinSettingsCSV(settings) {
+    if (!settings) return '';
+    
+    const headers = ['milkRecordingMethod', 'totalGroupMilkProduction', 'groupMilkDays'];
+    
+    const totalGroupMilk = settings.groupMilkProduction ? 
+      settings.groupMilkProduction.reduce((total, day) => total + day.total, 0) : 0;
+    const groupMilkDays = settings.groupMilkProduction ? settings.groupMilkProduction.length : 0;
+    
+    const csvRows = [
+      headers.join(','),
+      [
+        settings.milkRecordingMethod || 'individual',
+        totalGroupMilk.toFixed(1),
+        groupMilkDays
+      ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')
+    ];
+    
+    return csvRows.join('\n');
+  }
+
+  generateOrderPricingCSV(pricingData) {
+    if (!pricingData || Object.keys(pricingData).length === 0) return '';
+    
+    const headers = [
+      'orderId', 'calculatedPrice', 'priceAdjustment', 'finalPrice', 
+      'calculationDate', 'priceBreakdown'
+    ];
+    
+    const csvRows = [
+      headers.join(','),
+      ...Object.entries(pricingData).map(([orderId, pricing]) => [
+        orderId,
+        pricing.calculatedPrice || 0,
+        pricing.priceAdjustment || 0,
+        pricing.finalPrice || 0,
+        pricing.calculationDate || '',
+        JSON.stringify(pricing.priceBreakdown || []).replace(/"/g, '""')
+      ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','))
+    ];
+    
+    return csvRows.join('\n');
+  }
+
+  generatePricingGridsCSV(pricingGrids) {
+    if (!pricingGrids || Object.keys(pricingGrids).length === 0) return '';
+    
+    const headers = ['animalType', 'ageMonths', 'price', 'sex'];
+    const csvRows = [headers.join(',')];
+    
+    Object.entries(pricingGrids).forEach(([animalType, grid]) => {
+      grid.forEach(item => {
+        csvRows.push([
+          animalType,
+          item.ageMonths || 0,
+          item.price || 0,
+          item.sex || ''
+        ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','));
+      });
+    });
+    
+    return csvRows.join('\n');
+  }
+
   async importFromCSV(tableName, csvContent) {
     console.log('📥 importFromCSV called');
     return 1;
+  }
+
+  async restoreFromBackup(backupData) {
+    console.log('📥 restoreFromBackup called');
+    
+    try {
+      // Restore all data from backup
+      if (backupData.products) this.storage.products = backupData.products;
+      if (backupData.orders) this.storage.orders = backupData.orders;
+      if (backupData.calendar_events) this.storage.calendar_events = backupData.calendar_events;
+      if (backupData.elevage_lots) this.storage.elevage_lots = backupData.elevage_lots;
+      if (backupData.elevage_races) this.storage.elevage_races = backupData.elevage_races;
+      if (backupData.elevage_historique) this.storage.elevage_historique = backupData.elevage_historique;
+      if (backupData.lot_notes) this.storage.lot_notes = backupData.lot_notes;
+      if (backupData.caprin_animals) this.storage.caprin_animals = backupData.caprin_animals;
+      if (backupData.caprin_settings) this.storage.caprin_settings = backupData.caprin_settings;
+      if (backupData.saved_formulas) this.storage.saved_formulas = backupData.saved_formulas;
+      if (backupData.order_pricing) this.storage.order_pricing = backupData.order_pricing;
+      if (backupData.pricing_grids) this.storage.pricing_grids = backupData.pricing_grids;
+      
+      console.log('✅ Database restored from backup successfully');
+      return { success: true, message: 'Base de données restaurée avec succès' };
+    } catch (error) {
+      console.error('❌ Error restoring from backup:', error);
+      return { success: false, message: 'Erreur lors de la restauration: ' + error.message };
+    }
   }
 
   async backupDatabase() {
@@ -317,6 +570,11 @@ class SimpleTestDatabaseService {
       elevage_races: this.storage.elevage_races,
       elevage_historique: this.storage.elevage_historique,
       lot_notes: this.storage.lot_notes,
+      caprin_animals: this.storage.caprin_animals,
+      caprin_settings: this.storage.caprin_settings,
+      saved_formulas: this.storage.saved_formulas,
+      order_pricing: this.storage.order_pricing,
+      pricing_grids: this.storage.pricing_grids,
       backup_date: getNowISO()
     };
 
@@ -509,11 +767,45 @@ class SimpleTestDatabaseService {
     console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events after elevage sync`);
   }
 
+  // Sync caprin events with calendar
+  async syncCaprinWithCalendar() {
+    console.log('🔄 Syncing caprin events with calendar...');
+    
+    const animals = this.storage.caprin_animals || [];
+    const existingEvents = this.storage.calendar_events || [];
+    
+    // Create events for birth dates
+    for (const animal of animals) {
+      if (animal.birthDate) {
+        const eventTitle = `Naissance: ${animal.name} (${animal.species})`;
+        const eventExists = existingEvents.some(event => 
+          event.title === eventTitle && event.date === animal.birthDate
+        );
+        
+        if (!eventExists) {
+          const newEvent = {
+            id: Date.now() + Math.random(),
+            title: eventTitle,
+            date: animal.birthDate,
+            type: 'Naissance',
+            product: animal.species === 'chèvre' ? 'Chèvre' : 'Brebis',
+            notes: `Race: ${animal.breed}, Sexe: ${animal.gender}`
+          };
+          
+          this.storage.calendar_events.push(newEvent);
+        }
+      }
+    }
+    
+    console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events after caprin sync`);
+  }
+
   // Sync all data with calendar
   async syncAllWithCalendar() {
     console.log('🔄 Syncing all data with calendar...');
     await this.syncOrdersWithCalendar();
     await this.syncElevageWithCalendar();
+    await this.syncCaprinWithCalendar();
     console.log('✅ All data synced with calendar');
   }
 
@@ -679,6 +971,275 @@ class SimpleTestDatabaseService {
       return this.storage.elevage_historique.filter(h => h.lot_id == lotId);
     }
     return this.storage.elevage_historique;
+  }
+
+  // ========== PRICING SYSTEM ==========
+  
+  // Save pricing grid to database
+  async savePricingGrid(animalType, pricingGrid) {
+    console.log('💰 savePricingGrid called');
+    if (!this.storage.pricing_grids) {
+      this.storage.pricing_grids = {};
+    }
+    this.storage.pricing_grids[animalType] = pricingGrid;
+    return { success: true };
+  }
+
+  // Get pricing grid from database
+  async getPricingGrid(animalType) {
+    console.log('💰 getPricingGrid called');
+    if (!this.storage.pricing_grids) {
+      this.storage.pricing_grids = {};
+    }
+    return this.storage.pricing_grids[animalType] || [];
+  }
+
+  // Get all pricing grids
+  async getAllPricingGrids() {
+    console.log('💰 getAllPricingGrids called');
+    return this.storage.pricing_grids || {};
+  }
+
+  // Get available animal types with pricing grids
+  async getAvailableAnimalTypes() {
+    console.log('💰 getAvailableAnimalTypes called');
+    const grids = this.storage.pricing_grids || {};
+    return Object.keys(grids);
+  }
+
+  // Find matching price from pricing grid for specific animal type
+  findMatchingPrice(animalType, ageMonths, ageWeeks, sexPreference) {
+    const pricingGrids = this.storage.pricing_grids || {};
+    const pricingGrid = pricingGrids[animalType] || [];
+    const totalAgeInMonths = parseFloat(ageMonths || 0) + (parseFloat(ageWeeks || 0) / 4.33);
+    
+    // Find the best matching price entry
+    let bestMatch = null;
+    let bestAgeDifference = Infinity;
+    
+    pricingGrid.forEach(item => {
+      const itemAgeMonths = item.ageMonths || 0;
+      const ageDifference = Math.abs(itemAgeMonths - totalAgeInMonths);
+      
+      // Check if sex matches (or if item is "Tous")
+      const sexMatches = item.sex === 'Tous' || 
+                        (sexPreference === 'female' && item.sex === 'Femelle') ||
+                        (sexPreference === 'male' && item.sex === 'Mâle') ||
+                        sexPreference === 'any';
+      
+      if (sexMatches && ageDifference < bestAgeDifference) {
+        bestMatch = item;
+        bestAgeDifference = ageDifference;
+      }
+    });
+    
+    return bestMatch ? bestMatch.price : 0;
+  }
+
+  // Parse age string to months for comparison
+  parseAgeToMonths(ageString) {
+    if (ageString.includes('Naissance')) return 0;
+    if (ageString.includes('1 semaine')) return 0.25;
+    if (ageString.includes('1 mois')) return 1;
+    if (ageString.includes('2 mois')) return 2;
+    if (ageString.includes('3 mois')) return 3;
+    if (ageString.includes('4 mois')) return 4;
+    if (ageString.includes('5+ mois')) return 5;
+    
+    // Try to extract number from string
+    const match = ageString.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  }
+
+  calculateOrderPrice(orderDetails) {
+    let totalPrice = 0;
+    let priceBreakdown = [];
+
+    if (orderDetails.orderType === 'Adoption' && orderDetails.animalDetails) {
+      // Calculate price for each animal type and race configuration using pricing grid
+      Object.entries(orderDetails.animalDetails).forEach(([animalType, animalDetail]) => {
+        if (animalDetail.races && Array.isArray(animalDetail.races)) {
+          animalDetail.races.forEach(raceConfig => {
+            // Find matching price from pricing grid for this specific animal type
+            const pricePerAnimal = this.findMatchingPrice(
+              animalType,
+              raceConfig.ageMonths,
+              raceConfig.ageWeeks,
+              raceConfig.sexPreference
+            );
+            
+            // Calculate total for this configuration
+            const quantity = parseInt(raceConfig.quantity) || 1;
+            const configTotal = pricePerAnimal * quantity;
+            
+            totalPrice += configTotal;
+            
+            // Calculate age in months for display
+            const ageInMonths = parseFloat(raceConfig.ageMonths || 0) + (parseFloat(raceConfig.ageWeeks || 0) / 4.33);
+            
+            priceBreakdown.push({
+              animalType,
+              race: raceConfig.race,
+              sexPreference: raceConfig.sexPreference,
+              ageMonths: ageInMonths,
+              quantity,
+              costPerAnimal: pricePerAnimal.toFixed(2),
+              configTotal: configTotal.toFixed(2),
+              pricingSource: `Grille tarifaire ${animalType}`
+            });
+          });
+        }
+      });
+    } else if (orderDetails.orderType !== 'Adoption') {
+      // For non-adoption orders, use fixed pricing
+      const productPricing = {
+        'Poulets': { basePrice: 8.00, unit: 'kg' },
+        'Œufs de conso': { basePrice: 0.25, unit: 'pièce' },
+        'Œufs fécondés': { basePrice: 0.50, unit: 'pièce' },
+        'Fromage': { basePrice: 12.00, unit: 'kg' }
+      };
+      
+      const product = productPricing[orderDetails.orderType];
+      if (product && orderDetails.quantity) {
+        const quantity = parseInt(orderDetails.quantity) || 0;
+        totalPrice = product.basePrice * quantity;
+        
+        priceBreakdown.push({
+          product: orderDetails.orderType,
+          quantity,
+          unitPrice: product.basePrice.toFixed(2),
+          total: totalPrice.toFixed(2),
+          unit: product.unit,
+          pricingSource: 'Prix fixe'
+        });
+      }
+    }
+
+    return {
+      estimatedPrice: totalPrice,
+      priceBreakdown,
+      calculationDate: new Date().toISOString()
+    };
+  }
+
+  async saveOrderPricing(orderId, pricingData) {
+    console.log('💰 saveOrderPricing called');
+    if (!this.storage.order_pricing) {
+      this.storage.order_pricing = {};
+    }
+    this.storage.order_pricing[orderId] = pricingData;
+    return { success: true };
+  }
+
+  async getOrderPricing(orderId) {
+    console.log('💰 getOrderPricing called');
+    return this.storage.order_pricing?.[orderId] || null;
+  }
+
+  async getAllOrderPricing() {
+    console.log('💰 getAllOrderPricing called');
+    return this.storage.order_pricing || {};
+  }
+
+  // ========== SAVED FORMULAS CRUD ==========
+  
+  async getSavedFormulas() {
+    console.log('📋 getSavedFormulas called');
+    return this.storage.saved_formulas || [];
+  }
+
+  async saveFormula(formula) {
+    console.log('💾 saveFormula called');
+    if (!this.storage.saved_formulas) {
+      this.storage.saved_formulas = [];
+    }
+    this.storage.saved_formulas.push(formula);
+    return { insertId: formula.id };
+  }
+
+  async deleteFormula(id) {
+    console.log('🗑️ deleteFormula called');
+    if (this.storage.saved_formulas) {
+      this.storage.saved_formulas = this.storage.saved_formulas.filter(f => f.id !== id);
+    }
+    return 1;
+  }
+
+  // ========== CAPRIN ANIMALS CRUD ==========
+  async addCaprinAnimal(animal) {
+    console.log('➕ addCaprinAnimal called');
+    const newAnimal = { 
+      id: Date.now(), 
+      ...animal,
+      milkProduction: animal.milkProduction || [],
+      offspring: animal.offspring || [],
+      parents: animal.parents || { mother: animal.mother || '', father: animal.father || '' }
+    };
+    this.storage.caprin_animals.push(newAnimal);
+    return { insertId: newAnimal.id };
+  }
+
+  async getCaprinAnimals() {
+    console.log('📋 getCaprinAnimals called');
+    return this.storage.caprin_animals;
+  }
+
+  async updateCaprinAnimal(id, animal) {
+    console.log('✏️ updateCaprinAnimal called');
+    const index = this.storage.caprin_animals.findIndex(a => a.id == id);
+    if (index !== -1) {
+      this.storage.caprin_animals[index] = { 
+        ...this.storage.caprin_animals[index], 
+        ...animal,
+        parents: { mother: animal.mother || this.storage.caprin_animals[index].parents.mother, 
+                  father: animal.father || this.storage.caprin_animals[index].parents.father }
+      };
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async deleteCaprinAnimal(id) {
+    console.log('🗑️ deleteCaprinAnimal called');
+    const index = this.storage.caprin_animals.findIndex(a => a.id == id);
+    if (index !== -1) {
+      this.storage.caprin_animals.splice(index, 1);
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async addMilkProduction(animalId, milkData) {
+    console.log('🥛 addMilkProduction called');
+    const animalIndex = this.storage.caprin_animals.findIndex(a => a.id == animalId);
+    if (animalIndex !== -1) {
+      if (!this.storage.caprin_animals[animalIndex].milkProduction) {
+        this.storage.caprin_animals[animalIndex].milkProduction = [];
+      }
+      this.storage.caprin_animals[animalIndex].milkProduction.push(milkData);
+      return { insertId: Date.now() };
+    }
+    return { insertId: null };
+  }
+
+  async addGroupMilkProduction(milkData) {
+    console.log('🥛 addGroupMilkProduction called');
+    if (!this.storage.caprin_settings.groupMilkProduction) {
+      this.storage.caprin_settings.groupMilkProduction = [];
+    }
+    this.storage.caprin_settings.groupMilkProduction.push(milkData);
+    return { insertId: Date.now() };
+  }
+
+  async getCaprinSettings() {
+    console.log('⚙️ getCaprinSettings called');
+    return this.storage.caprin_settings;
+  }
+
+  async updateCaprinSettings(settings) {
+    console.log('⚙️ updateCaprinSettings called');
+    this.storage.caprin_settings = { ...this.storage.caprin_settings, ...settings };
+    return { rowsAffected: 1 };
   }
 
   // Méthodes utilitaires pour l'élevage
