@@ -47,6 +47,9 @@ export default function AddOrderScreen({ navigation, route }) {
   const [priceBreakdown, setPriceBreakdown] = useState([]);
   const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
   const [pricingGridAvailable, setPricingGridAvailable] = useState(true);
+  const [missingPricingGrids, setMissingPricingGrids] = useState([]);
+  const [availableProducts, setAvailableProducts] = useState([]);
+  const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderForm, setOrderForm] = useState(editingOrder ? {
     orderType: editingOrder.orderType || 'Adoption',
     selectedAnimals: editingOrder.selectedAnimals || ['poussins'],
@@ -105,9 +108,16 @@ export default function AddOrderScreen({ navigation, route }) {
   };
 
   useEffect(() => {
-    loadAvailableStock();
-    loadCalendarEvents();
+    // Only load what's needed based on order type
+    if (orderForm.orderType === 'Adoption') {
+      loadAvailableStock();
+    } else {
+      loadProducts();
+    }
     loadConfigs();
+    
+    // Only load calendar events if we need the calendar modal
+    // loadCalendarEvents(); // Load on demand when calendar is opened
     
     // Ensure all race configurations have unique IDs
     if (editingOrder && editingOrder.animalDetails) {
@@ -145,50 +155,105 @@ export default function AddOrderScreen({ navigation, route }) {
     }
   };
 
+  const loadProducts = async () => {
+    try {
+      const productsData = await database.getProducts();
+      setAvailableProducts(productsData);
+    } catch (error) {
+      console.error('Error loading products:', error);
+    }
+  };
+
+  const toggleProductSelection = (product) => {
+    const isSelected = selectedProducts.some(p => p.id === product.id);
+    if (isSelected) {
+      setSelectedProducts(prev => prev.filter(p => p.id !== product.id));
+    } else {
+      setSelectedProducts(prev => [...prev, { ...product, quantity: 1 }]);
+    }
+  };
+
+  const updateProductQuantity = (productId, quantity) => {
+    setSelectedProducts(prev => 
+      prev.map(p => p.id === productId ? { ...p, quantity: Math.max(1, quantity) } : p)
+    );
+  };
+
+  const removeProduct = (productId) => {
+    setSelectedProducts(prev => prev.filter(p => p.id !== productId));
+  };
+
   // Calculate price whenever order details change
   useEffect(() => {
     calculatePrice();
-  }, [orderForm.orderType, orderForm.animalDetails, orderForm.quantity]);
+  }, [orderForm.orderType, orderForm.animalDetails, orderForm.quantity, selectedProducts]);
+
+  // Load products when order type changes to non-adoption
+  useEffect(() => {
+    if (orderForm.orderType !== 'Adoption') {
+      loadProducts();
+    }
+  }, [orderForm.orderType]);
 
   const calculatePrice = async () => {
     try {
-      // Check if pricing grids are available for the selected animal types
-      const pricingGrids = await database.getAllPricingGrids();
-      const selectedAnimalTypes = Object.keys(orderForm.animalDetails || {});
-      
-      // Check if at least one selected animal type has a pricing grid
-      const hasPricingGrid = selectedAnimalTypes.some(animalType => 
-        pricingGrids[animalType] && pricingGrids[animalType].length > 0
-      );
-      
-      if (!hasPricingGrid) {
-        setPricingGridAvailable(false);
-        setCalculatedPrice(0);
-        setPriceBreakdown([]);
-        return;
-      }
-      
-      setPricingGridAvailable(true);
-      
-      // Calculate pricing for each animal type separately
       let totalCalculatedPrice = 0;
       let allPriceBreakdowns = [];
       
-      for (const animalType of selectedAnimalTypes) {
-        if (orderForm.animalDetails[animalType]?.races && orderForm.animalDetails[animalType].races.length > 0) {
-          // Create a temporary order form for this specific animal type
-          const animalSpecificOrder = {
-            ...orderForm,
-            selectedAnimals: [animalType],
-            animalDetails: {
-              [animalType]: orderForm.animalDetails[animalType]
-            }
-          };
-          
-          const pricingData = database.calculateOrderPrice(animalSpecificOrder);
-          totalCalculatedPrice += pricingData.estimatedPrice;
-          allPriceBreakdowns = [...allPriceBreakdowns, ...pricingData.priceBreakdown];
+      if (orderForm.orderType === 'Adoption') {
+        // Check if pricing grids are available for the selected animal types
+        const pricingGrids = await database.getAllPricingGrids();
+        const selectedAnimalTypes = Object.keys(orderForm.animalDetails || {});
+        
+        // Check if all selected animal types have pricing grids
+        const missingPricingGrids = selectedAnimalTypes.filter(animalType => 
+          !pricingGrids[animalType] || pricingGrids[animalType].length === 0
+        );
+        
+        if (missingPricingGrids.length > 0) {
+          setPricingGridAvailable(false);
+          setMissingPricingGrids(missingPricingGrids);
+          setCalculatedPrice(0);
+          setPriceBreakdown([]);
+          return;
         }
+        
+        setPricingGridAvailable(true);
+        setMissingPricingGrids([]);
+        
+        // Calculate pricing for each animal type separately
+        for (const animalType of selectedAnimalTypes) {
+          if (orderForm.animalDetails[animalType]?.races && orderForm.animalDetails[animalType].races.length > 0) {
+            // Create a temporary order form for this specific animal type
+            const animalSpecificOrder = {
+              ...orderForm,
+              selectedAnimals: [animalType],
+              animalDetails: {
+                [animalType]: orderForm.animalDetails[animalType]
+              }
+            };
+            
+            const pricingData = database.calculateOrderPrice(animalSpecificOrder);
+            totalCalculatedPrice += pricingData.estimatedPrice;
+            allPriceBreakdowns = [...allPriceBreakdowns, ...pricingData.priceBreakdown];
+          }
+        }
+      } else {
+        // For non-adoption orders, calculate price from selected products
+        setPricingGridAvailable(true);
+        setMissingPricingGrids([]);
+        
+        selectedProducts.forEach(product => {
+          const productTotal = product.price * product.quantity;
+          totalCalculatedPrice += productTotal;
+          allPriceBreakdowns.push({
+            item: product.name,
+            quantity: product.quantity,
+            unitPrice: product.price,
+            total: productTotal,
+            category: 'Product'
+          });
+        });
       }
       
       setCalculatedPrice(totalCalculatedPrice);
@@ -252,6 +317,14 @@ export default function AddOrderScreen({ navigation, route }) {
   const handleDateSelect = (day) => {
     setOrderForm({...orderForm, deliveryDate: day.dateString});
     setCalendarModal(false);
+  };
+
+  const openCalendarModal = async () => {
+    // Load calendar events only when opening the modal
+    if (calendarEvents.length === 0) {
+      await loadCalendarEvents();
+    }
+    setCalendarModal(true);
   };
 
   const loadAvailableStock = async () => {
@@ -687,6 +760,12 @@ export default function AddOrderScreen({ navigation, route }) {
       return;
     }
 
+    // For non-adoption orders, check if products are selected
+    if (orderForm.orderType !== 'Adoption' && selectedProducts.length === 0) {
+      Alert.alert('Erreur', 'Veuillez sélectionner au moins un produit');
+      return;
+    }
+
     const orderId = editingOrder ? editingOrder.id : Date.now();
     const newOrder = {
       id: orderId,
@@ -699,8 +778,10 @@ export default function AddOrderScreen({ navigation, route }) {
       customerPhone: orderForm.customerPhone,
       customerEmail: orderForm.customerEmail,
       otherDetails: orderForm.otherDetails,
-      product: orderForm.product,
-      quantity: orderForm.quantity ? parseInt(orderForm.quantity) : null,
+      // For non-adoption orders, use selected products
+      product: orderForm.orderType === 'Adoption' ? orderForm.product : selectedProducts.map(p => p.name).join(', '),
+      selectedProducts: orderForm.orderType !== 'Adoption' ? selectedProducts : null,
+      quantity: orderForm.orderType === 'Adoption' ? (orderForm.quantity ? parseInt(orderForm.quantity) : null) : selectedProducts.reduce((total, p) => total + p.quantity, 0),
       totalPrice: orderForm.totalPrice ? parseFloat(orderForm.totalPrice) : 0,
       deliveryDate: toISODate(orderForm.deliveryDate),
       status: orderForm.status,
@@ -725,7 +806,8 @@ export default function AddOrderScreen({ navigation, route }) {
     navigation.goBack();
   };
 
-  const isFormValid = orderForm.customerName && orderForm.orderType;
+  const isFormValid = orderForm.customerName && orderForm.orderType && 
+    (orderForm.orderType === 'Adoption' || selectedProducts.length > 0);
 
   return (
     <View style={styles.container}>
@@ -733,37 +815,58 @@ export default function AddOrderScreen({ navigation, route }) {
       <View style={styles.header}>
         <View style={[styles.statusBarOverlay, { height: insets.top }]} />
         <View style={styles.headerContent}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.backButtonText}>←</Text>
+        </TouchableOpacity>
           <View style={styles.titleContainer}>
-            <Text style={styles.headerTitle}>
-              {editingOrder ? 'Modifier la commande' : 'Nouvelle Commande'}
-            </Text>
+        <Text style={styles.headerTitle}>
+          {editingOrder ? 'Modifier la commande' : 'Nouvelle Commande'}
+        </Text>
           </View>
-          <TouchableOpacity 
-            style={[
-              styles.saveButton,
-              !isFormValid && styles.saveButtonDisabled
-            ]}
-            onPress={saveOrder}
-            disabled={!isFormValid}
-          >
-            <Text style={[
-              styles.saveButtonText,
-              !isFormValid && styles.saveButtonTextDisabled
-            ]}>
-              {editingOrder ? 'Modifier' : 'Créer'}
-            </Text>
-          </TouchableOpacity>
+        <TouchableOpacity 
+          style={[
+            styles.saveButton,
+            !isFormValid && styles.saveButtonDisabled
+          ]}
+          onPress={saveOrder}
+          disabled={!isFormValid}
+        >
+          <Text style={[
+            styles.saveButtonText,
+            !isFormValid && styles.saveButtonTextDisabled
+          ]}>
+            {editingOrder ? 'Modifier' : 'Créer'}
+          </Text>
+        </TouchableOpacity>
         </View>
       </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={true}>
+        {/* Delivery Date - Moved to top */}
+        <View style={styles.dateContainer}>
+          <Text style={styles.dropdownLabel}>Date de livraison *</Text>
+          <TouchableOpacity 
+            style={styles.datePickerButton}
+            onPress={openCalendarModal}
+          >
+            <Text style={styles.datePickerText}>
+              {orderForm.deliveryDate ? 
+                new Date(orderForm.deliveryDate).toLocaleDateString('fr-FR', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                }) : 
+                '📅 Sélectionner une date'
+              }
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Order Type Dropdown */}
         <View style={styles.dropdownContainer}>
           <Text style={styles.dropdownLabel}>Type de commande *</Text>
@@ -793,21 +896,6 @@ export default function AddOrderScreen({ navigation, route }) {
         {/* Adoption-specific fields */}
         {orderForm.orderType === 'Adoption' && (
           <>
-            {/* Pour quand? */}
-            <View style={styles.dateContainer}>
-              <Text style={styles.dropdownLabel}>Pour quand?</Text>
-              <TouchableOpacity 
-                style={styles.datePickerButton}
-                onPress={() => setCalendarModal(true)}
-              >
-                <Text style={styles.datePickerText}>
-                  {orderForm.deliveryDate ? 
-                    formatForCalendar(orderForm.deliveryDate) : 
-                    '📅 Sélectionner une date'
-                  }
-                </Text>
-              </TouchableOpacity>
-            </View>
 
             {/* Animal Types Selection */}
             <View style={styles.dropdownContainer}>
@@ -854,14 +942,14 @@ export default function AddOrderScreen({ navigation, route }) {
                 {expandedAnimals[animal] && (
                   <>
                     {/* Add Race Configuration Button */}
-                    <TouchableOpacity 
+                          <TouchableOpacity 
                       style={styles.addRaceButton}
                       onPress={() => openRaceConfigModal(animal)}
                     >
                       <Text style={styles.addRaceButtonText}>
                         ➕ Ajouter une race
                       </Text>
-                    </TouchableOpacity>
+                          </TouchableOpacity>
 
                     {/* Display configured races grouped by race */}
                     {Object.entries(getRaceConfigurationsByRace(animal)).map(([raceName, raceConfigs]) => (
@@ -889,13 +977,13 @@ export default function AddOrderScreen({ navigation, route }) {
                                 {raceConfig.sexPreference === 'male' ? '♂️ Mâles' :
                                  raceConfig.sexPreference === 'female' ? '♀️ Femelles' : '❓ Peu importe'} - {raceConfig.quantity} unité{raceConfig.quantity > 1 ? 's' : ''}
                               </Text>
-                              <TouchableOpacity 
+                          <TouchableOpacity 
                                 style={styles.removeSexPreferenceButton}
                                 onPress={() => removeRaceConfiguration(animal, raceConfig.id)}
-                              >
+                          >
                                 <Text style={styles.removeSexPreferenceButtonText}>✕</Text>
-                              </TouchableOpacity>
-                            </View>
+                          </TouchableOpacity>
+                      </View>
                             
                             <View style={styles.sexPreferenceDetails}>
                               <Text style={styles.sexPreferenceDetail}>
@@ -906,41 +994,41 @@ export default function AddOrderScreen({ navigation, route }) {
                                   📦 Lot: {raceConfig.selectedLot.lot_name} 
                                   ({raceConfig.selectedLot.ageAtDelivery?.toFixed(1)} mois)
                                 </Text>
-                              )}
-                            </View>
+                )}
+              </View>
 
                             {/* Quantity controls */}
-                            <View style={styles.quantityControlsContainer}>
-                              <TouchableOpacity 
-                                style={styles.quantityButton}
-                                onPress={() => {
+                  <View style={styles.quantityControlsContainer}>
+                    <TouchableOpacity 
+                      style={styles.quantityButton}
+                      onPress={() => {
                                   const current = parseInt(raceConfig.quantity) || 1;
                                   if (current > 1) {
                                     updateRaceConfigQuantity(animal, raceConfig.id, current - 1);
-                                  }
-                                }}
-                              >
-                                <Text style={styles.quantityButtonText}>-</Text>
-                              </TouchableOpacity>
-                              <TextInput
+                        }
+                      }}
+                    >
+                      <Text style={styles.quantityButtonText}>-</Text>
+                    </TouchableOpacity>
+                    <TextInput
                                 style={[styles.input, styles.quantityInputWithControls]}
                                 value={raceConfig.quantity.toString()}
                                 onChangeText={(text) => updateRaceConfigQuantity(animal, raceConfig.id, parseInt(text) || 1)}
-                                keyboardType="number-pad"
-                              />
-                              <TouchableOpacity 
-                                style={styles.quantityButton}
-                                onPress={() => {
+                      keyboardType="number-pad"
+                    />
+                    <TouchableOpacity 
+                      style={styles.quantityButton}
+                      onPress={() => {
                                   const current = parseInt(raceConfig.quantity) || 1;
                                   updateRaceConfigQuantity(animal, raceConfig.id, current + 1);
-                                }}
-                              >
-                                <Text style={styles.quantityButtonText}>+</Text>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
+                      }}
+                    >
+                      <Text style={styles.quantityButtonText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
                         ))}
-                      </View>
+                  </View>
                     ))}
 
                     {/* Pricing Section for this animal */}
@@ -948,14 +1036,20 @@ export default function AddOrderScreen({ navigation, route }) {
                       <View style={styles.animalPricingSection}>
                         <Text style={styles.animalPricingTitle}>💰 Calcul du prix - {animal}</Text>
                         
-                        {!pricingGridAvailable ? (
+                        {missingPricingGrids.includes(animal) ? (
                           <View style={styles.noPricingGridContainer}>
                             <Text style={styles.noPricingGridText}>
-                              ⚠️ Aucune grille tarifaire configurée pour {animal}
+                              ⚠️ Grille tarifaire manquante pour {animal}
                             </Text>
-                            <TouchableOpacity 
+                            <Text style={styles.noPricingGridSubtext}>
+                              Configurez la grille tarifaire pour {animal} dans la section "Productions".
+                            </Text>
+                            <TouchableOpacity
                               style={styles.goToPricingButton}
-                              onPress={() => navigation.navigate('Gestion')}
+                              onPress={() => navigation.navigate('Gestion', { 
+                                screen: 'ProductManagement', 
+                                params: { initialTab: 'productions' } 
+                              })}
                             >
                               <Text style={styles.goToPricingButtonText}>
                                 📊 Configurer la grille tarifaire
@@ -970,7 +1064,7 @@ export default function AddOrderScreen({ navigation, route }) {
                             <Text style={styles.animalPricingBreakdown}>
                               Basé sur {getAnimalTotalQuantity(animal)} {animal} configuré(s)
                             </Text>
-                          </View>
+            </View>
                         )}
                       </View>
                     )}
@@ -985,43 +1079,127 @@ export default function AddOrderScreen({ navigation, route }) {
         {/* Other order types fields */}
         {orderForm.orderType !== 'Adoption' && (
           <>
-            <TextInput
-              style={styles.input}
-              placeholder="Produit *"
-              value={orderForm.product}
-              onChangeText={(text) => setOrderForm({...orderForm, product: text})}
-            />
-            <View style={styles.quantityContainer}>
-              <Text style={styles.quantityLabel}>Quantité *</Text>
-              <View style={styles.quantityControlsContainer}>
-                <TouchableOpacity 
-                  style={styles.quantityButton}
-                  onPress={() => {
-                    const current = parseInt(orderForm.quantity) || 0;
-                    if (current > 0) {
-                      setOrderForm({...orderForm, quantity: (current - 1).toString()});
-                    }
-                  }}
-                >
-                  <Text style={styles.quantityButtonText}>-</Text>
-                </TouchableOpacity>
-                <TextInput
-                  style={[styles.input, styles.quantityInputWithControls]}
-                  placeholder="1"
-                  value={orderForm.quantity}
-                  onChangeText={(text) => setOrderForm({...orderForm, quantity: text})}
-                  keyboardType="number-pad"
-                />
-                <TouchableOpacity 
-                  style={styles.quantityButton}
-                  onPress={() => {
-                    const current = parseInt(orderForm.quantity) || 0;
-                    setOrderForm({...orderForm, quantity: (current + 1).toString()});
-                  }}
-                >
-                  <Text style={styles.quantityButtonText}>+</Text>
-                </TouchableOpacity>
+            {/* Product Selection */}
+            <View style={styles.productSelectionContainer}>
+              <Text style={styles.sectionTitle}>📦 Sélection des produits</Text>
+              <Text style={styles.productSelectionSubtitle}>
+                Choisissez les produits disponibles dans votre inventaire :
+              </Text>
+              
+              {/* Available Products Grid */}
+              <View style={styles.productsGrid}>
+                {availableProducts.map((product) => (
+                  <TouchableOpacity
+                    key={product.id}
+                    style={[
+                      styles.productCard,
+                      selectedProducts.some(p => p.id === product.id) && styles.productCardSelected
+                    ]}
+                    onPress={() => toggleProductSelection(product)}
+                  >
+                    <View style={styles.productCardHeader}>
+                      <Text style={styles.productCardName}>{product.name}</Text>
+                      <View style={[
+                        styles.stockBadge,
+                        { backgroundColor: product.quantity < 20 ? '#F44336' : '#4CAF50' }
+                      ]}>
+                        <Text style={styles.stockBadgeText}>
+                          {product.quantity < 20 ? '⚠️' : '✅'} {product.quantity}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.productCardPrice}>{product.price.toFixed(2)}€</Text>
+                    <Text style={styles.productCardCategory}>{product.category}</Text>
+                    {product.description && (
+                      <Text style={styles.productCardDescription} numberOfLines={2}>
+                        {product.description}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
               </View>
+
+              {/* Selected Products */}
+              {selectedProducts.length > 0 && (
+                <View style={styles.selectedProductsContainer}>
+                  <Text style={styles.selectedProductsTitle}>Produits sélectionnés :</Text>
+                  {selectedProducts.map((product) => (
+                    <View key={product.id} style={styles.selectedProductCard}>
+                      <View style={styles.selectedProductHeader}>
+                        <Text style={styles.selectedProductName}>{product.name}</Text>
+                        <TouchableOpacity 
+                          style={styles.removeProductButton}
+                          onPress={() => removeProduct(product.id)}
+                        >
+                          <Text style={styles.removeProductButtonText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.selectedProductDetails}>
+                        <Text style={styles.selectedProductPrice}>
+                          {product.price.toFixed(2)}€ par unité
+                        </Text>
+                        <View style={styles.selectedProductQuantity}>
+                          <Text style={styles.quantityLabel}>Quantité:</Text>
+                          <View style={styles.quantityControlsContainer}>
+                            <TouchableOpacity 
+                              style={styles.quantityButton}
+                              onPress={() => {
+                                const current = product.quantity || 1;
+                                if (current > 1) {
+                                  updateProductQuantity(product.id, current - 1);
+                                }
+                              }}
+                            >
+                              <Text style={styles.quantityButtonText}>-</Text>
+                            </TouchableOpacity>
+                            <TextInput
+                              style={[styles.input, styles.quantityInputWithControls]}
+                              value={product.quantity.toString()}
+                              onChangeText={(text) => updateProductQuantity(product.id, parseInt(text) || 1)}
+                              keyboardType="number-pad"
+                            />
+                            <TouchableOpacity 
+                              style={styles.quantityButton}
+                              onPress={() => {
+                                const current = product.quantity || 1;
+                                updateProductQuantity(product.id, current + 1);
+                              }}
+                            >
+                              <Text style={styles.quantityButtonText}>+</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                        <Text style={styles.selectedProductTotal}>
+                          Total: {(product.price * product.quantity).toFixed(2)}€
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* No Products Available */}
+              {availableProducts.length === 0 && (
+                <View style={styles.noProductsContainer}>
+                  <Text style={styles.noProductsText}>
+                    ⚠️ Aucun produit disponible
+                  </Text>
+                  <Text style={styles.noProductsSubtext}>
+                    Ajoutez des produits dans la section "Productions" pour pouvoir les commander.
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.goToPricingButton}
+                    onPress={() => navigation.navigate('Gestion', { 
+                      screen: 'ProductManagement', 
+                      params: { initialTab: 'productions' } 
+                    })}
+                  >
+                    <Text style={styles.goToPricingButtonText}>
+                      📦 Ajouter des produits
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </>
         )}
@@ -1076,17 +1254,30 @@ export default function AddOrderScreen({ navigation, route }) {
           {!pricingGridAvailable ? (
             <View style={styles.noPricingGridContainer}>
               <Text style={styles.noPricingGridText}>
-                ⚠️ Aucune grille tarifaire configurée
+                ⚠️ Grilles tarifaires manquantes
               </Text>
               <Text style={styles.noPricingGridSubtext}>
-                Veuillez configurer la grille tarifaire dans la section "Productions" pour calculer automatiquement les prix.
+                Les grilles tarifaires suivantes doivent être configurées :
+              </Text>
+              <View style={styles.missingGridsList}>
+                {missingPricingGrids.map((animalType, index) => (
+                  <Text key={index} style={styles.missingGridItem}>
+                    • {animalType.charAt(0).toUpperCase() + animalType.slice(1)}
+                  </Text>
+                ))}
+              </View>
+              <Text style={styles.noPricingGridSubtext}>
+                Allez dans la section "Productions" pour configurer les grilles tarifaires.
               </Text>
               <TouchableOpacity 
                 style={styles.goToPricingButton}
-                onPress={() => navigation.navigate('Gestion')}
+                onPress={() => navigation.navigate('Gestion', { 
+                  screen: 'ProductManagement', 
+                  params: { initialTab: 'productions' } 
+                })}
               >
                 <Text style={styles.goToPricingButtonText}>
-                  📊 Configurer la grille tarifaire
+                  📊 Configurer les grilles tarifaires
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1104,7 +1295,7 @@ export default function AddOrderScreen({ navigation, route }) {
               <View style={styles.priceAdjustmentContainer}>
                 <Text style={styles.priceAdjustmentLabel}>Ajustement (+ ou -):</Text>
                 <View style={styles.priceAdjustmentInputContainer}>
-                  <TextInput
+        <TextInput
                     style={[styles.input, styles.priceAdjustmentInput]}
                     placeholder="0.00"
                     value={priceAdjustment.toString()}
@@ -1114,8 +1305,8 @@ export default function AddOrderScreen({ navigation, route }) {
                       const finalPrice = calculatedPrice + adjustment;
                       setOrderForm({...orderForm, totalPrice: finalPrice.toFixed(2)});
                     }}
-                    keyboardType="decimal-pad"
-                  />
+          keyboardType="decimal-pad"
+        />
                   <Text style={styles.currencySymbol}>€</Text>
                 </View>
               </View>
@@ -1183,27 +1374,6 @@ export default function AddOrderScreen({ navigation, route }) {
           )}
         </View>
 
-        {orderForm.orderType !== 'Adoption' && (
-          <View style={styles.dateContainer}>
-            <Text style={styles.dropdownLabel}>Date de livraison</Text>
-            <TouchableOpacity 
-              style={styles.datePickerButton}
-              onPress={() => setCalendarModal(true)}
-            >
-              <Text style={styles.datePickerText}>
-                {orderForm.deliveryDate ? 
-                  new Date(orderForm.deliveryDate).toLocaleDateString('fr-FR', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  }) : 
-                  '📅 Sélectionner une date'
-                }
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
         <View style={styles.statusSelector}>
           <Text style={styles.statusSelectorLabel}>Statut de la commande:</Text>
@@ -2655,6 +2825,168 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  missingGridsList: {
+    marginVertical: 8,
+  },
+  missingGridItem: {
+    fontSize: 14,
+    color: '#856404',
+    marginBottom: 2,
+    fontWeight: '600',
+  },
+  // Product selection styles
+  productSelectionContainer: {
+    marginBottom: 20,
+  },
+  productSelectionSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+    lineHeight: 20,
+  },
+  productsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  productCard: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 12,
+    width: '48%',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  productCardSelected: {
+    borderColor: '#4CAF50',
+    backgroundColor: '#f0f8f0',
+  },
+  productCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  productCardName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+    marginRight: 8,
+  },
+  stockBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  stockBadgeText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: '600',
+  },
+  productCardPrice: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginBottom: 4,
+  },
+  productCardCategory: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  productCardDescription: {
+    fontSize: 11,
+    color: '#666',
+    lineHeight: 14,
+  },
+  selectedProductsContainer: {
+    marginTop: 20,
+  },
+  selectedProductsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  selectedProductCard: {
+    backgroundColor: '#f0f8f0',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+  },
+  selectedProductHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  selectedProductName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  removeProductButton: {
+    backgroundColor: '#F44336',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeProductButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  selectedProductDetails: {
+    marginLeft: 8,
+  },
+  selectedProductPrice: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+  },
+  selectedProductQuantity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  selectedProductTotal: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  noProductsContainer: {
+    backgroundColor: '#fff3cd',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  noProductsText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#856404',
+    marginBottom: 8,
+  },
+  noProductsSubtext: {
+    fontSize: 14,
+    color: '#856404',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
   // Animal pricing section styles
   animalPricingSection: {
     backgroundColor: '#f0f8f0',
@@ -2707,3 +3039,4 @@ const styles = StyleSheet.create({
     color: '#2196F3',
   },
 });
+

@@ -14,82 +14,120 @@ class SimpleTestDatabaseService {
         { id: 4, name: 'Visite guidée', price: 5.00, quantity: 100, category: 'visites', description: 'Visite de la ferme pédagogique' }
       ],
       orders: [
-        // Adoption orders - Poules
-        { 
-          id: 1, 
-          customerName: 'Marie Dupont', 
-          customerPhone: '+33123456789',
-          customerEmail: 'marie@email.com',
+        // Fresh example orders with current order types and animal types
+        {
+          id: 1,
           orderType: 'Adoption',
-          animalType: 'poules',
-          race: 'Marans',
-          selectedGender: 'Femelles',
-          selectedColor: 'Noir cuivré',
-          selectedCharacteristics: ['Bonnes pondeuses', 'Rustiques'],
-          ageMonths: '3',
-          ageWeeks: '2',
-          quantity: 4,
+          selectedAnimals: ['poussins'],
+          animalDetails: {
+            poussins: {
+              races: [
+                {
+                  id: '1_1',
+                  race: 'Araucana',
+                  ageMonths: 2,
+                  ageWeeks: 0,
+                  sexPreference: 'female',
+                  quantity: 3,
+                  selectedLot: {
+                    lot_id: 1,
+                    lot_name: 'Lot Araucana 1',
+                    ageAtDelivery: 2.0
+                  }
+                }
+              ],
+              characteristics: [],
+              colors: {},
+              genders: {}
+            }
+          },
+          ageMonths: 2,
+          ageWeeks: 0,
+          customerName: 'Marie Dubois',
+          customerPhone: '06 12 34 56 78',
+          customerEmail: 'marie.dubois@email.com',
+          otherDetails: 'Commande pour un élevage familial',
+          product: '',
+          quantity: 3,
           totalPrice: 45.00,
-          deliveryDate: '2025-10-17',
+          deliveryDate: '2025-10-15',
           status: 'Confirmée',
-          orderDate: '2025-10-10'
+          orderDate: '2025-10-01'
         },
-        { 
-          id: 2, 
-          customerName: 'Pierre Martin', 
-          customerPhone: '+33123456790',
-          customerEmail: 'pierre.martin@email.com',
+        {
+          id: 2,
           orderType: 'Adoption',
-          animalType: 'poules',
-          race: 'Araucana',
-          selectedGender: 'Mélange',
-          selectedColor: 'Bleu',
-          selectedCharacteristics: ['Œufs bleus', 'Calmes'],
-          ageMonths: '2',
-          ageWeeks: '3',
-          quantity: 6,
-          totalPrice: 72.00,
+          selectedAnimals: ['canards'],
+          animalDetails: {
+            canards: {
+              races: [
+                {
+                  id: '2_1',
+                  race: 'Coureur indien',
+                  ageMonths: 1,
+                  ageWeeks: 2,
+                  sexPreference: 'any',
+                  quantity: 2,
+                  selectedLot: {
+                    lot_id: 2,
+                    lot_name: 'Lot Coureur 1',
+                    ageAtDelivery: 1.5
+                  }
+                }
+              ],
+              characteristics: [],
+              colors: {},
+              genders: {}
+            }
+          },
+          ageMonths: 1,
+          ageWeeks: 2,
+          customerName: 'Pierre Martin',
+          customerPhone: '06 98 76 54 32',
+          customerEmail: 'pierre.martin@email.com',
+          otherDetails: 'Pour un étang privé',
+          product: '',
+          quantity: 2,
+          totalPrice: 30.00,
           deliveryDate: '2025-10-20',
           status: 'En attente',
-          orderDate: '2025-10-12'
+          orderDate: '2025-10-02'
         },
-        { 
-          id: 3, 
-          customerName: 'Sophie Bernard', 
-          customerPhone: '+33123456791',
-          customerEmail: 'sophie.bernard@email.com',
-          orderType: 'Adoption',
-          animalType: 'poules',
-          race: 'Sussex',
-          selectedGender: 'Femelles',
-          selectedColor: 'Blanc',
-          selectedCharacteristics: ['Excellentes pondeuses', 'Dociles'],
-          ageMonths: '4',
-          ageWeeks: '1',
-          quantity: 3,
-          totalPrice: 54.00,
+        {
+          id: 3,
+          orderType: 'Poulets',
+          selectedAnimals: [],
+          animalDetails: {},
+          ageMonths: '',
+          ageWeeks: '',
+          customerName: 'Sophie Laurent',
+          customerPhone: '06 55 44 33 22',
+          customerEmail: 'sophie.laurent@email.com',
+          otherDetails: 'Commande pour restaurant',
+          product: 'Poulets fermiers',
+          quantity: 10,
+          totalPrice: 150.00,
           deliveryDate: '2025-10-25',
           status: 'Prête',
-          orderDate: '2025-10-08'
+          orderDate: '2025-10-03'
         },
-        { 
-          id: 4, 
-          customerName: 'Jean Dubois', 
-          customerPhone: '+33123456792',
-          customerEmail: 'jean.dubois@email.com',
-          orderType: 'Adoption',
-          animalType: 'poules',
-          race: 'Brahma',
-          selectedGender: 'Mélange',
-          selectedColor: 'Fauve',
-          selectedCharacteristics: ['Grandes races', 'Rustiques'],
-          ageMonths: '5',
-          ageWeeks: '0',
-          quantity: 2,
-          totalPrice: 48.00,
-          deliveryDate: '2025-01-15',
+        {
+          id: 4,
+          orderType: 'Œufs de conso',
+          selectedAnimals: [],
+          animalDetails: {},
+          ageMonths: '',
+          ageWeeks: '',
+          customerName: 'Jean Dupont',
+          customerPhone: '06 11 22 33 44',
+          customerEmail: 'jean.dupont@email.com',
+          otherDetails: 'Livraison hebdomadaire',
+          product: 'Œufs frais',
+          quantity: 30,
+          totalPrice: 18.00,
+          deliveryDate: '2025-10-12',
           status: 'Livrée',
-          orderDate: '2025-01-05'
+          orderDate: '2025-10-01'
         },
         { 
           id: 5, 
@@ -1337,7 +1375,17 @@ class SimpleTestDatabaseService {
 
   async getOrders() {
     console.log('📋 getOrders called - returning test data');
-    return this.storage.orders;
+    // Migrate old "poules" to "poussins" for backward compatibility
+    const migratedOrders = this.storage.orders.map(order => {
+      if (order.animalType === 'poules') {
+        return {
+          ...order,
+          animalType: 'poussins'
+        };
+      }
+      return order;
+    });
+    return migratedOrders;
   }
 
   async updateOrder(id, order) {
@@ -1361,6 +1409,76 @@ class SimpleTestDatabaseService {
   async getEvents() {
     console.log('📋 getEvents called - returning test data');
     return this.storage.calendar_events;
+  }
+
+  async getEventsForDateRange(startDate, endDate) {
+    console.log(`📋 getEventsForDateRange called for ${startDate} to ${endDate}`);
+    
+    const allEvents = this.storage.calendar_events;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    // Filter events within the date range
+    const filteredEvents = allEvents.filter(event => {
+      const eventDate = new Date(event.date || event.event_date);
+      return eventDate >= start && eventDate <= end;
+    });
+    
+    console.log(`📋 Found ${filteredEvents.length} events in date range`);
+    return filteredEvents;
+  }
+
+  // Statistics methods for ProductManagementScreen
+  async getElevageStatistics() {
+    console.log('📊 getElevageStatistics called');
+    
+    const lots = this.storage.elevage_lots || [];
+    const races = this.storage.elevage_races || [];
+    const historique = this.storage.elevage_historique || [];
+    
+    // Calculate active lots
+    const activeLots = lots.filter(lot => lot.status === 'Actif');
+    
+    // Calculate total living animals
+    let totalLivingAnimals = 0;
+    let totalDeathsThisWeek = 0;
+    const uniqueRaces = new Set();
+    
+    // Get date range for "this week"
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    for (const lot of lots) {
+      if (lot.status === 'Actif' && lot.races) {
+        for (const [raceName, raceData] of Object.entries(lot.races)) {
+          totalLivingAnimals += raceData.current || 0;
+          uniqueRaces.add(raceName);
+        }
+      }
+    }
+    
+    // Calculate deaths this week from historique
+    for (const entry of historique) {
+      if (entry.type === 'Mort' && entry.date) {
+        const entryDate = new Date(entry.date);
+        if (entryDate >= weekAgo && entryDate <= today) {
+          // Extract number from description if possible
+          const match = entry.description.match(/(\d+)/);
+          if (match) {
+            totalDeathsThisWeek += parseInt(match[1]);
+          } else {
+            totalDeathsThisWeek += 1; // Assume 1 if no number found
+          }
+        }
+      }
+    }
+    
+    return {
+      activeLots: activeLots.length,
+      totalLivingAnimals,
+      uniqueRaces: uniqueRaces.size,
+      deathsThisWeek: totalDeathsThisWeek
+    };
   }
 
   // Export/Import functionality
@@ -1850,7 +1968,7 @@ class SimpleTestDatabaseService {
     console.log(`📅 Calendar now has ${this.storage.calendar_events.length} events after caprin sync`);
   }
 
-  // Sync all data with calendar
+  // Sync all data with calendar - only when explicitly needed
   async syncAllWithCalendar() {
     console.log('🔄 Syncing all data with calendar...');
     await this.syncOrdersWithCalendar();
@@ -1891,7 +2009,17 @@ class SimpleTestDatabaseService {
 
   // Get orders for a specific date
   async getOrdersForDate(date) {
-    return this.storage.orders.filter(order => order.deliveryDate === date);
+    const orders = this.storage.orders.filter(order => order.deliveryDate === date);
+    // Migrate old "poules" to "poussins" for backward compatibility
+    return orders.map(order => {
+      if (order.animalType === 'poules') {
+        return {
+          ...order,
+          animalType: 'poussins'
+        };
+      }
+      return order;
+    });
   }
 
   // Export calendar events with order details to CSV
@@ -1984,7 +2112,16 @@ class SimpleTestDatabaseService {
 
   async getRaces() {
     console.log('📋 getRaces called');
-    return this.storage.elevage_races;
+    // Migrate old "poules" to "poussins" for backward compatibility
+    return this.storage.elevage_races.map(race => {
+      if (race.type === 'poules') {
+        return {
+          ...race,
+          type: 'poussins'
+        };
+      }
+      return race;
+    });
   }
 
   async updateRace(id, race) {
@@ -2025,26 +2162,27 @@ class SimpleTestDatabaseService {
 
   // ========== PRICING SYSTEM ==========
   
-  // Save pricing grid to database
-  async savePricingGrid(animalType, pricingGrid) {
-    console.log('💰 savePricingGrid called');
+  // Initialize default pricing grids
+  _initializeDefaultPricingGrids() {
     if (!this.storage.pricing_grids) {
       this.storage.pricing_grids = {
         poussins: [
-          { ageMonths: 0, ageWeeks: 0, price: 3.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 4.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 4.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 5.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 6.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 7.00, sex: 'Tous' }
+          { ageMonths: 0, ageWeeks: 0, price: 5, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 1, price: 10, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 10, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 15, sex: 'Femelle' },
+          { ageMonths: 3, ageWeeks: 0, price: 20, sex: 'Femelle' },
+          { ageMonths: 3, ageWeeks: 0, price: 15, sex: 'Mâle' },
+          { ageMonths: 4, ageWeeks: 0, price: 25, sex: 'Femelle' },
+          { ageMonths: 5, ageWeeks: 0, price: 30, sex: 'Femelle' },
+          { ageMonths: 6, ageWeeks: 0, price: 35, sex: 'Femelle' }
         ],
         canards: [
-          { ageMonths: 0, ageWeeks: 0, price: 4.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 5.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 6.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 7.50, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 8.50, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 9.50, sex: 'Tous' }
+          { ageMonths: 0, ageWeeks: 0, price: 5, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 1, price: 10, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 15, sex: 'Femelle' },
+          { ageMonths: 2, ageWeeks: 0, price: 15, sex: 'Mâle' },
+          { ageMonths: 2, ageWeeks: 0, price: 25, sex: 'Femelle' }
         ],
         oie: [
           { ageMonths: 0, ageWeeks: 0, price: 8.00, sex: 'Tous' },
@@ -2080,6 +2218,12 @@ class SimpleTestDatabaseService {
         ]
       };
     }
+  }
+  
+  // Save pricing grid to database
+  async savePricingGrid(animalType, pricingGrid) {
+    console.log('💰 savePricingGrid called');
+    this._initializeDefaultPricingGrids();
     this.storage.pricing_grids[animalType] = pricingGrid;
     return { success: true };
   }
@@ -2087,116 +2231,14 @@ class SimpleTestDatabaseService {
   // Get pricing grid from database
   async getPricingGrid(animalType) {
     console.log('💰 getPricingGrid called');
-    if (!this.storage.pricing_grids) {
-      this.storage.pricing_grids = {
-        poussins: [
-          { ageMonths: 0, ageWeeks: 0, price: 3.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 4.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 4.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 5.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 6.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 7.00, sex: 'Tous' }
-        ],
-        canards: [
-          { ageMonths: 0, ageWeeks: 0, price: 4.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 5.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 6.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 7.50, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 8.50, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 9.50, sex: 'Tous' }
-        ],
-        oie: [
-          { ageMonths: 0, ageWeeks: 0, price: 8.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 10.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 12.00, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 15.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 18.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 22.00, sex: 'Tous' }
-        ],
-        lapin: [
-          { ageMonths: 0, ageWeeks: 0, price: 6.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 8.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 10.00, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 12.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 15.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 18.00, sex: 'Tous' }
-        ],
-        chèvre: [
-          { ageMonths: 0, ageWeeks: 0, price: 25.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 30.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 35.00, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 40.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 50.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 60.00, sex: 'Tous' }
-        ],
-        cailles: [
-          { ageMonths: 0, ageWeeks: 0, price: 2.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 3.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 3.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 4.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 4.50, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 5.00, sex: 'Tous' }
-        ]
-      };
-    }
+    this._initializeDefaultPricingGrids();
     return this.storage.pricing_grids[animalType] || [];
   }
 
   // Get all pricing grids
   async getAllPricingGrids() {
     console.log('💰 getAllPricingGrids called');
-    if (!this.storage.pricing_grids) {
-      this.storage.pricing_grids = {
-        poussins: [
-          { ageMonths: 0, ageWeeks: 0, price: 3.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 4.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 4.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 5.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 6.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 7.00, sex: 'Tous' }
-        ],
-        canards: [
-          { ageMonths: 0, ageWeeks: 0, price: 4.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 5.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 6.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 7.50, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 8.50, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 9.50, sex: 'Tous' }
-        ],
-        oie: [
-          { ageMonths: 0, ageWeeks: 0, price: 8.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 10.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 12.00, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 15.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 18.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 22.00, sex: 'Tous' }
-        ],
-        lapin: [
-          { ageMonths: 0, ageWeeks: 0, price: 6.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 8.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 10.00, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 12.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 15.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 18.00, sex: 'Tous' }
-        ],
-        chèvre: [
-          { ageMonths: 0, ageWeeks: 0, price: 25.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 30.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 35.00, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 40.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 50.00, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 60.00, sex: 'Tous' }
-        ],
-        cailles: [
-          { ageMonths: 0, ageWeeks: 0, price: 2.50, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 4, price: 3.00, sex: 'Tous' },
-          { ageMonths: 0, ageWeeks: 8, price: 3.50, sex: 'Tous' },
-          { ageMonths: 1, ageWeeks: 0, price: 4.00, sex: 'Tous' },
-          { ageMonths: 2, ageWeeks: 0, price: 4.50, sex: 'Tous' },
-          { ageMonths: 3, ageWeeks: 0, price: 5.00, sex: 'Tous' }
-        ]
-      };
-    }
+    this._initializeDefaultPricingGrids();
     return this.storage.pricing_grids;
   }
 

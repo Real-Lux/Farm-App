@@ -13,6 +13,7 @@ import {
   Platform
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import database from '../services/database';
 import configService from '../services/configService';
 
@@ -21,21 +22,7 @@ export default function ProductManagementScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState('elevage');
   const [templateSettingsModal, setTemplateSettingsModal] = useState(false);
   const [selectedAnimalType, setSelectedAnimalType] = useState('poussins');
-  const [pricingGrids, setPricingGrids] = useState({
-    poussins: [
-      { ageMonths: 0, price: 5, sex: 'Tous' },
-      { ageMonths: 0.25, price: 7, sex: 'Tous' },
-      { ageMonths: 1, price: 10, sex: 'Tous' },
-      { ageMonths: 2, price: 15, sex: 'Femelle' },
-      { ageMonths: 3, price: 25, sex: 'Femelle' },
-      { ageMonths: 4, price: 30, sex: 'Femelle' },
-      { ageMonths: 5, price: 35, sex: 'Femelle' },
-      { ageMonths: 2, price: 15, sex: 'Mâle' },
-    ],
-    canards: [],
-    oies: [],
-    chèvres: []
-  });
+  const [pricingGrids, setPricingGrids] = useState({});
   const [newAnimalTypeModal, setNewAnimalTypeModal] = useState(false);
   const [newAnimalTypeName, setNewAnimalTypeName] = useState('');
   const [products, setProducts] = useState([]);
@@ -46,7 +33,8 @@ export default function ProductManagementScreen({ navigation }) {
     price: '',
     quantity: '',
     unit: 'kg',
-    category: 'Vegetables'
+    category: 'Vegetables',
+    description: ''
   });
   
   // Client template messages state
@@ -92,14 +80,37 @@ export default function ProductManagementScreen({ navigation }) {
   ]);
   const [saveFormulaModal, setSaveFormulaModal] = useState(false);
   const [formulaName, setFormulaName] = useState('');
+  
+  // Elevage statistics state
+  const [elevageStats, setElevageStats] = useState({
+    activeLots: 0,
+    totalLivingAnimals: 0,
+    uniqueRaces: 0,
+    deathsThisWeek: 0
+  });
 
   useEffect(() => {
     loadProducts();
     loadSavedFormulas();
     loadPricingGrids();
     loadConfigs();
-    loadTemplateMessages();
+    // loadTemplateMessages(); // Load on demand when Client tab is accessed
+    loadElevageStatistics();
   }, []);
+
+  // Load template messages when client tab is accessed
+  useEffect(() => {
+    if (activeTab === 'client' && templateMessages.length === 0) {
+      loadTemplateMessages();
+    }
+  }, [activeTab]);
+
+  // Reload statistics when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadElevageStatistics();
+    }, [])
+  );
 
   const loadConfigs = async () => {
     try {
@@ -117,7 +128,7 @@ export default function ProductManagementScreen({ navigation }) {
     try {
       const savedGrids = await database.getAllPricingGrids();
       if (savedGrids && Object.keys(savedGrids).length > 0) {
-        setPricingGrids(prev => ({ ...prev, ...savedGrids }));
+        setPricingGrids(savedGrids);
       }
     } catch (error) {
       console.error('Error loading pricing grids:', error);
@@ -130,6 +141,15 @@ export default function ProductManagementScreen({ navigation }) {
       setTemplateMessages(messages);
     } catch (error) {
       console.error('Error loading template messages:', error);
+    }
+  };
+
+  const loadElevageStatistics = async () => {
+    try {
+      const stats = await database.getElevageStatistics();
+      setElevageStats(stats);
+    } catch (error) {
+      console.error('Error loading elevage statistics:', error);
     }
   };
 
@@ -150,7 +170,8 @@ export default function ProductManagementScreen({ navigation }) {
       price: '',
       quantity: '',
       unit: 'kg',
-      category: 'Vegetables'
+      category: 'Vegetables',
+      description: ''
     });
     setModalVisible(true);
   };
@@ -162,7 +183,8 @@ export default function ProductManagementScreen({ navigation }) {
       price: product.price.toString(),
       quantity: product.quantity.toString(),
       unit: product.unit,
-      category: product.category
+      category: product.category,
+      description: product.description || ''
     });
     setModalVisible(true);
   };
@@ -176,9 +198,10 @@ export default function ProductManagementScreen({ navigation }) {
     try {
       const productData = {
         name: productForm.name,
-        description: `${productForm.unit} - ${productForm.category}`,
+        description: productForm.description || `${productForm.unit} - ${productForm.category}`,
         price: parseFloat(productForm.price),
         quantity: parseInt(productForm.quantity),
+        unit: productForm.unit,
         category: productForm.category
       };
 
@@ -305,7 +328,7 @@ export default function ProductManagementScreen({ navigation }) {
   const addPricingRow = async () => {
     const newGrids = { ...pricingGrids };
     const currentGrid = [...newGrids[selectedAnimalType]];
-    currentGrid.push({ ageMonths: 0, price: 0, sex: 'Tous' });
+    currentGrid.push({ ageMonths: 0, ageWeeks: 0, price: 0, sex: 'Tous' });
     newGrids[selectedAnimalType] = currentGrid;
     setPricingGrids(newGrids);
     
@@ -504,20 +527,41 @@ export default function ProductManagementScreen({ navigation }) {
   };
 
   const ProductItem = ({ item }) => (
-    <View style={styles.productCard}>
+    <TouchableOpacity 
+      style={styles.productCard}
+      onPress={() => openEditModal(item)}
+      activeOpacity={0.7}
+    >
       <View style={styles.productHeader}>
-        <Text style={styles.productName}>{item.name}</Text>
-        <Text style={[styles.stockStatus, { 
-          color: item.quantity < 20 ? '#F44336' : '#4CAF50' 
-        }]}>
-          {item.quantity < 20 ? '⚠️ Stock faible' : '✅ En stock'}
-        </Text>
+        <View style={styles.productTitleSection}>
+          <Text style={styles.productName}>{item.name}</Text>
+          <Text style={styles.productCategory}>{item.category}</Text>
+        </View>
+        <View style={styles.stockIndicator}>
+          <Text style={[styles.stockStatus, { 
+            color: item.quantity < 20 ? '#F44336' : '#4CAF50' 
+          }]}>
+            {item.quantity < 20 ? '⚠️' : '✅'}
+          </Text>
+        </View>
       </View>
       
       <View style={styles.productDetails}>
-        <Text style={styles.productInfo}>💰 {item.price.toFixed(2)}€ par {item.unit || 'unité'}</Text>
-        <Text style={styles.productInfo}>📦 {item.quantity} {item.unit || 'unité(s)'} disponible(s)</Text>
-        <Text style={styles.productInfo}>🏷️ {item.category}</Text>
+        <View style={styles.productInfoRow}>
+          <Text style={styles.productInfoLabel}>Prix:</Text>
+          <Text style={styles.productInfoValue}>{item.price.toFixed(2)}€</Text>
+        </View>
+        <View style={styles.productInfoRow}>
+          <Text style={styles.productInfoLabel}>Stock:</Text>
+          <Text style={styles.productInfoValue}>{item.quantity} {item.unit || 'unité(s)'}</Text>
+        </View>
+        {item.description && (
+          <View style={styles.productDescription}>
+            <Text style={styles.productDescriptionText} numberOfLines={2}>
+              {item.description}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.productActions}>
@@ -525,58 +569,62 @@ export default function ProductManagementScreen({ navigation }) {
           style={[styles.actionBtn, styles.editBtn]}
           onPress={() => openEditModal(item)}
         >
-          <Text style={styles.actionBtnText}>✏️ Modifier</Text>
+          <Text style={styles.actionBtnText}>✏️</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.actionBtn, styles.deleteBtn]}
           onPress={() => deleteProduct(item.id)}
         >
-          <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
+          <Text style={styles.actionBtnText}>🗑️</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
-  const MessageItem = ({ item }) => (
-    <View style={styles.messageCard}>
-      <View style={styles.messageHeader}>
-        <Text style={styles.messageTitle}>{item.title}</Text>
-        <View style={[styles.categoryBadge, { 
-          backgroundColor: item.category === 'Adoption' ? '#4CAF50' : 
-                          item.category === 'Activité' ? '#2196F3' : '#FF9800'
-        }]}>
-          <Text style={styles.categoryBadgeText}>{item.category}</Text>
+  const MessageItem = ({ item }) => {
+    if (!item) return null;
+    
+    return (
+      <View style={styles.messageCard}>
+        <View style={styles.messageHeader}>
+          <Text style={styles.messageTitle}>{item.title || 'Sans titre'}</Text>
+          <View style={[styles.categoryBadge, { 
+            backgroundColor: item.category === 'Adoption' ? '#4CAF50' : 
+                            item.category === 'Activité' ? '#2196F3' : '#FF9800'
+          }]}>
+            <Text style={styles.categoryBadgeText}>{item.category || 'Autre'}</Text>
+          </View>
+        </View>
+        
+        <View style={styles.messageContent}>
+          <Text style={styles.messagePreview} numberOfLines={3}>
+            {item.content || 'Aucun contenu'}
+          </Text>
+        </View>
+
+        <View style={styles.messageActions}>
+          <TouchableOpacity 
+            style={[styles.actionBtn, styles.copyBtn]}
+            onPress={() => copyToClipboard(item.content || '')}
+          >
+            <Text style={styles.actionBtnText}>📋 Copier</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.actionBtn, styles.editBtn]}
+            onPress={() => openEditMessageModal(item)}
+          >
+            <Text style={styles.actionBtnText}>✏️ Modifier</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.actionBtn, styles.deleteBtn]}
+            onPress={() => deleteMessage(item.id)}
+          >
+            <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
+          </TouchableOpacity>
         </View>
       </View>
-      
-      <View style={styles.messageContent}>
-        <Text style={styles.messagePreview} numberOfLines={3}>
-          {item.content}
-        </Text>
-      </View>
-
-      <View style={styles.messageActions}>
-            <TouchableOpacity 
-          style={[styles.actionBtn, styles.copyBtn]}
-          onPress={() => copyToClipboard(item.content)}
-        >
-          <Text style={styles.actionBtnText}>📋 Copier</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.actionBtn, styles.editBtn]}
-          onPress={() => openEditMessageModal(item)}
-        >
-          <Text style={styles.actionBtnText}>✏️ Modifier</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.actionBtn, styles.deleteBtn]}
-          onPress={() => deleteMessage(item.id)}
-        >
-          <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderElevageAvicole = () => (
     <View style={styles.tabContent}>
@@ -597,19 +645,19 @@ export default function ProductManagementScreen({ navigation }) {
         <Text style={styles.quickStatsTitle}>Statistiques Rapides</Text>
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>24</Text>
+            <Text style={styles.statNumber}>{elevageStats.activeLots}</Text>
             <Text style={styles.statLabel}>Lots Actifs</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>156</Text>
+            <Text style={styles.statNumber}>{elevageStats.totalLivingAnimals}</Text>
             <Text style={styles.statLabel}>Animaux Vivants</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>8</Text>
+            <Text style={styles.statNumber}>{elevageStats.uniqueRaces}</Text>
             <Text style={styles.statLabel}>Races Gérées</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>12</Text>
+            <Text style={styles.statNumber}>{elevageStats.deathsThisWeek}</Text>
             <Text style={styles.statLabel}>Morts Cette Semaine</Text>
           </View>
         </View>
@@ -682,43 +730,23 @@ export default function ProductManagementScreen({ navigation }) {
         </View>
       </View>
       
-      <View style={styles.productionCategories}>
-        <TouchableOpacity style={styles.categoryCard}>
-          <Text style={styles.categoryIcon}>🥚</Text>
-          <Text style={styles.categoryTitle}>Œufs de Consommation</Text>
-          <Text style={styles.categoryDescription}>Gestion des œufs frais</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.categoryCard} onPress={() => setActiveTab('adoptions')}>
-          <Text style={styles.categoryIcon}>🐣</Text>
-          <Text style={styles.categoryTitle}>Adoptions Poussins</Text>
-          <Text style={styles.categoryDescription}>Vente de poussins par âge</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.categoryCard}>
-          <Text style={styles.categoryIcon}>🧀</Text>
-          <Text style={styles.categoryTitle}>Fromage de Chèvre</Text>
-          <Text style={styles.categoryDescription}>Produits laitiers</Text>
-        </TouchableOpacity>
-      </View>
       
       <View style={styles.adoptionPricing}>
-        <View style={styles.pricingHeader}>
-          <Text style={styles.pricingTitle}>🐣 Grilles Tarifaires Adoptions</Text>
-          <View style={styles.pricingHeaderButtons}>
-            <TouchableOpacity 
-              style={styles.configurePricingButton}
-              onPress={openTemplateSettings}
-            >
-              <Text style={styles.configurePricingButtonText}>⚙️ Configurer Prix</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.addAnimalTypeButton}
-              onPress={() => setNewAnimalTypeModal(true)}
-            >
-              <Text style={styles.addAnimalTypeButtonText}>+ Nouveau Type</Text>
-            </TouchableOpacity>
-          </View>
+        <Text style={styles.pricingTitle}>🐣 Grilles Tarifaires Adoptions</Text>
+        
+        <View style={styles.pricingHeaderButtons}>
+          <TouchableOpacity 
+            style={styles.configurePricingButton}
+            onPress={openTemplateSettings}
+          >
+            <Text style={styles.configurePricingButtonText}>⚙️ Configurer Prix</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.addAnimalTypeButton}
+            onPress={() => setNewAnimalTypeModal(true)}
+          >
+            <Text style={styles.addAnimalTypeButtonText}>+ Nouveau Type</Text>
+          </TouchableOpacity>
         </View>
         
         {/* Animal Type Selector */}
@@ -753,9 +781,10 @@ export default function ProductManagementScreen({ navigation }) {
             pricingGrids[selectedAnimalType].map((item, index) => (
               <View key={`${selectedAnimalType}-${index}`} style={styles.pricingRow}>
                 <Text style={styles.pricingAge}>
-                  {item.ageMonths === 0 ? 'Naissance' : 
-                   item.ageMonths < 1 ? `${(item.ageMonths * 4).toFixed(0)} semaines` :
-                   `${item.ageMonths} mois`}
+                  {item.ageMonths === 0 && item.ageWeeks === 0 ? 'Naissance' : 
+                   item.ageMonths === 0 && item.ageWeeks > 0 ? `${item.ageWeeks} semaine${item.ageWeeks > 1 ? 's' : ''}` :
+                   item.ageMonths > 0 && item.ageWeeks === 0 ? `${item.ageMonths} mois` :
+                   `${item.ageMonths} mois ${item.ageWeeks} semaine${item.ageWeeks > 1 ? 's' : ''}`}
                 </Text>
                 <Text style={styles.pricingPrice}>{item.price}€</Text>
                 <Text style={styles.pricingSex}>{item.sex}</Text>
@@ -775,10 +804,24 @@ export default function ProductManagementScreen({ navigation }) {
       </View>
       
       <View style={styles.productsSection}>
-        <Text style={styles.productsSectionTitle}>Produits Actuels</Text>
-        {products.map((item) => (
-          <ProductItem key={item.id.toString()} item={item} />
-        ))}
+        <View style={styles.productsSectionHeader}>
+          <Text style={styles.productsSectionTitle}>📦 Produits Actuels</Text>
+          <Text style={styles.productsSectionSubtitle}>
+            Cliquez sur un produit pour le modifier
+          </Text>
+        </View>
+        {products.length > 0 ? (
+          products.map((item) => (
+            <ProductItem key={item.id.toString()} item={item} />
+          ))
+        ) : (
+          <View style={styles.emptyProductsState}>
+            <Text style={styles.emptyProductsText}>Aucun produit configuré</Text>
+            <Text style={styles.emptyProductsSubtext}>
+              Ajoutez vos premiers produits pour commencer
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -887,13 +930,14 @@ export default function ProductManagementScreen({ navigation }) {
   );
 
 
-  const renderClient = () => (
-    <View style={styles.tabContent}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>👥 Gestion Client</Text>
-        <Text style={styles.sectionDescription}>
-          Messages modèles pour communiquer avec vos clients : adoptions, activités, commandes
-        </Text>
+  const renderClient = () => {
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>👥 Gestion Client</Text>
+          <Text style={styles.sectionDescription}>
+            Messages modèles pour communiquer avec vos clients : adoptions, activités, commandes
+          </Text>
         <TouchableOpacity style={styles.addButton} onPress={openAddMessageModal}>
           <Text style={styles.addButtonText}>+ Nouveau Message</Text>
         </TouchableOpacity>
@@ -903,19 +947,19 @@ export default function ProductManagementScreen({ navigation }) {
         <View style={styles.categoryStats}>
           <View style={styles.categoryStatItem}>
             <Text style={styles.categoryStatNumber}>
-              {templateMessages.filter(msg => msg.category === 'Adoption').length}
+              {templateMessages?.filter(msg => msg?.category === 'Adoption')?.length || 0}
             </Text>
             <Text style={styles.categoryStatLabel}>Adoption</Text>
           </View>
           <View style={styles.categoryStatItem}>
             <Text style={styles.categoryStatNumber}>
-              {templateMessages.filter(msg => msg.category === 'Activité').length}
+              {templateMessages?.filter(msg => msg?.category === 'Activité')?.length || 0}
             </Text>
             <Text style={styles.categoryStatLabel}>Activité</Text>
           </View>
           <View style={styles.categoryStatItem}>
             <Text style={styles.categoryStatNumber}>
-              {templateMessages.filter(msg => msg.category === 'Commande').length}
+              {templateMessages?.filter(msg => msg?.category === 'Commande')?.length || 0}
             </Text>
             <Text style={styles.categoryStatLabel}>Commande</Text>
           </View>
@@ -925,13 +969,14 @@ export default function ProductManagementScreen({ navigation }) {
       <View style={styles.messagesSection}>
         <Text style={styles.messagesSectionTitle}>Messages Modèles</Text>
         <View style={styles.messageList}>
-          {templateMessages.map((item) => (
-            <MessageItem key={item.id.toString()} item={item} />
-          ))}
+          {templateMessages?.map((item) => (
+            <MessageItem key={item?.id?.toString() || Math.random().toString()} item={item} />
+          )) || []}
         </View>
       </View>
     </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -1080,6 +1125,15 @@ export default function ProductManagementScreen({ navigation }) {
                 onChangeText={(text) => setProductForm({...productForm, category: text})}
               />
 
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Description (optionnel)"
+                value={productForm.description}
+                onChangeText={(text) => setProductForm({...productForm, description: text})}
+                multiline={true}
+                numberOfLines={3}
+              />
+
               <View style={styles.modalActions}>
                 <TouchableOpacity 
                   style={[styles.modalBtn, styles.cancelBtn]}
@@ -1210,6 +1264,16 @@ export default function ProductManagementScreen({ navigation }) {
                         onChangeText={(text) => updatePricingGrid(index, 'ageMonths', parseFloat(text) || 0)}
                         keyboardType="numeric"
                         placeholder="Ex: 1, 2, 3"
+                      />
+                    </View>
+                    <View style={styles.settingsInputGroup}>
+                      <Text style={styles.settingsLabel}>Âge (semaines):</Text>
+                      <TextInput
+                        style={styles.settingsInput}
+                        value={item.ageWeeks ? item.ageWeeks.toString() : ''}
+                        onChangeText={(text) => updatePricingGrid(index, 'ageWeeks', parseFloat(text) || 0)}
+                        keyboardType="numeric"
+                        placeholder="Ex: 1, 2, 4"
                       />
                     </View>
                     <View style={styles.settingsInputGroup}>
@@ -1801,11 +1865,39 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  productsSectionHeader: {
+    marginBottom: 15,
+  },
   productsSectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 12,
+    marginBottom: 4,
+  },
+  productsSectionSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  emptyProductsState: {
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  emptyProductsText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 5,
+  },
+  emptyProductsSubtext: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
   },
   productList: {
     // Removed maxHeight to allow proper scrolling
@@ -1994,38 +2086,81 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   productCard: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   productHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  productTitleSection: {
+    flex: 1,
+    marginRight: 10,
   },
   productName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 4,
+  },
+  productCategory: {
+    fontSize: 12,
+    color: '#666',
+    backgroundColor: '#f0f8ff',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  stockIndicator: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stockStatus: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '600',
   },
   productDetails: {
     marginBottom: 15,
   },
-  productInfo: {
+  productInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  productInfoLabel: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 3,
+    fontWeight: '500',
+  },
+  productInfoValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+  },
+  productDescription: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  productDescriptionText: {
+    fontSize: 13,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 18,
   },
   productActions: {
     flexDirection: 'row',
@@ -2076,6 +2211,10 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 16,
   },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
   modalActions: {
     flexDirection: 'row',
     gap: 10,
@@ -2107,21 +2246,16 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  pricingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
   pricingTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
-    flex: 1,
+    marginBottom: 12,
   },
   pricingHeaderButtons: {
     flexDirection: 'row',
     gap: 8,
+    marginBottom: 12,
   },
   configurePricingButton: {
     backgroundColor: '#FF9800',
@@ -2282,11 +2416,13 @@ const styles = StyleSheet.create({
   },
   settingsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
-    gap: 8,
+    gap: 6,
+    flexWrap: 'wrap',
   },
   settingsInputGroup: {
+    minWidth: '22%',
     flex: 1,
   },
   settingsLabel: {

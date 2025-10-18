@@ -26,7 +26,7 @@ const { width } = Dimensions.get('window');
 export default function CalendarScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [events, setEvents] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // Use current date
   const [viewMode, setViewMode] = useState('month'); // month, week, day, year
   const [modalVisible, setModalVisible] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -58,44 +58,38 @@ export default function CalendarScreen({ navigation }) {
   // Refresh calendar when screen comes into focus (e.g., after adding orders)
   useFocusEffect(
     React.useCallback(() => {
-      syncAllData();
-    }, [])
+      // Only sync if we're not already refreshing and not in year view
+      // Also add a small delay to prevent interference with navigation
+      if (!isRefreshing && viewMode !== 'year') {
+        const timer = setTimeout(() => {
+          loadEvents(selectedDate, viewMode);
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }, [selectedDate, viewMode, isRefreshing])
   );
 
-  const loadEvents = async () => {
+  const loadEvents = async (targetDate = selectedDate, viewModeParam = viewMode) => {
     try {
-      console.log('🔄 CalendarScreen: Starting to load events...');
+      console.log(`🔄 CalendarScreen: Loading events for ${viewModeParam} view around ${targetDate}...`);
+      console.log(`📅 Current selectedDate: ${selectedDate}, targetDate: ${targetDate}`);
       
-      // First sync all data with calendar to ensure all events are created
-      await database.syncAllWithCalendar();
+      // Get date range based on view mode
+      const dateRange = getDateRangeForView(targetDate, viewModeParam);
+      console.log(`📅 Date range: ${dateRange.start} to ${dateRange.end}`);
       
-      // Save calendar events to CSV storage
-      const eventsData = await database.getEvents();
-      await csvStorage.syncCalendarEvents(eventsData);
+      // Load events only for the current view period
+      const eventsData = await database.getEventsForDateRange(dateRange.start, dateRange.end);
       
-      console.log(`📅 CalendarScreen: Loaded ${eventsData.length} total events from database`);
+      console.log(`📅 CalendarScreen: Loaded ${eventsData.length} events for ${viewModeParam} view`);
       
-      // Filter out old events and then load all events (including order events)
-      const filteredEvents = filterOldEvents(eventsData);
-      console.log(`📅 CalendarScreen: After filtering, ${filteredEvents.length} events remain`);
-      
-      setEvents(filteredEvents);
-      
-      // Debug: Show all events with their dates
-      eventsData.forEach(event => {
-        console.log(`📅 Event: ${event.title} - Date: ${event.date || event.event_date} - Type: ${event.type}`);
-      });
-      
-      // Debug: Show filtered events
-      filteredEvents.forEach(event => {
-        console.log(`✅ Filtered Event: ${event.title} - Date: ${event.date || event.event_date} - Type: ${event.type}`);
-      });
+      setEvents(eventsData);
     } catch (error) {
       console.error('Error loading events:', error);
     }
   };
 
-  // Comprehensive sync function that updates all data
+  // Comprehensive sync function that updates all data - only used for refresh
   const syncAllData = async () => {
     try {
       console.log('🔄 CalendarScreen: Starting comprehensive data sync...');
@@ -106,13 +100,8 @@ export default function CalendarScreen({ navigation }) {
       // Sync all data with calendar (including management events)
       await database.syncAllWithCalendar();
       
-      // Sync CSV storage with all data
-      const eventsData = await database.getEvents();
-      await csvStorage.syncCalendarEvents(eventsData);
-      
-      // Filter out old events and update events state
-      const filteredEvents = filterOldEvents(eventsData);
-      setEvents(filteredEvents);
+      // Load events for current view only
+      await loadEvents(selectedDate, viewMode);
       
       console.log('✅ CalendarScreen: Comprehensive sync completed successfully');
     } catch (error) {
@@ -292,9 +281,9 @@ export default function CalendarScreen({ navigation }) {
   // Convert events to calendar format for marked dates
   const getMarkedDates = () => {
     const marked = {};
-    const filteredEvents = filterOldEvents(events);
     
-    filteredEvents.forEach(event => {
+    // Use the already filtered events from loadEvents
+    events.forEach(event => {
       const date = event.date || event.event_date;
       if (date) {
         const eventDate = date.split('T')[0]; // Get YYYY-MM-DD format
@@ -326,17 +315,62 @@ export default function CalendarScreen({ navigation }) {
 
   // Get events for selected date
   const getEventsForDate = (date) => {
-    const filteredEvents = filterOldEvents(events);
-    return filteredEvents.filter(event => {
+    // Use the already filtered events from loadEvents
+    return events.filter(event => {
       const eventDate = (event.date || event.event_date)?.split('T')[0];
       return eventDate === date;
     });
   };
 
-  // Show all events (no filtering for testing)
-  const filterOldEvents = (eventsList) => {
-    // Return all events without filtering for testing purposes
-    return eventsList;
+  // Get date range based on view mode
+  const getDateRangeForView = (date, viewModeParam) => {
+    const targetDate = new Date(date);
+    
+    switch (viewModeParam) {
+      case 'day':
+        return {
+          start: date,
+          end: date
+        };
+        
+      case 'week':
+        const startOfWeek = new Date(targetDate);
+        const day = startOfWeek.getDay();
+        const diff = startOfWeek.getDate() - day;
+        startOfWeek.setDate(diff);
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        
+        return {
+          start: startOfWeek.toISOString().split('T')[0],
+          end: endOfWeek.toISOString().split('T')[0]
+        };
+        
+      case 'month':
+        const startOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+        const endOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+        
+        return {
+          start: startOfMonth.toISOString().split('T')[0],
+          end: endOfMonth.toISOString().split('T')[0]
+        };
+        
+      case 'year':
+        const startOfYear = new Date(targetDate.getFullYear(), 0, 1);
+        const endOfYear = new Date(targetDate.getFullYear(), 11, 31);
+        
+        return {
+          start: startOfYear.toISOString().split('T')[0],
+          end: endOfYear.toISOString().split('T')[0]
+        };
+        
+      default:
+        return {
+          start: date,
+          end: date
+        };
+    }
   };
 
   // Get events for selected week
@@ -349,8 +383,8 @@ export default function CalendarScreen({ navigation }) {
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     
-    const filteredEvents = filterOldEvents(events);
-    return filteredEvents.filter(event => {
+    // Use the already filtered events from loadEvents
+    return events.filter(event => {
       const eventDate = new Date(event.date || event.event_date);
       return eventDate >= startOfWeek && eventDate <= endOfWeek;
     });
@@ -362,8 +396,8 @@ export default function CalendarScreen({ navigation }) {
     const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
     const endOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0);
     
-    const filteredEvents = filterOldEvents(events);
-    return filteredEvents.filter(event => {
+    // Use the already filtered events from loadEvents
+    return events.filter(event => {
       const eventDate = new Date(event.date || event.event_date);
       return eventDate >= startOfMonth && eventDate <= endOfMonth;
     });
@@ -492,7 +526,12 @@ export default function CalendarScreen({ navigation }) {
             styles.viewModeButton,
             viewMode === option.key && styles.viewModeButtonActive
           ]}
-          onPress={() => setViewMode(option.key)}
+          onPress={async () => {
+            console.log('📅 Switching to view mode:', option.key);
+            setViewMode(option.key);
+            // Reload events for the new view mode
+            await loadEvents(selectedDate, option.key);
+          }}
         >
           <Text style={[
             styles.viewModeText,
@@ -505,51 +544,126 @@ export default function CalendarScreen({ navigation }) {
     </View>
   );
 
-  const MonthView = () => (
-    <Calendar
-      current={selectedDate}
-      onDayPress={(day) => setSelectedDate(day.dateString)}
-      onMonthChange={(month) => {
-        // Update selected date to first day of the new month if current selected date is not in the new month
-        const newMonth = new Date(month.year, month.month - 1, 1);
-        const currentSelected = new Date(selectedDate);
+  const MonthView = () => {
+    const currentDate = new Date(selectedDate);
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    
+    // Navigation functions
+    const navigateToPreviousMonth = async () => {
+      const newDate = new Date(currentYear, currentMonth - 1, 1);
+      const newDateString = newDate.toISOString().split('T')[0];
+      console.log('📅 Navigating to previous month:', newDateString, 'from:', selectedDate);
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, 'month');
+    };
+    
+    const navigateToNextMonth = async () => {
+      const newDate = new Date(currentYear, currentMonth + 1, 1);
+      const newDateString = newDate.toISOString().split('T')[0];
+      console.log('📅 Navigating to next month:', newDateString, 'from:', selectedDate);
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, 'month');
+    };
+    
+    const navigateToPreviousYear = async () => {
+      const newDate = new Date(currentYear - 1, currentMonth, 1);
+      const newDateString = newDate.toISOString().split('T')[0];
+      console.log('📅 Navigating to previous year:', newDateString);
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, 'month');
+    };
+    
+    const navigateToNextYear = async () => {
+      const newDate = new Date(currentYear + 1, currentMonth, 1);
+      const newDateString = newDate.toISOString().split('T')[0];
+      console.log('📅 Navigating to next year:', newDateString);
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, 'month');
+    };
+    
+    return (
+      <View style={styles.monthViewContainer}>
+        {/* Month Navigation Header */}
+        <View style={styles.monthNavigation}>
+          <TouchableOpacity 
+            style={styles.monthArrow}
+            onPress={navigateToPreviousYear}
+          >
+            <Text style={styles.monthArrowText}>‹‹</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.monthArrow}
+            onPress={navigateToPreviousMonth}
+          >
+            <Text style={styles.monthArrowText}>‹</Text>
+          </TouchableOpacity>
+          
+          <Text style={styles.monthViewTitle}>
+            {currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+          </Text>
+          
+          <TouchableOpacity 
+            style={styles.monthArrow}
+            onPress={navigateToNextMonth}
+          >
+            <Text style={styles.monthArrowText}>›</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.monthArrow}
+            onPress={navigateToNextYear}
+          >
+            <Text style={styles.monthArrowText}>››</Text>
+          </TouchableOpacity>
+        </View>
         
-        if (currentSelected.getMonth() !== newMonth.getMonth() || currentSelected.getFullYear() !== newMonth.getFullYear()) {
-          setSelectedDate(newMonth.toISOString().split('T')[0]);
-        }
-      }}
-      markedDates={getMarkedDates()}
-      markingType={'multi-dot'}
-      theme={{
-        backgroundColor: '#ffffff',
-        calendarBackground: '#ffffff',
-        textSectionTitleColor: '#b6c1cd',
-        selectedDayBackgroundColor: '#005F6B',
-        selectedDayTextColor: '#ffffff',
-        todayTextColor: '#005F6B',
-        dayTextColor: '#2d4150',
-        textDisabledColor: '#d9e1e8',
-        dotColor: '#005F6B',
-        selectedDotColor: '#ffffff',
-        arrowColor: '#005F6B',
-        disabledArrowColor: '#d9e1e8',
-        monthTextColor: '#005F6B',
-        indicatorColor: '#005F6B',
-        textDayFontWeight: '300',
-        textMonthFontWeight: 'bold',
-        textDayHeaderFontWeight: '300',
-        textDayFontSize: 16,
-        textMonthFontSize: 16,
-        textDayHeaderFontSize: 13,
-        'stylesheet.day.basic': {
-          today: {
-            fontWeight: '900', // Extra bold for today
-            fontSize: 18,
-          },
-        }
-      }}
-    />
-  );
+        {/* Calendar Component */}
+        <Calendar
+          key={`${selectedDate}-${viewMode}`} // Force re-render when date or view mode changes
+          current={selectedDate}
+          onDayPress={async (day) => {
+            console.log('📅 Day pressed:', day.dateString);
+            setSelectedDate(day.dateString);
+            // Reload events for the selected day
+            await loadEvents(day.dateString, viewMode);
+          }}
+          hideArrows={true} // Hide built-in arrows since we have custom ones
+          markedDates={getMarkedDates()}
+          markingType={'multi-dot'}
+          theme={{
+            backgroundColor: '#ffffff',
+            calendarBackground: '#ffffff',
+            textSectionTitleColor: '#b6c1cd',
+            selectedDayBackgroundColor: '#005F6B',
+            selectedDayTextColor: '#ffffff',
+            todayTextColor: '#005F6B',
+            dayTextColor: '#2d4150',
+            textDisabledColor: '#d9e1e8',
+            dotColor: '#005F6B',
+            selectedDotColor: '#ffffff',
+            arrowColor: '#005F6B',
+            disabledArrowColor: '#d9e1e8',
+            monthTextColor: '#005F6B',
+            indicatorColor: '#005F6B',
+            textDayFontWeight: '300',
+            textMonthFontWeight: 'bold',
+            textDayHeaderFontWeight: '300',
+            textDayFontSize: 16,
+            textMonthFontSize: 16,
+            textDayHeaderFontSize: 13,
+            'stylesheet.day.basic': {
+              today: {
+                fontWeight: '900', // Extra bold for today
+                fontSize: 18,
+              },
+            }
+          }}
+        />
+      </View>
+    );
+  };
 
   const WeekView = () => {
     const weekEvents = getEventsForWeek(selectedDate);
@@ -565,9 +679,44 @@ export default function CalendarScreen({ navigation }) {
       weekDays.push(currentDay);
     }
     
+    // Navigation functions
+    const navigateToPreviousWeek = async () => {
+      const newDate = new Date(startOfWeek);
+      newDate.setDate(startOfWeek.getDate() - 7);
+      const newDateString = newDate.toISOString().split('T')[0];
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, viewMode);
+    };
+    
+    const navigateToNextWeek = async () => {
+      const newDate = new Date(startOfWeek);
+      newDate.setDate(startOfWeek.getDate() + 7);
+      const newDateString = newDate.toISOString().split('T')[0];
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, viewMode);
+    };
+    
     return (
       <View style={styles.weekView}>
-        <Text style={styles.weekViewTitle}>Semaine du {startOfWeek.toLocaleDateString('fr-FR')}</Text>
+        {/* Week Navigation Header */}
+        <View style={styles.weekNavigation}>
+          <TouchableOpacity 
+            style={styles.weekArrow}
+            onPress={navigateToPreviousWeek}
+          >
+            <Text style={styles.weekArrowText}>‹</Text>
+          </TouchableOpacity>
+          
+          <Text style={styles.weekViewTitle}>Semaine du {startOfWeek.toLocaleDateString('fr-FR')}</Text>
+          
+          <TouchableOpacity 
+            style={styles.weekArrow}
+            onPress={navigateToNextWeek}
+          >
+            <Text style={styles.weekArrowText}>›</Text>
+          </TouchableOpacity>
+        </View>
+        
         <View style={styles.weekDaysContainer}>
           {weekDays.map((day, index) => {
             const dayString = day.toISOString().split('T')[0];
@@ -629,16 +778,50 @@ export default function CalendarScreen({ navigation }) {
   const DayView = () => {
     const dayEvents = getEventsForDate(selectedDate);
     
+    // Navigation functions
+    const navigateToPreviousDay = async () => {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() - 1);
+      const newDateString = newDate.toISOString().split('T')[0];
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, viewMode);
+    };
+    
+    const navigateToNextDay = async () => {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() + 1);
+      const newDateString = newDate.toISOString().split('T')[0];
+      setSelectedDate(newDateString);
+      await loadEvents(newDateString, viewMode);
+    };
+    
     return (
       <View style={styles.dayView}>
-        <Text style={styles.dayViewTitle}>
-          {new Date(selectedDate).toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })}
-        </Text>
+        {/* Day Navigation Header */}
+        <View style={styles.dayNavigation}>
+          <TouchableOpacity 
+            style={styles.dayArrow}
+            onPress={navigateToPreviousDay}
+          >
+            <Text style={styles.dayArrowText}>‹</Text>
+          </TouchableOpacity>
+          
+          <Text style={styles.dayViewTitle}>
+            {new Date(selectedDate).toLocaleDateString('fr-FR', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })}
+          </Text>
+          
+          <TouchableOpacity 
+            style={styles.dayArrow}
+            onPress={navigateToNextDay}
+          >
+            <Text style={styles.dayArrowText}>›</Text>
+          </TouchableOpacity>
+        </View>
         
         <ScrollView style={styles.dayEventsList}>
           {dayEvents.length === 0 ? (
@@ -671,42 +854,122 @@ export default function CalendarScreen({ navigation }) {
 
   const YearView = () => {
     const currentYear = new Date(selectedDate).getFullYear();
+    console.log('📅 YearView rendering for year:', currentYear);
+    
+    // Create months array for the year
+    const months = [
+      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+    ];
+    
+    // Function to handle year navigation
+    const navigateToYear = async (newYear) => {
+      console.log('📅 Navigating to year:', newYear, 'from current year:', currentYear);
+      const newDate = new Date(newYear, 0, 1).toISOString().split('T')[0];
+      console.log('📅 Setting new date to:', newDate);
+      setSelectedDate(newDate);
+      // Force reload events for the new year
+      await loadEvents(newDate, 'year');
+    };
+    
+    // Get events for the entire year
+    const yearEvents = events.length > 0 ? events : [];
     
     return (
       <View style={styles.yearView}>
-        <Text style={styles.yearViewTitle}>{currentYear}</Text>
-        <CalendarList
-          current={selectedDate}
-          pastScrollRange={0}
-          futureScrollRange={11}
-          scrollEnabled={true}
-          showScrollIndicator={true}
-          onDayPress={(day) => setSelectedDate(day.dateString)}
-          onMonthChange={(month) => {
-            // Update selected date to first day of the new month if current selected date is not in the new month
-            const newMonth = new Date(month.year, month.month - 1, 1);
-            const currentSelected = new Date(selectedDate);
+        {/* Year Navigation Header */}
+        <View style={styles.yearNavigation}>
+          <TouchableOpacity 
+            style={styles.yearArrow}
+            onPress={async () => {
+              console.log('📅 Year view - Previous year clicked');
+              await navigateToYear(currentYear - 1);
+            }}
+          >
+            <Text style={styles.yearArrowText}>‹</Text>
+          </TouchableOpacity>
+          
+          <Text style={styles.yearViewTitle}>{currentYear}</Text>
+          
+          <TouchableOpacity 
+            style={styles.yearArrow}
+            onPress={async () => {
+              console.log('📅 Year view - Next year clicked');
+              await navigateToYear(currentYear + 1);
+            }}
+          >
+            <Text style={styles.yearArrowText}>›</Text>
+          </TouchableOpacity>
+        </View>
+        
+        {/* Year Stats */}
+        <View style={styles.yearStatsContainer}>
+          <Text style={styles.yearStatsTitle}>Vue d'ensemble de l'année</Text>
+          <View style={styles.yearStatsRow}>
+            <View style={styles.yearStatItem}>
+              <Text style={styles.yearStatNumber}>{yearEvents.length}</Text>
+              <Text style={styles.yearStatLabel}>Événements</Text>
+            </View>
+            <View style={styles.yearStatItem}>
+              <Text style={styles.yearStatNumber}>{new Set(yearEvents.map(e => e.type)).size}</Text>
+              <Text style={styles.yearStatLabel}>Types</Text>
+            </View>
+            <View style={styles.yearStatItem}>
+              <Text style={styles.yearStatNumber}>{new Set(yearEvents.map(e => e.date?.split('T')[0])).size}</Text>
+              <Text style={styles.yearStatLabel}>Jours actifs</Text>
+            </View>
+          </View>
+        </View>
+        
+        {/* Months Grid */}
+        <View style={styles.yearMonthsGrid}>
+          {months.map((month, index) => {
+            const monthDate = new Date(currentYear, index, 1);
+            const monthString = monthDate.toISOString().split('T')[0];
+            const selectedMonth = new Date(selectedDate).getMonth();
+            const selectedYear = new Date(selectedDate).getFullYear();
+            const isCurrentMonth = index === selectedMonth && currentYear === selectedYear;
             
-            if (currentSelected.getMonth() !== newMonth.getMonth() || currentSelected.getFullYear() !== newMonth.getFullYear()) {
-              setSelectedDate(newMonth.toISOString().split('T')[0]);
-            }
-          }}
-          markedDates={getMarkedDates()}
-          markingType={'multi-dot'}
-          calendarWidth={width - 30}
-          theme={{
-            backgroundColor: '#ffffff',
-            calendarBackground: '#ffffff',
-            selectedDayBackgroundColor: '#005F6B',
-            selectedDayTextColor: '#ffffff',
-            todayTextColor: '#005F6B',
-            dayTextColor: '#2d4150',
-            dotColor: '#005F6B',
-            selectedDotColor: '#ffffff',
-            arrowColor: '#005F6B',
-            monthTextColor: '#005F6B'
-          }}
-        />
+            // Count events for this month
+            const monthEvents = yearEvents.filter(event => {
+              const eventDate = new Date(event.date || event.event_date);
+              return eventDate.getMonth() === index && eventDate.getFullYear() === currentYear;
+            });
+            
+            return (
+              <TouchableOpacity
+                key={`${currentYear}-${index}`}
+                style={[
+                  styles.yearMonthButton,
+                  isCurrentMonth && styles.yearMonthButtonActive
+                ]}
+                onPress={async () => {
+                  console.log('📅 Year view - Month selected:', month, 'index:', index, 'year:', currentYear);
+                  console.log('📅 Year view - Setting date to:', monthString);
+                  setSelectedDate(monthString);
+                  // Switch to month view when a month is selected
+                  setViewMode('month');
+                  await loadEvents(monthString, 'month');
+                }}
+              >
+                <Text style={[
+                  styles.yearMonthText,
+                  isCurrentMonth && styles.yearMonthTextActive
+                ]}>
+                  {month}
+                </Text>
+                {monthEvents.length > 0 && (
+                  <Text style={[
+                    styles.yearMonthEventCount,
+                    isCurrentMonth && styles.yearMonthEventCountActive
+                  ]}>
+                    {monthEvents.length} événement{monthEvents.length > 1 ? 's' : ''}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
     );
   };
@@ -735,73 +998,94 @@ export default function CalendarScreen({ navigation }) {
             </Text>
             <TouchableOpacity style={styles.addButton} onPress={() => openAddModal()}>
               <Text style={styles.addButtonText}>+ Ajouter</Text>
-            </TouchableOpacity>
+          </TouchableOpacity>
           </View>
         </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
-      <ScrollView 
-        style={styles.mainScrollView} 
-        showsVerticalScrollIndicator={true}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            colors={['#005F6B']} // Android
-            tintColor="#005F6B" // iOS
-            title="Mise à jour des données..."
-            titleColor="#005F6B"
-          />
-        }
-      >
-        {/* Événements du jour - Show first, above calendar */}
-        <View style={styles.selectedDateSection}>
-          <Text style={styles.selectedDateTitle}>
-            Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')}):
-          </Text>
-          <View style={styles.eventsList}>
-            {selectedDateEvents.length === 0 ? (
-              <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
-            ) : (
-              selectedDateEvents.map(event => (
-                <TouchableOpacity
-                  key={event.id}
-                  style={[styles.eventItem, { borderLeftColor: getEventColor(event.type) }]}
-                  onPress={() => handleEventPress(event)}
-                >
-                  <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
-                  <View style={styles.eventDetails}>
-                    <Text style={styles.eventTitle}>{event.title}</Text>
-                    <Text style={styles.eventType}>{event.type}</Text>
-                    {event.product && (
-                      <Text style={styles.eventProduct}>🏷️ {event.product}</Text>
-                    )}
-                    {event.notes && (
-                      <Text style={styles.eventNotes}>📝 {event.notes}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))
-            )}
+      {/* For Year view, use different layout to avoid VirtualizedList nesting */}
+      {viewMode === 'year' ? (
+        <ScrollView 
+          style={styles.yearViewContainer} 
+          showsVerticalScrollIndicator={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={['#005F6B']} // Android
+              tintColor="#005F6B" // iOS
+              title="Mise à jour des données..."
+              titleColor="#005F6B"
+            />
+          }
+        >
+          {/* Events section at top */}
+          <View style={styles.selectedDateSection}>
+            <Text style={styles.selectedDateTitle}>
+              Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')}):
+            </Text>
+            <View style={styles.eventsList}>
+              {selectedDateEvents.length === 0 ? (
+                <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
+              ) : (
+                selectedDateEvents.map(event => (
+          <TouchableOpacity 
+                    key={event.id}
+                    style={[styles.eventItem, { borderLeftColor: getEventColor(event.type) }]}
+                    onPress={() => handleEventPress(event)}
+                  >
+                    <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
+                    <View style={styles.eventDetails}>
+                      <Text style={styles.eventTitle}>{event.title}</Text>
+                      <Text style={styles.eventType}>{event.type}</Text>
+                      {event.product && (
+                        <Text style={styles.eventProduct}>🏷️ {event.product}</Text>
+                      )}
+                      {event.notes && (
+                        <Text style={styles.eventNotes}>📝 {event.notes}</Text>
+                      )}
+                    </View>
+          </TouchableOpacity>
+                ))
+              )}
+            </View>
           </View>
-        </View>
 
         <ViewModeSelector />
 
-        <View style={styles.calendarContainer}>
+          {/* Calendar section - Year view with months grid */}
+          <View style={styles.yearCalendarContainer}>
           {renderCalendarView()}
         </View>
 
-        {viewMode === 'month' && (
-          <View style={styles.monthEventsSection}>
+          {/* Add some bottom padding for better scrolling */}
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+      ) : (
+        <ScrollView 
+          style={styles.mainScrollView} 
+          showsVerticalScrollIndicator={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={['#005F6B']} // Android
+              tintColor="#005F6B" // iOS
+              title="Mise à jour des données..."
+              titleColor="#005F6B"
+            />
+          }
+        >
+          {/* Événements du jour - Show first, above calendar */}
+          <View style={styles.selectedDateSection}>
             <Text style={styles.selectedDateTitle}>
-              Événements du mois ({new Date(selectedDate).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}):
+              Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')}):
             </Text>
-            <View style={styles.monthEventsList}>
-              {monthEvents.length === 0 ? (
-                <Text style={styles.noEventsText}>Aucun événement ce mois</Text>
+            <View style={styles.eventsList}>
+              {selectedDateEvents.length === 0 ? (
+                <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
               ) : (
-                monthEvents.map(event => (
+                selectedDateEvents.map(event => (
                   <TouchableOpacity
                     key={event.id}
                     style={[styles.eventItem, { borderLeftColor: getEventColor(event.type) }]}
@@ -811,9 +1095,47 @@ export default function CalendarScreen({ navigation }) {
                     <View style={styles.eventDetails}>
                       <Text style={styles.eventTitle}>{event.title}</Text>
                       <Text style={styles.eventType}>{event.type}</Text>
-                      <Text style={styles.eventDate}>
-                        {new Date(event.date || event.event_date).toLocaleDateString('fr-FR')}
-                      </Text>
+                      {event.product && (
+                        <Text style={styles.eventProduct}>🏷️ {event.product}</Text>
+                      )}
+                      {event.notes && (
+                        <Text style={styles.eventNotes}>📝 {event.notes}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </View>
+
+          <ViewModeSelector />
+
+          <View style={styles.calendarContainer}>
+            {renderCalendarView()}
+          </View>
+
+          {viewMode === 'month' && (
+            <View style={styles.monthEventsSection}>
+            <Text style={styles.selectedDateTitle}>
+                Événements du mois ({new Date(selectedDate).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}):
+            </Text>
+              <View style={styles.monthEventsList}>
+                {monthEvents.length === 0 ? (
+                  <Text style={styles.noEventsText}>Aucun événement ce mois</Text>
+                ) : (
+                  monthEvents.map(event => (
+                  <TouchableOpacity
+                    key={event.id}
+                      style={[styles.eventItem, { borderLeftColor: getEventColor(event.type) }]}
+                      onPress={() => handleEventPress(event)}
+                  >
+                    <Text style={styles.eventIcon}>{getEventIcon(event.type)}</Text>
+                    <View style={styles.eventDetails}>
+                      <Text style={styles.eventTitle}>{event.title}</Text>
+                      <Text style={styles.eventType}>{event.type}</Text>
+                        <Text style={styles.eventDate}>
+                          {new Date(event.date || event.event_date).toLocaleDateString('fr-FR')}
+                        </Text>
                     </View>
                   </TouchableOpacity>
                 ))
@@ -823,6 +1145,7 @@ export default function CalendarScreen({ navigation }) {
         )}
 
       </ScrollView>
+      )}
 
       <Modal
         animationType="slide"
@@ -1072,15 +1395,231 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
   },
+  yearViewContainer: {
+    flex: 1,
+  },
+  yearCalendarContainer: {
+    backgroundColor: 'white',
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 12,
+    overflow: 'hidden',
+    minHeight: 400, // Ensure enough height for the months grid
+  },
   yearView: {
     flex: 1,
+  },
+  yearNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  yearArrow: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#005F6B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 20,
+  },
+  yearArrowText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  weekNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+  },
+  weekArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#005F6B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 15,
+  },
+  weekArrowText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  dayNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+  },
+  dayArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#005F6B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 15,
+  },
+  dayArrowText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  monthViewContainer: {
+    flex: 1,
+  },
+  monthNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 10,
+  },
+  monthArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#005F6B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  monthArrowText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  monthViewTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginHorizontal: 10,
+    flex: 1,
+    textAlign: 'center',
   },
   yearViewTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
     color: '#4CAF50',
-    padding: 20,
+    minWidth: 100,
+  },
+  yearMonthsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+    padding: 10,
+  },
+  yearMonthButton: {
+    width: '30%',
+    aspectRatio: 1,
+    margin: 5,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  yearMonthButtonActive: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  yearMonthText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+  },
+  yearMonthTextActive: {
+    color: 'white',
+  },
+  yearMonthEventCount: {
+    fontSize: 9,
+    color: '#666',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  yearMonthEventCountActive: {
+    color: 'rgba(255,255,255,0.8)',
+  },
+  yearStatsContainer: {
+    backgroundColor: '#f8f9fa',
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 12,
+    padding: 15,
+  },
+  yearStatsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  yearStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  yearStatItem: {
+    alignItems: 'center',
+  },
+  yearStatNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  yearStatLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  yearEventsSummary: {
+    backgroundColor: 'white',
+    marginHorizontal: 15,
+    marginBottom: 15,
+    borderRadius: 12,
+    padding: 15,
+  },
+  yearEventsSummaryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  yearEventsList: {
+    maxHeight: 300,
+  },
+  yearEventItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+  },
+  yearEventIcon: {
+    fontSize: 16,
+    marginRight: 12,
+  },
+  yearEventDetails: {
+    flex: 1,
+  },
+  yearEventTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  yearEventDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
   selectedDateSection: {
     backgroundColor: 'white',
@@ -1351,5 +1890,8 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 16,
+  },
+  bottomPadding: {
+    height: 50,
   },
 });

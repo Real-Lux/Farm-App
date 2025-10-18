@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ScrollView, 
   TouchableOpacity,
   Alert,
   FlatList,
@@ -129,18 +129,18 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
 
   const handleSaveOrder = async (newOrder, isEditing) => {
     try {
-      if (isEditing) {
+    if (isEditing) {
         // Update order in database
         await database.updateOrder(newOrder.id, newOrder);
-        setOrders(orders.map(o => o.id === newOrder.id ? newOrder : o)
-          .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
-      } else {
+      setOrders(orders.map(o => o.id === newOrder.id ? newOrder : o)
+        .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)));
+    } else {
         // Add new order to database
         await database.addOrder(newOrder);
-        setOrders([newOrder, ...orders]);
-      }
-
-      // Sync with calendar when orders change
+      setOrders([newOrder, ...orders]);
+    }
+    
+    // Sync with calendar when orders change
       await database.syncOrdersWithCalendar();
       console.log('📅 Calendar synced with updated orders');
     } catch (error) {
@@ -158,7 +158,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         { text: 'Annuler', style: 'cancel' },
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
           setOrders(orders.filter(o => o.id !== id));
-
+          
           // Sync with calendar when orders change
           // database is not imported, assuming it's available globally or imported elsewhere
           try {
@@ -173,7 +173,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   };
 
   const updateOrderStatus = (orderId, newStatus) => {
-    setOrders(orders.map(o =>
+    setOrders(orders.map(o => 
       o.id === orderId ? { ...o, status: newStatus } : o
     ));
   };
@@ -220,36 +220,66 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           </View>
         )}
         
-        <View style={styles.orderHeader}>
-          <View style={styles.orderTitleSection}>
-            <Text style={styles.customerName}>{item.customerName}</Text>
-            <Text style={styles.orderDate}>Commande: {formatDate(item.orderDate)}</Text>
-            <Text style={styles.orderType}>Type: {item.orderType}</Text>
-          </View>
-          <TouchableOpacity
+      <View style={styles.orderHeader}>
+        <View style={styles.orderTitleSection}>
+          <Text style={styles.customerName}>{item.customerName}</Text>
+          <Text style={styles.orderDate}>Commande: {formatDate(item.orderDate)}</Text>
+          <Text style={styles.orderType}>Type: {item.orderType}</Text>
+        </View>
+        <TouchableOpacity 
             style={[
               styles.statusBadge, 
               { backgroundColor: getStatusColor(item.status) },
               statusDef.requiresAction && styles.statusBadgeRequiresAction
             ]}
-            onPress={() => {
+          onPress={() => {
               if (!bulkActionMode) {
                 setSelectedOrderForStatusChange(item);
                 setShowStatusChangeModal(true);
               }
-            }}
-          >
-            <Text style={styles.statusText}>
-              {getStatusIcon(item.status)} {item.status}
-            </Text>
+          }}
+        >
+          <Text style={styles.statusText}>
+            {getStatusIcon(item.status)} {item.status}
+          </Text>
             {statusDef.requiresAction && (
               <Text style={styles.statusActionIndicator}>!</Text>
             )}
-          </TouchableOpacity>
-        </View>
-
+        </TouchableOpacity>
+      </View>
+      
       <View style={styles.orderDetails}>
         {item.orderType === 'Adoption' && (
+          <>
+            {/* Handle new structure with selectedAnimals and animalDetails */}
+            {item.selectedAnimals && item.animalDetails ? (
+              <>
+                {item.selectedAnimals.map((animalType, index) => {
+                  const animalDetail = item.animalDetails[animalType];
+                  if (!animalDetail || !animalDetail.races) return null;
+                  
+                  return animalDetail.races.map((raceConfig, raceIndex) => {
+                    const animalEmoji = animalType === 'poussins' ? '🐓' : 
+                                      animalType === 'canards' ? '🦆' : 
+                                      animalType === 'oie' ? '🦢' : 
+                                      animalType === 'lapin' ? '🐰' : 
+                                      animalType === 'chèvre' ? '🐐' : 
+                                      animalType === 'cailles' ? '🐦' : '🐓';
+                    
+                    const sexEmoji = raceConfig.sexPreference === 'male' ? '♂️' : 
+                                   raceConfig.sexPreference === 'female' ? '♀️' : '❓';
+                    
+                    return (
+                      <Text key={`${animalType}_${raceIndex}`} style={styles.orderInfo}>
+                        {animalEmoji} {raceConfig.quantity} {animalType} {raceConfig.race} {sexEmoji}
+                      </Text>
+                    );
+                  });
+                })}
+                {item.ageMonths && <Text style={styles.orderInfo}>📅 Âge: {item.ageMonths} mois {item.ageWeeks && `${item.ageWeeks} semaines`}</Text>}
+              </>
+            ) : (
+              /* Handle old structure for backward compatibility */
           <>
             <Text style={styles.orderInfo}>🐓 {item.animalType} - {item.race}</Text>
             {item.selectedGender && (
@@ -262,6 +292,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
               <Text style={styles.orderInfo}>✨ {item.selectedCharacteristics.join(', ')}</Text>
             )}
             {item.ageMonths && <Text style={styles.orderInfo}>📅 Âge: {item.ageMonths} mois {item.ageWeeks && `${item.ageWeeks} semaines`}</Text>}
+              </>
+            )}
           </>
         )}
         {item.product && (
@@ -280,29 +312,29 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       </View>
 
         {!bulkActionMode && (
-          <View style={styles.orderActions}>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.editBtn]}
-              onPress={() => openEditModal(item)}
-            >
-              <Text style={styles.actionBtnText}>✏️ Modifier</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.callBtn]}
-              onPress={() => Alert.alert('Appeler le client', `Appeler ${item.customerName}?\n${item.customerPhone}`)}
-            >
-              <Text style={styles.actionBtnText}>📞 Appeler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.deleteBtn]}
-              onPress={() => deleteOrder(item.id)}
-            >
-              <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
-            </TouchableOpacity>
-          </View>
+      <View style={styles.orderActions}>
+        <TouchableOpacity 
+          style={[styles.actionBtn, styles.editBtn]}
+          onPress={() => openEditModal(item)}
+        >
+          <Text style={styles.actionBtnText}>✏️ Modifier</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.actionBtn, styles.callBtn]}
+          onPress={() => Alert.alert('Appeler le client', `Appeler ${item.customerName}?\n${item.customerPhone}`)}
+        >
+          <Text style={styles.actionBtnText}>📞 Appeler</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.actionBtn, styles.deleteBtn]}
+          onPress={() => deleteOrder(item.id)}
+        >
+          <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
+        </TouchableOpacity>
+      </View>
         )}
       </TouchableOpacity>
-    );
+  );
   };
 
   const getOrderStats = () => {
@@ -310,11 +342,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       acc[status] = orders.filter(o => o.status === status).length;
       return acc;
     }, {});
-
+    
     const totalRevenue = orders
       .filter(o => o.status === 'Livrée')
       .reduce((sum, o) => sum + o.totalPrice, 0);
-
+    
     return { ...stats, totalRevenue };
   };
 
@@ -454,9 +486,9 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             >
               <Text style={styles.headerActionText}>ℹ️</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+          <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
               <Text style={styles.addButtonText}>+ Nouvelle</Text>
-            </TouchableOpacity>
+          </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -838,11 +870,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       <View style={styles.statusOverviewContainer}>
         <View style={styles.statusOverviewRow}>
             {getStatusesByPriority().map((status) => {
-              const statusCount = stats[status] || 0;
+            const statusCount = stats[status] || 0;
               const statusDef = getStatusDefinition(status);
               const isActive = activeFilters.includes(status);
               
-              return (
+            return (
               <TouchableOpacity
                 key={status}
                 style={[
@@ -857,11 +889,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                   {statusDef.requiresAction && statusCount > 0 && (
                     <View style={styles.statusOverviewActionDot} />
                   )}
-                </TouchableOpacity>
-              );
-            })}
+              </TouchableOpacity>
+            );
+          })}
+          </View>
         </View>
-      </View>
 
       {/* Active filters indicator */}
       {activeFilters.length > 0 && (
@@ -933,7 +965,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
-              {activeFilters.length > 0
+              {activeFilters.length > 0 
                 ? '🔍 Aucune commande ne correspond aux filtres sélectionnés'
                 : '📋 Aucune commande pour le moment'
               }
@@ -1696,4 +1728,4 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     lineHeight: 16,
   },
-});
+}); 
