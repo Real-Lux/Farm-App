@@ -56,6 +56,8 @@ function OrdersNavigator({ route }) {
     navigate: (screenName, params) => {
       if (screenName === 'AddOrder') {
         navigateToAddOrder(params?.editingOrder);
+      } else if (screenName === 'Gestion') {
+        navigateToProductManagement();
       } else {
         navigateToBookingSystem();
       }

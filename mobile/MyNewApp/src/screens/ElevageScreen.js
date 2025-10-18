@@ -15,6 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
+import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
 export default function ElevageScreen({ navigation }) {
@@ -30,7 +31,7 @@ export default function ElevageScreen({ navigation }) {
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
-  const [isManualInputExpanded, setIsManualInputExpanded] = useState(true); // Track manual input expansion
+  const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
   
   const [lotForm, setLotForm] = useState({
     name: '',
@@ -61,7 +62,20 @@ export default function ElevageScreen({ navigation }) {
 
   useEffect(() => {
     loadData();
+    loadConfigs();
   }, []);
+
+  const loadConfigs = async () => {
+    try {
+      const manualInputExpanded = await configService.loadElevageManualInputExpanded();
+      const collapsedLots = await configService.loadElevageCollapsedLots();
+      
+      setIsManualInputExpanded(manualInputExpanded);
+      setCollapsedLots(collapsedLots);
+    } catch (error) {
+      console.error('Error loading configs:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -312,11 +326,13 @@ export default function ElevageScreen({ navigation }) {
     return lots.filter(lot => lot.races[raceName] && lot.races[raceName].current > 0);
   };
 
-  const toggleLotCollapse = (lotId) => {
-    setCollapsedLots(prev => ({
-      ...prev,
-      [lotId]: !prev[lotId]
-    }));
+  const toggleLotCollapse = async (lotId) => {
+    const newCollapsedLots = {
+      ...collapsedLots,
+      [lotId]: !collapsedLots[lotId]
+    };
+    setCollapsedLots(newCollapsedLots);
+    await configService.saveElevageCollapsedLots(newCollapsedLots);
   };
 
   const getLotStatus = (lot) => {
@@ -1110,7 +1126,11 @@ export default function ElevageScreen({ navigation }) {
                   {/* Manual Input Section */}
                   <TouchableOpacity 
                     style={styles.manualInputHeader}
-                    onPress={() => setIsManualInputExpanded(!isManualInputExpanded)}
+                    onPress={async () => {
+                      const newExpanded = !isManualInputExpanded;
+                      setIsManualInputExpanded(newExpanded);
+                      await configService.saveElevageManualInputExpanded(newExpanded);
+                    }}
                   >
                     <Text style={styles.sectionTitle}>✏️ Saisie manuelle</Text>
                     <Text style={styles.expandIndicator}>

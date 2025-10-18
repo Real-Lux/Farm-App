@@ -73,20 +73,22 @@ export default function CalendarScreen({ navigation }) {
       const eventsData = await database.getEvents();
       await csvStorage.syncCalendarEvents(eventsData);
       
+      console.log(`📅 CalendarScreen: Loaded ${eventsData.length} total events from database`);
+      
       // Filter out old events and then load all events (including order events)
       const filteredEvents = filterOldEvents(eventsData);
-      setEvents(filteredEvents);
+      console.log(`📅 CalendarScreen: After filtering, ${filteredEvents.length} events remain`);
       
-      // Debug: Check for October 17, 2025 events specifically
-      const oct17Events = eventsData.filter(event => {
-        const eventDate = (event.date || event.event_date)?.split('T')[0];
-        return eventDate === '2025-10-17';
-      });
-      // console.log('🔍 CalendarScreen: Events for Oct 17, 2025:', oct17Events);
+      setEvents(filteredEvents);
       
       // Debug: Show all events with their dates
       eventsData.forEach(event => {
-        // console.log(`📅 Event: ${event.title} - Date: ${event.date || event.event_date} - Type: ${event.type}`);
+        console.log(`📅 Event: ${event.title} - Date: ${event.date || event.event_date} - Type: ${event.type}`);
+      });
+      
+      // Debug: Show filtered events
+      filteredEvents.forEach(event => {
+        console.log(`✅ Filtered Event: ${event.title} - Date: ${event.date || event.event_date} - Type: ${event.type}`);
       });
     } catch (error) {
       console.error('Error loading events:', error);
@@ -331,15 +333,10 @@ export default function CalendarScreen({ navigation }) {
     });
   };
 
-  // Filter out old events (older than 30 days)
+  // Show all events (no filtering for testing)
   const filterOldEvents = (eventsList) => {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    return eventsList.filter(event => {
-      const eventDate = new Date(event.date || event.event_date);
-      return eventDate >= thirtyDaysAgo;
-    });
+    // Return all events without filtering for testing purposes
+    return eventsList;
   };
 
   // Get events for selected week

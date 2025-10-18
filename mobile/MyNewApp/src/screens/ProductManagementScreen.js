@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import database from '../services/database';
+import configService from '../services/configService';
 
 export default function ProductManagementScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -49,26 +50,7 @@ export default function ProductManagementScreen({ navigation }) {
   });
   
   // Client template messages state
-  const [templateMessages, setTemplateMessages] = useState([
-    {
-      id: 1,
-      title: 'Confirmation Adoption Poussin',
-      category: 'Adoption',
-      content: 'Bonjour {nom},\n\nVotre adoption de {quantite} poussins de race {race} est confirmée pour le {date}.\n\nMerci de votre confiance !\n\nCordialement,\nL\'équipe de la ferme'
-    },
-    {
-      id: 2,
-      title: 'Rappel Visite Guidée',
-      category: 'Activité',
-      content: 'Bonjour {nom},\n\nNous vous rappelons votre visite guidée prévue le {date} à {heure}.\n\nAu plaisir de vous accueillir !\n\nCordialement,\nL\'équipe de la ferme'
-    },
-    {
-      id: 3,
-      title: 'Annulation Commande',
-      category: 'Commande',
-      content: 'Bonjour {nom},\n\nNous vous informons que votre commande du {date} a été annulée.\n\nN\'hésitez pas à nous recontacter pour toute question.\n\nCordialement,\nL\'équipe de la ferme'
-    }
-  ]);
+  const [templateMessages, setTemplateMessages] = useState([]);
   const [messageModalVisible, setMessageModalVisible] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
   const [messageForm, setMessageForm] = useState({
@@ -115,7 +97,21 @@ export default function ProductManagementScreen({ navigation }) {
     loadProducts();
     loadSavedFormulas();
     loadPricingGrids();
+    loadConfigs();
+    loadTemplateMessages();
   }, []);
+
+  const loadConfigs = async () => {
+    try {
+      const activeTab = await configService.loadProductManagementActiveTab();
+      const selectedAnimalType = await configService.loadProductManagementSelectedAnimalType();
+      
+      setActiveTab(activeTab);
+      setSelectedAnimalType(selectedAnimalType);
+    } catch (error) {
+      console.error('Error loading configs:', error);
+    }
+  };
 
   const loadPricingGrids = async () => {
     try {
@@ -125,6 +121,15 @@ export default function ProductManagementScreen({ navigation }) {
       }
     } catch (error) {
       console.error('Error loading pricing grids:', error);
+    }
+  };
+
+  const loadTemplateMessages = async () => {
+    try {
+      const messages = await database.getTemplateMessages();
+      setTemplateMessages(messages);
+    } catch (error) {
+      console.error('Error loading template messages:', error);
     }
   };
 
@@ -231,29 +236,25 @@ export default function ProductManagementScreen({ navigation }) {
     setMessageModalVisible(true);
   };
 
-  const saveMessage = () => {
+  const saveMessage = async () => {
     if (!messageForm.title || !messageForm.content) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs');
       return;
     }
 
-    if (editingMessage) {
-      setTemplateMessages(prev => 
-        prev.map(msg => 
-          msg.id === editingMessage.id 
-            ? { ...msg, ...messageForm }
-            : msg
-        )
-      );
-    } else {
-      const newMessage = {
-        id: Date.now(),
-        ...messageForm
-      };
-      setTemplateMessages(prev => [...prev, newMessage]);
+    try {
+      if (editingMessage) {
+        await database.updateTemplateMessage(editingMessage.id, messageForm);
+      } else {
+        await database.addTemplateMessage(messageForm);
+      }
+      
+      setMessageModalVisible(false);
+      loadTemplateMessages(); // Reload the list
+    } catch (error) {
+      console.error('Error saving message:', error);
+      Alert.alert('Erreur', `Impossible de ${editingMessage ? 'mettre à jour' : 'ajouter'} le message`);
     }
-
-    setMessageModalVisible(false);
   };
 
   const deleteMessage = (id) => {
@@ -262,8 +263,14 @@ export default function ProductManagementScreen({ navigation }) {
       'Êtes-vous sûr de vouloir supprimer ce message modèle?',
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => {
-          setTemplateMessages(prev => prev.filter(msg => msg.id !== id));
+        { text: 'Supprimer', style: 'destructive', onPress: async () => {
+          try {
+            await database.deleteTemplateMessage(id);
+            loadTemplateMessages(); // Reload the list
+          } catch (error) {
+            console.error('Error deleting message:', error);
+            Alert.alert('Erreur', 'Impossible de supprimer le message');
+          }
         }}
       ]
     );
@@ -724,7 +731,10 @@ export default function ProductManagementScreen({ navigation }) {
                   styles.animalTypeTab,
                   selectedAnimalType === animalType && styles.animalTypeTabActive
                 ]}
-                onPress={() => setSelectedAnimalType(animalType)}
+                onPress={async () => {
+                  setSelectedAnimalType(animalType);
+                  await configService.saveProductManagementSelectedAnimalType(animalType);
+                }}
               >
                 <Text style={[
                   styles.animalTypeTabText,
@@ -914,13 +924,11 @@ export default function ProductManagementScreen({ navigation }) {
       
       <View style={styles.messagesSection}>
         <Text style={styles.messagesSectionTitle}>Messages Modèles</Text>
-        <FlatList
-          data={templateMessages}
-          renderItem={({ item }) => <MessageItem item={item} />}
-          keyExtractor={item => item.id.toString()}
-          style={styles.messageList}
-          showsVerticalScrollIndicator={false}
-        />
+        <View style={styles.messageList}>
+          {templateMessages.map((item) => (
+            <MessageItem key={item.id.toString()} item={item} />
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -941,17 +949,23 @@ export default function ProductManagementScreen({ navigation }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabScrollContent}
         >
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'elevage' && styles.activeTab]}
-            onPress={() => setActiveTab('elevage')}
-          >
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'elevage' && styles.activeTab]}
+          onPress={async () => {
+            setActiveTab('elevage');
+            await configService.saveProductManagementActiveTab('elevage');
+          }}
+        >
             <Text style={[styles.tabText, activeTab === 'elevage' && styles.activeTabText]}>
               🐓 Avicole
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'caprin' && styles.activeTab]}
-            onPress={() => setActiveTab('caprin')}
+            onPress={async () => {
+              setActiveTab('caprin');
+              await configService.saveProductManagementActiveTab('caprin');
+            }}
           >
             <Text style={[styles.tabText, activeTab === 'caprin' && styles.activeTabText]}>
               🐐 Caprin
@@ -959,7 +973,10 @@ export default function ProductManagementScreen({ navigation }) {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'productions' && styles.activeTab]}
-            onPress={() => setActiveTab('productions')}
+            onPress={async () => {
+              setActiveTab('productions');
+              await configService.saveProductManagementActiveTab('productions');
+            }}
           >
             <Text style={[styles.tabText, activeTab === 'productions' && styles.activeTabText]}>
               🥚 Productions
@@ -967,7 +984,10 @@ export default function ProductManagementScreen({ navigation }) {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'activites' && styles.activeTab]}
-            onPress={() => setActiveTab('activites')}
+            onPress={async () => {
+              setActiveTab('activites');
+              await configService.saveProductManagementActiveTab('activites');
+            }}
           >
             <Text style={[styles.tabText, activeTab === 'activites' && styles.activeTabText]}>
               🎯 Activités
@@ -975,7 +995,10 @@ export default function ProductManagementScreen({ navigation }) {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'traitements' && styles.activeTab]}
-            onPress={() => setActiveTab('traitements')}
+            onPress={async () => {
+              setActiveTab('traitements');
+              await configService.saveProductManagementActiveTab('traitements');
+            }}
           >
             <Text style={[styles.tabText, activeTab === 'traitements' && styles.activeTabText]}>
               💊 Traitements
@@ -983,7 +1006,10 @@ export default function ProductManagementScreen({ navigation }) {
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'client' && styles.activeTab]}
-            onPress={() => setActiveTab('client')}
+            onPress={async () => {
+              setActiveTab('client');
+              await configService.saveProductManagementActiveTab('client');
+            }}
           >
             <Text style={[styles.tabText, activeTab === 'client' && styles.activeTabText]}>
               👥 Client

@@ -14,6 +14,7 @@ class SimpleTestDatabaseService {
         { id: 4, name: 'Visite guidée', price: 5.00, quantity: 100, category: 'visites', description: 'Visite de la ferme pédagogique' }
       ],
       orders: [
+        // Adoption orders - Poules
         { 
           id: 1, 
           customerName: 'Marie Dupont', 
@@ -22,8 +23,12 @@ class SimpleTestDatabaseService {
           orderType: 'Adoption',
           animalType: 'poules',
           race: 'Marans',
+          selectedGender: 'Femelles',
+          selectedColor: 'Noir cuivré',
+          selectedCharacteristics: ['Bonnes pondeuses', 'Rustiques'],
           ageMonths: '3',
           ageWeeks: '2',
+          quantity: 4,
           totalPrice: 45.00,
           deliveryDate: '2025-10-17',
           status: 'Confirmée',
@@ -33,9 +38,17 @@ class SimpleTestDatabaseService {
           id: 2, 
           customerName: 'Pierre Martin', 
           customerPhone: '+33123456790',
-          orderType: 'Œufs de conso',
-          quantity: 24,
-          totalPrice: 16.00,
+          customerEmail: 'pierre.martin@email.com',
+          orderType: 'Adoption',
+          animalType: 'poules',
+          race: 'Araucana',
+          selectedGender: 'Mélange',
+          selectedColor: 'Bleu',
+          selectedCharacteristics: ['Œufs bleus', 'Calmes'],
+          ageMonths: '2',
+          ageWeeks: '3',
+          quantity: 6,
+          totalPrice: 72.00,
           deliveryDate: '2025-10-20',
           status: 'En attente',
           orderDate: '2025-10-12'
@@ -44,18 +57,206 @@ class SimpleTestDatabaseService {
           id: 3, 
           customerName: 'Sophie Bernard', 
           customerPhone: '+33123456791',
-          orderType: 'Fromage',
-          product: 'Fromage de chèvre',
-          quantity: 2,
-          totalPrice: 35.00,
+          customerEmail: 'sophie.bernard@email.com',
+          orderType: 'Adoption',
+          animalType: 'poules',
+          race: 'Sussex',
+          selectedGender: 'Femelles',
+          selectedColor: 'Blanc',
+          selectedCharacteristics: ['Excellentes pondeuses', 'Dociles'],
+          ageMonths: '4',
+          ageWeeks: '1',
+          quantity: 3,
+          totalPrice: 54.00,
           deliveryDate: '2025-10-25',
           status: 'Prête',
           orderDate: '2025-10-08'
+        },
+        { 
+          id: 4, 
+          customerName: 'Jean Dubois', 
+          customerPhone: '+33123456792',
+          customerEmail: 'jean.dubois@email.com',
+          orderType: 'Adoption',
+          animalType: 'poules',
+          race: 'Brahma',
+          selectedGender: 'Mélange',
+          selectedColor: 'Fauve',
+          selectedCharacteristics: ['Grandes races', 'Rustiques'],
+          ageMonths: '5',
+          ageWeeks: '0',
+          quantity: 2,
+          totalPrice: 48.00,
+          deliveryDate: '2025-01-15',
+          status: 'Livrée',
+          orderDate: '2025-01-05'
+        },
+        { 
+          id: 5, 
+          customerName: 'Claire Moreau', 
+          customerPhone: '+33123456793',
+          customerEmail: 'claire.moreau@email.com',
+          orderType: 'Adoption',
+          animalType: 'poules',
+          race: 'Orpington',
+          selectedGender: 'Femelles',
+          selectedColor: 'Rouge',
+          selectedCharacteristics: ['Bonnes couveuses', 'Calmes'],
+          ageMonths: '3',
+          ageWeeks: '2',
+          quantity: 5,
+          totalPrice: 75.00,
+          deliveryDate: '2025-01-30',
+          status: 'Annulée',
+          orderDate: '2025-01-11'
+        },
+        
+        // Œufs de consommation orders
+        { 
+          id: 6, 
+          customerName: 'Michel Leroy', 
+          customerPhone: '+33123456794',
+          customerEmail: 'michel.leroy@email.com',
+          orderType: 'Œufs de conso',
+          product: 'Œufs de consommation',
+          quantity: 60,
+          totalPrice: 18.00,
+          deliveryDate: '2025-01-18',
+          status: 'Confirmée',
+          orderDate: '2025-01-14'
+        },
+        { 
+          id: 7, 
+          customerName: 'Isabelle Petit', 
+          customerPhone: '+33123456795',
+          customerEmail: 'isabelle.petit@email.com',
+          orderType: 'Œufs de conso',
+          product: 'Œufs de consommation',
+          quantity: 120,
+          totalPrice: 35.00,
+          deliveryDate: '2025-01-22',
+          status: 'En attente',
+          orderDate: '2025-01-16'
+        },
+        { 
+          id: 8, 
+          customerName: 'Robert Blanc', 
+          customerPhone: '+33123456796',
+          customerEmail: 'robert.blanc@email.com',
+          orderType: 'Œufs de conso',
+          product: 'Œufs de consommation',
+          quantity: 30,
+          totalPrice: 9.00,
+          deliveryDate: '2025-01-19',
+          status: 'Prête',
+          orderDate: '2025-01-13'
+        },
+        
+        // Fromage orders
+        { 
+          id: 9, 
+          customerName: 'Nathalie Roux', 
+          customerPhone: '+33123456797',
+          customerEmail: 'nathalie.roux@email.com',
+          orderType: 'Fromage',
+          product: 'Fromage de chèvre',
+          quantity: 3,
+          totalPrice: 45.00,
+          deliveryDate: '2025-01-21',
+          status: 'Confirmée',
+          orderDate: '2025-01-15'
+        },
+        { 
+          id: 10, 
+          customerName: 'François Durand', 
+          customerPhone: '+33123456798',
+          customerEmail: 'francois.durand@email.com',
+          orderType: 'Fromage',
+          product: 'Fromage de chèvre',
+          quantity: 1,
+          totalPrice: 15.00,
+          deliveryDate: '2025-01-23',
+          status: 'En attente',
+          orderDate: '2025-01-17'
+        },
+        
+        // Visite orders
+        { 
+          id: 11, 
+          customerName: 'École Primaire Saint-Pierre', 
+          customerPhone: '+33123456799',
+          customerEmail: 'contact@ecole-saint-pierre.fr',
+          orderType: 'Visite',
+          product: 'Visite guidée',
+          quantity: 25,
+          totalPrice: 125.00,
+          deliveryDate: '2025-01-24',
+          status: 'Prête',
+          orderDate: '2025-01-09'
+        },
+        { 
+          id: 12, 
+          customerName: 'Famille Lambert', 
+          customerPhone: '+33123456800',
+          customerEmail: 'famille.lambert@email.com',
+          orderType: 'Visite',
+          product: 'Visite guidée',
+          quantity: 4,
+          totalPrice: 20.00,
+          deliveryDate: '2025-01-26',
+          status: 'Livrée',
+          orderDate: '2025-01-07'
+        },
+        
+        // Mixed orders with different statuses for testing
+        { 
+          id: 13, 
+          customerName: 'Association Les Amis des Animaux', 
+          customerPhone: '+33123456801',
+          customerEmail: 'contact@amis-animaux.org',
+          orderType: 'Adoption',
+          animalType: 'poules',
+          race: 'Marans',
+          selectedGender: 'Femelles',
+          selectedColor: 'Noir cuivré',
+          selectedCharacteristics: ['Rustiques', 'Bonnes pondeuses'],
+          ageMonths: '2',
+          ageWeeks: '4',
+          quantity: 8,
+          totalPrice: 96.00,
+          deliveryDate: '2025-01-28',
+          status: 'En attente',
+          orderDate: '2025-01-18'
+        },
+        { 
+          id: 14, 
+          customerName: 'Restaurant Le Coq Doré', 
+          customerPhone: '+33123456802',
+          customerEmail: 'commande@coq-dore.fr',
+          orderType: 'Œufs de conso',
+          product: 'Œufs de consommation',
+          quantity: 200,
+          totalPrice: 60.00,
+          deliveryDate: '2025-01-29',
+          status: 'Confirmée',
+          orderDate: '2025-01-19'
+        },
+        { 
+          id: 15, 
+          customerName: 'Boutique Bio Nature', 
+          customerPhone: '+33123456803',
+          customerEmail: 'achats@bio-nature.fr',
+          orderType: 'Fromage',
+          product: 'Fromage de chèvre',
+          quantity: 10,
+          totalPrice: 150.00,
+          deliveryDate: '2025-01-31',
+          status: 'Prête',
+          orderDate: '2025-01-20'
         }
       ],
       calendar_events: [
-        { id: 1, title: 'Nettoyage poulaillers', date: '2025-01-20', type: 'Entretien', product: 'Poules', notes: 'Nettoyage hebdomadaire' },
-        { id: 2, title: 'Alimentation lapins', date: '2025-01-21', type: 'Alimentation', product: 'Lapins', notes: 'Foin et granulés' }
+        // Only order pickup events will be generated automatically from orders
       ],
       elevage_lots: [
         { 
@@ -135,14 +336,19 @@ class SimpleTestDatabaseService {
         }
       ],
       elevage_races: [
-        { id: 1, name: 'Marans', type: 'poules', description: 'Poules pondeuses aux œufs chocolat' },
-        { id: 2, name: 'Araucana', type: 'poules', description: 'Poules aux œufs bleus' },
-        { id: 3, name: 'Cream Legbar', type: 'poules', description: 'Poules croisées aux œufs bleus' },
-        { id: 4, name: 'Leghorn', type: 'poules', description: 'Excellentes pondeuses blanches' },
-        { id: 5, name: 'Pekin', type: 'poules', description: 'Poules naines ornementales' },
-        { id: 6, name: 'Coureur indien', type: 'canards', description: 'Canards excellents coureurs' },
-        { id: 7, name: 'Cayuga', type: 'canards', description: 'Canards aux reflets verts' },
-        { id: 8, name: 'Barbarie', type: 'canards', description: 'Canards de chair' }
+        { id: 1, name: 'Araucana', type: 'poules', description: 'Poules aux œufs bleus' },
+        { id: 2, name: 'Cream Legbar', type: 'poules', description: 'Poules croisées aux œufs bleus' },
+        { id: 3, name: 'Leghorn', type: 'poules', description: 'Excellentes pondeuses blanches' },
+        { id: 4, name: 'Marans', type: 'poules', description: 'Poules pondeuses aux œufs chocolat' },
+        { id: 5, name: 'Vorwerk', type: 'poules', description: 'Poules allemandes robustes' },
+        { id: 6, name: 'Orpington', type: 'poules', description: 'Poules anglaises douces' },
+        { id: 7, name: 'Brahma', type: 'poules', description: 'Poules géantes asiatiques' },
+        { id: 8, name: 'Pékin', type: 'poules', description: 'Poules naines ornementales' },
+        { id: 9, name: 'Soie', type: 'poules', description: 'Poules soyeuses ornementales' },
+        { id: 10, name: 'Coureur indien', type: 'canards', description: 'Canards excellents coureurs' },
+        { id: 11, name: 'Cayuga', type: 'canards', description: 'Canards aux reflets verts' },
+        { id: 12, name: 'Barbarie', type: 'canards', description: 'Canards de chair' },
+        { id: 13, name: 'Japonaise', type: 'cailles', description: 'Cailles japonaises pondeuses' }
       ],
       elevage_historique: [
         {
@@ -172,12 +378,19 @@ class SimpleTestDatabaseService {
       caprin_animals: [
         {
           id: 1,
-          name: 'Bella',
+          name: 'Canelle',
           species: 'chèvre',
           breed: 'Alpine',
-          birthDate: '2023-03-15',
-          mother: 'Luna',
-          father: 'Max',
+          birthDate: '2022-09-24',
+          entryDate: '2022-09-24',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH001',
+          earTagNumber: '00294',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
           gender: 'femelle',
           status: 'vivant',
           notes: 'Très productive',
@@ -187,92 +400,886 @@ class SimpleTestDatabaseService {
             { date: '2025-01-13', morning: 2.7, evening: 2.9, total: 5.6, notes: 'Excellente production' },
             { date: '2025-01-12', morning: 2.4, evening: 2.5, total: 4.9, notes: '' }
           ],
-          offspring: ['Bella Jr', 'Luna Jr'],
-          parents: { mother: 'Luna', father: 'Max' }
+          offspring: ['Amaretto', 'Saffron'],
+          parents: { mother: '', father: '' }
         },
         {
           id: 2,
-          name: 'Max',
+          name: 'Vanille',
           species: 'chèvre',
-          breed: 'Alpine',
-          birthDate: '2022-05-20',
-          mother: 'Daisy',
-          father: 'Rocky',
-          gender: 'mâle',
+          breed: 'Saanen',
+          birthDate: '2022-09-24',
+          entryDate: '2022-09-24',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH002',
+          earTagNumber: '00295',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
           status: 'vivant',
-          notes: 'Excellent reproducteur',
-          offspring: ['Bella', 'Charlie'],
-          parents: { mother: 'Daisy', father: 'Rocky' }
+          notes: 'Mère expérimentée',
+          milkProduction: [
+            { date: '2025-01-15', morning: 3.2, evening: 3.5, total: 6.7, notes: '' },
+            { date: '2025-01-14', morning: 3.0, evening: 3.3, total: 6.3, notes: '' },
+            { date: '2025-01-13', morning: 3.4, evening: 3.6, total: 7.0, notes: 'Production stable' },
+            { date: '2025-01-12', morning: 3.1, evening: 3.2, total: 6.3, notes: '' }
+          ],
+          offspring: ['Cardamone', 'Curcuma'],
+          parents: { mother: '', father: '' }
         },
         {
           id: 3,
-          name: 'Luna',
-          species: 'brebis',
-          breed: 'Mérinos',
-          birthDate: '2021-08-10',
-          mother: 'Sheila',
-          father: 'Rambo',
+          name: 'Pistache',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2022-02-05',
+          entryDate: '2022-02-05',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH003',
+          earTagNumber: '00296',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
           gender: 'femelle',
           status: 'vivant',
-          notes: 'Ancienne, très expérimentée',
+          notes: 'Bonne productrice',
           milkProduction: [
-            { date: '2025-01-15', morning: 1.8, evening: 2.0, total: 3.8, notes: '' },
-            { date: '2025-01-14', morning: 1.9, evening: 2.1, total: 4.0, notes: '' },
-            { date: '2025-01-13', morning: 1.7, evening: 1.9, total: 3.6, notes: '' }
+            { date: '2025-01-15', morning: 2.8, evening: 3.0, total: 5.8, notes: '' },
+            { date: '2025-01-14', morning: 2.6, evening: 2.8, total: 5.4, notes: '' },
+            { date: '2025-01-13', morning: 2.9, evening: 3.1, total: 6.0, notes: 'Production stable' },
+            { date: '2025-01-12', morning: 2.7, evening: 2.9, total: 5.6, notes: '' }
           ],
-          offspring: ['Bella', 'Luna Jr'],
-          parents: { mother: 'Sheila', father: 'Rambo' }
+          offspring: ['Chia', 'Tonka'],
+          parents: { mother: '', father: '' }
         },
         {
           id: 4,
-          name: 'Charlie',
+          name: 'Amande',
           species: 'chèvre',
           breed: 'Saanen',
-          birthDate: '2023-07-12',
-          mother: 'Bella',
-          father: 'Max',
-          gender: 'mâle',
+          birthDate: '2022-02-04',
+          entryDate: '2022-02-04',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH004',
+          earTagNumber: '00297',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
           status: 'vivant',
-          notes: 'Jeune mâle prometteur',
-          offspring: [],
-          parents: { mother: 'Bella', father: 'Max' }
+          notes: 'Très calme',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.2, evening: 2.4, total: 4.6, notes: '' },
+            { date: '2025-01-14', morning: 2.0, evening: 2.2, total: 4.2, notes: '' },
+            { date: '2025-01-13', morning: 2.3, evening: 2.5, total: 4.8, notes: 'Production régulière' },
+            { date: '2025-01-12', morning: 2.1, evening: 2.3, total: 4.4, notes: '' }
+          ],
+          offspring: ['Cora', 'Bourbon'],
+          parents: { mother: '', father: '' }
         },
         {
           id: 5,
-          name: 'Daisy',
+          name: 'Kinder',
           species: 'chèvre',
           breed: 'Alpine',
-          birthDate: '2020-11-03',
-          mother: 'Maya',
-          father: 'Bruno',
+          birthDate: '2022-02-04',
+          entryDate: '2022-02-04',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH005',
+          earTagNumber: '00298',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
           gender: 'femelle',
           status: 'vivant',
-          notes: 'Matriarche du troupeau',
+          notes: 'Jeune et énergique',
           milkProduction: [
-            { date: '2025-01-15', morning: 3.2, evening: 3.5, total: 6.7, notes: 'Production exceptionnelle' },
-            { date: '2025-01-14', morning: 3.0, evening: 3.3, total: 6.3, notes: '' },
-            { date: '2025-01-13', morning: 3.1, evening: 3.4, total: 6.5, notes: '' }
+            { date: '2025-01-15', morning: 2.0, evening: 2.2, total: 4.2, notes: '' },
+            { date: '2025-01-14', morning: 1.9, evening: 2.1, total: 4.0, notes: '' },
+            { date: '2025-01-13', morning: 2.1, evening: 2.3, total: 4.4, notes: 'En progression' },
+            { date: '2025-01-12', morning: 1.8, evening: 2.0, total: 3.8, notes: '' }
           ],
-          offspring: ['Max', 'Luna Jr'],
-          parents: { mother: 'Maya', father: 'Bruno' }
+          offspring: ['Citronnelle', 'Juzou'],
+          parents: { mother: '', father: '' }
         },
         {
           id: 6,
-          name: 'Sheila',
-          species: 'brebis',
-          breed: 'Mérinos',
-          birthDate: '2019-04-22',
-          mother: 'Fiona',
-          father: 'Rex',
+          name: 'Anis',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2022-03-25',
+          entryDate: '2022-03-25',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH006',
+          earTagNumber: '00299',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
           gender: 'femelle',
           status: 'vivant',
-          notes: 'Très docile, parfaite pour les enfants',
+          notes: 'Parfumée et douce',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.6, evening: 2.8, total: 5.4, notes: '' },
+            { date: '2025-01-14', morning: 2.4, evening: 2.6, total: 5.0, notes: '' },
+            { date: '2025-01-13', morning: 2.7, evening: 2.9, total: 5.6, notes: 'Bonne production' },
+            { date: '2025-01-12', morning: 2.5, evening: 2.7, total: 5.2, notes: '' }
+          ],
+          offspring: ['Cayenne', 'Fénugrec'],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 7,
+          name: 'Bounty',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2022-03-25',
+          entryDate: '2022-03-25',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH007',
+          earTagNumber: '00300',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Couleur chocolat',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.4, evening: 2.6, total: 5.0, notes: '' },
+            { date: '2025-01-14', morning: 2.2, evening: 2.4, total: 4.6, notes: '' },
+            { date: '2025-01-13', morning: 2.5, evening: 2.7, total: 5.2, notes: 'Production stable' },
+            { date: '2025-01-12', morning: 2.3, evening: 2.5, total: 4.8, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 8,
+          name: 'Marguerite',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2022-06-01',
+          entryDate: '2022-06-01',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH008',
+          earTagNumber: '00301',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fleur de printemps',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.9, evening: 3.1, total: 6.0, notes: '' },
+            { date: '2025-01-14', morning: 2.7, evening: 2.9, total: 5.6, notes: '' },
+            { date: '2025-01-13', morning: 3.0, evening: 3.2, total: 6.2, notes: 'Excellente production' },
+            { date: '2025-01-12', morning: 2.8, evening: 3.0, total: 5.8, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 9,
+          name: 'Muscade',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2023-03-20',
+          entryDate: '2023-03-20',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH009',
+          earTagNumber: '00302',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Épice douce',
           milkProduction: [
             { date: '2025-01-15', morning: 2.1, evening: 2.3, total: 4.4, notes: '' },
-            { date: '2025-01-14', morning: 2.0, evening: 2.2, total: 4.2, notes: '' }
+            { date: '2025-01-14', morning: 2.0, evening: 2.2, total: 4.2, notes: '' },
+            { date: '2025-01-13', morning: 2.2, evening: 2.4, total: 4.6, notes: 'Jeune femelle' },
+            { date: '2025-01-12', morning: 1.9, evening: 2.1, total: 4.0, notes: '' }
           ],
-          offspring: ['Luna', 'Sheila Jr'],
-          parents: { mother: 'Fiona', father: 'Rex' }
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 10,
+          name: 'Cajou',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2023-03-07',
+          entryDate: '2023-03-07',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH010',
+          earTagNumber: '00303',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Noix tropicale',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.3, evening: 2.5, total: 4.8, notes: '' },
+            { date: '2025-01-14', morning: 2.1, evening: 2.3, total: 4.4, notes: '' },
+            { date: '2025-01-13', morning: 2.4, evening: 2.6, total: 5.0, notes: 'Production en hausse' },
+            { date: '2025-01-12', morning: 2.2, evening: 2.4, total: 4.6, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 11,
+          name: 'Pécan',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2023-03-17',
+          entryDate: '2023-03-17',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH011',
+          earTagNumber: '00304',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Noix américaine',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.0, evening: 2.2, total: 4.2, notes: '' },
+            { date: '2025-01-14', morning: 1.9, evening: 2.1, total: 4.0, notes: '' },
+            { date: '2025-01-13', morning: 2.1, evening: 2.3, total: 4.4, notes: 'Production stable' },
+            { date: '2025-01-12', morning: 1.8, evening: 2.0, total: 3.8, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 12,
+          name: 'Pili',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2023-04-01',
+          entryDate: '2023-04-01',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH012',
+          earTagNumber: '00305',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Noix des Philippines',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.2, evening: 2.4, total: 4.6, notes: '' },
+            { date: '2025-01-14', morning: 2.0, evening: 2.2, total: 4.2, notes: '' },
+            { date: '2025-01-13', morning: 2.3, evening: 2.5, total: 4.8, notes: 'Bonne production' },
+            { date: '2025-01-12', morning: 2.1, evening: 2.3, total: 4.4, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 13,
+          name: 'Coco',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2023-03-03',
+          entryDate: '2023-03-03',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH013',
+          earTagNumber: '00306',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Tropicale et douce',
+          milkProduction: [
+            { date: '2025-01-15', morning: 2.5, evening: 2.7, total: 5.2, notes: '' },
+            { date: '2025-01-14', morning: 2.3, evening: 2.5, total: 4.8, notes: '' },
+            { date: '2025-01-13', morning: 2.6, evening: 2.8, total: 5.4, notes: 'Production excellente' },
+            { date: '2025-01-12', morning: 2.4, evening: 2.6, total: 5.0, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 14,
+          name: 'Marley',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2024-02-18',
+          entryDate: '2024-02-18',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH014',
+          earTagNumber: '00307',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Reggae et détendue',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.8, evening: 2.0, total: 3.8, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.6, evening: 1.8, total: 3.4, notes: '' },
+            { date: '2025-01-13', morning: 1.9, evening: 2.1, total: 4.0, notes: 'En progression' },
+            { date: '2025-01-12', morning: 1.7, evening: 1.9, total: 3.6, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 15,
+          name: 'Praline',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2024-02-21',
+          entryDate: '2024-02-21',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH015',
+          earTagNumber: '00308',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Délicieuse et sucrée',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.9, evening: 2.1, total: 4.0, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.7, evening: 1.9, total: 3.6, notes: '' },
+            { date: '2025-01-13', morning: 2.0, evening: 2.2, total: 4.2, notes: 'Bonne progression' },
+            { date: '2025-01-12', morning: 1.8, evening: 2.0, total: 3.8, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 16,
+          name: 'Nougatine',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2024-02-21',
+          entryDate: '2024-02-21',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH016',
+          earTagNumber: '00309',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Sœur de Praline',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.7, evening: 1.9, total: 3.6, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.5, evening: 1.7, total: 3.2, notes: '' },
+            { date: '2025-01-13', morning: 1.8, evening: 2.0, total: 3.8, notes: 'En développement' },
+            { date: '2025-01-12', morning: 1.6, evening: 1.8, total: 3.4, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 17,
+          name: 'Oreo',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2024-02-25',
+          entryDate: '2024-02-25',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH017',
+          earTagNumber: '00310',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Noir et blanc',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.6, evening: 1.8, total: 3.4, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.4, evening: 1.6, total: 3.0, notes: '' },
+            { date: '2025-01-13', morning: 1.7, evening: 1.9, total: 3.6, notes: 'Production en hausse' },
+            { date: '2025-01-12', morning: 1.5, evening: 1.7, total: 3.2, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 18,
+          name: 'Méringue',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2024-02-25',
+          entryDate: '2024-02-25',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH018',
+          earTagNumber: '00311',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Légère et aérée',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.8, evening: 2.0, total: 3.8, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.6, evening: 1.8, total: 3.4, notes: '' },
+            { date: '2025-01-13', morning: 1.9, evening: 2.1, total: 4.0, notes: 'Bonne progression' },
+            { date: '2025-01-12', morning: 1.7, evening: 1.9, total: 3.6, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 19,
+          name: 'Cacao',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2024-02-27',
+          entryDate: '2024-02-27',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH019',
+          earTagNumber: '00312',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Chocolat pur',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.7, evening: 1.9, total: 3.6, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.5, evening: 1.7, total: 3.2, notes: '' },
+            { date: '2025-01-13', morning: 1.8, evening: 2.0, total: 3.8, notes: 'Production stable' },
+            { date: '2025-01-12', morning: 1.6, evening: 1.8, total: 3.4, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 20,
+          name: 'Crème',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2024-02-27',
+          entryDate: '2024-02-27',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH020',
+          earTagNumber: '00313',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Douce et onctueuse',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.9, evening: 2.1, total: 4.0, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.7, evening: 1.9, total: 3.6, notes: '' },
+            { date: '2025-01-13', morning: 2.0, evening: 2.2, total: 4.2, notes: 'Excellente progression' },
+            { date: '2025-01-12', morning: 1.8, evening: 2.0, total: 3.8, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 21,
+          name: 'Biscotte',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2024-02-29',
+          entryDate: '2024-02-29',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH021',
+          earTagNumber: '00314',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Croustillante',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.6, evening: 1.8, total: 3.4, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.4, evening: 1.6, total: 3.0, notes: '' },
+            { date: '2025-01-13', morning: 1.7, evening: 1.9, total: 3.6, notes: 'En développement' },
+            { date: '2025-01-12', morning: 1.5, evening: 1.7, total: 3.2, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 22,
+          name: 'Chacotte',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2024-02-29',
+          entryDate: '2024-02-29',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH022',
+          earTagNumber: '00315',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Sœur de Biscotte',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.8, evening: 2.0, total: 3.8, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.6, evening: 1.8, total: 3.4, notes: '' },
+            { date: '2025-01-13', morning: 1.9, evening: 2.1, total: 4.0, notes: 'Bonne progression' },
+            { date: '2025-01-12', morning: 1.7, evening: 1.9, total: 3.6, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 23,
+          name: 'Cookies',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2024-03-01',
+          entryDate: '2024-03-01',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH023',
+          earTagNumber: '00316',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Délicieuse et croquante',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.7, evening: 1.9, total: 3.6, notes: 'Première lactation' },
+            { date: '2025-01-14', morning: 1.5, evening: 1.7, total: 3.2, notes: '' },
+            { date: '2025-01-13', morning: 1.8, evening: 2.0, total: 3.8, notes: 'Production en hausse' },
+            { date: '2025-01-12', morning: 1.6, evening: 1.8, total: 3.4, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 24,
+          name: 'Amaretto',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2025-02-27',
+          entryDate: '2025-02-27',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH024',
+          earTagNumber: '00317',
+          buyerSellerName: '',
+          mother: 'Canelle',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Canelle - Liqueur italienne',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Canelle', father: '' }
+        },
+        {
+          id: 25,
+          name: 'Saffron',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2025-02-28',
+          entryDate: '2025-02-28',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH025',
+          earTagNumber: '00318',
+          buyerSellerName: '',
+          mother: 'Canelle',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Canelle - Épice dorée',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Canelle', father: '' }
+        },
+        {
+          id: 26,
+          name: 'Cardamone',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2025-02-28',
+          entryDate: '2025-02-28',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH026',
+          earTagNumber: '00319',
+          buyerSellerName: '',
+          mother: 'Vanille',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Vanille - Épice parfumée',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Vanille', father: '' }
+        },
+        {
+          id: 27,
+          name: 'Curcuma',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2025-03-01',
+          entryDate: '2025-03-01',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH027',
+          earTagNumber: '00320',
+          buyerSellerName: '',
+          mother: 'Vanille',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Vanille - Épice dorée',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Vanille', father: '' }
+        },
+        {
+          id: 28,
+          name: 'Chia',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2025-03-01',
+          entryDate: '2025-03-01',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH028',
+          earTagNumber: '00321',
+          buyerSellerName: '',
+          mother: 'Pistache',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Pistache - Graine nutritive',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Pistache', father: '' }
+        },
+        {
+          id: 29,
+          name: 'Tonka',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2025-03-02',
+          entryDate: '2025-03-02',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH029',
+          earTagNumber: '00322',
+          buyerSellerName: '',
+          mother: 'Pistache',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Pistache - Haricot parfumé',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Pistache', father: '' }
+        },
+        {
+          id: 30,
+          name: 'Cora',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2025-03-02',
+          entryDate: '2025-03-02',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH030',
+          earTagNumber: '00323',
+          buyerSellerName: '',
+          mother: 'Amande',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille d\'Amande - Cœur de fruit',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Amande', father: '' }
+        },
+        {
+          id: 31,
+          name: 'Bourbon',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2025-03-03',
+          entryDate: '2025-03-03',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH031',
+          earTagNumber: '00324',
+          buyerSellerName: '',
+          mother: 'Amande',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille d\'Amande - Whisky américain',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Amande', father: '' }
+        },
+        {
+          id: 32,
+          name: 'Citronnelle',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2025-03-06',
+          entryDate: '2025-03-06',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH032',
+          earTagNumber: '00325',
+          buyerSellerName: '',
+          mother: 'Kinder',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Kinder - Herbe citronnée',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Kinder', father: '' }
+        },
+        {
+          id: 33,
+          name: 'Juzou',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2025-03-06',
+          entryDate: '2025-03-06',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH033',
+          earTagNumber: '00326',
+          buyerSellerName: '',
+          mother: 'Kinder',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Kinder - Nom unique',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Kinder', father: '' }
+        },
+        {
+          id: 34,
+          name: 'Cayenne',
+          species: 'chèvre',
+          breed: 'Alpine',
+          birthDate: '2025-03-06',
+          entryDate: '2025-03-06',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH034',
+          earTagNumber: '00327',
+          buyerSellerName: '',
+          mother: 'Anis',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille d\'Anis - Piment fort',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Anis', father: '' }
+        },
+        {
+          id: 35,
+          name: 'Fénugrec',
+          species: 'chèvre',
+          breed: 'Saanen',
+          birthDate: '2025-03-06',
+          entryDate: '2025-03-06',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'CH035',
+          earTagNumber: '00328',
+          buyerSellerName: '',
+          mother: 'Anis',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille d\'Anis - Graine médicinale',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Anis', father: '' }
+        }
+      ],
+      template_messages: [
+        {
+          id: 1,
+          title: 'Confirmation Adoption Poussin',
+          category: 'Adoption',
+          content: 'Bonjour {nom},\n\nVotre adoption de {quantite} poussins de race {race} est confirmée pour le {date}.\n\nMerci de votre confiance !\n\nCordialement,\nL\'équipe de la ferme'
+        },
+        {
+          id: 2,
+          title: 'Rappel Visite Guidée',
+          category: 'Activité',
+          content: 'Bonjour {nom},\n\nNous vous rappelons votre visite guidée prévue le {date} à {heure}.\n\nAu plaisir de vous accueillir !\n\nCordialement,\nL\'équipe de la ferme'
+        },
+        {
+          id: 3,
+          title: 'Annulation Commande',
+          category: 'Commande',
+          content: 'Bonjour {nom},\n\nNous vous informons que votre commande du {date} a été annulée.\n\nN\'hésitez pas à nous recontacter pour toute question.\n\nCordialement,\nL\'équipe de la ferme'
         }
       ]
     };
@@ -378,8 +1385,10 @@ class SimpleTestDatabaseService {
           csvContent = this.generateOrderPricingCSV(data);
         } else if (tableName === 'pricing_grids') {
           csvContent = this.generatePricingGridsCSV(data);
+        } else if (tableName === 'template_messages') {
+          csvContent = this.generateTemplateMessagesCSV(data);
         } else {
-          csvContent = this.generateCSV(data);
+          csvContent = this.generateCSV(data, tableName);
         }
     
     const fileName = `${tableName}_${getTodayISO()}.csv`;
@@ -405,11 +1414,15 @@ class SimpleTestDatabaseService {
     }
   }
 
-  generateCSV(data) {
+  generateCSV(data, tableName = '') {
     if (!data || data.length === 0) return '';
     
     const headers = Object.keys(data[0]);
     const csvRows = [
+      `# FarmApp Export - ${tableName} - ${getTodayISO()}`,
+      `# Generated on: ${new Date().toLocaleString('fr-FR')}`,
+      `# Total records: ${data.length}`,
+      '',
       headers.join(','),
       ...data.map(row => 
         headers.map(header => {
@@ -433,6 +1446,10 @@ class SimpleTestDatabaseService {
     ];
     
     const csvRows = [
+      `# FarmApp Export - caprin_animals - ${getTodayISO()}`,
+      `# Generated on: ${new Date().toLocaleString('fr-FR')}`,
+      `# Total records: ${animals.length}`,
+      '',
       headers.join(','),
       ...animals.map(animal => {
         const totalMilk = animal.milkProduction ? 
@@ -528,6 +1545,27 @@ class SimpleTestDatabaseService {
     return csvRows.join('\n');
   }
 
+  generateTemplateMessagesCSV(messages) {
+    if (!messages || messages.length === 0) return '';
+    
+    const headers = ['id', 'title', 'category', 'content'];
+    const csvRows = [
+      `# FarmApp Export - template_messages - ${getTodayISO()}`,
+      `# Generated on: ${new Date().toLocaleString('fr-FR')}`,
+      `# Total records: ${messages.length}`,
+      '',
+      headers.join(','),
+      ...messages.map(message => [
+        message.id || '',
+        message.title || '',
+        message.category || '',
+        message.content || ''
+      ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','))
+    ];
+    
+    return csvRows.join('\n');
+  }
+
   async importFromCSV(tableName, csvContent) {
     console.log('📥 importFromCSV called');
     return 1;
@@ -549,6 +1587,7 @@ class SimpleTestDatabaseService {
       if (backupData.caprin_settings) this.storage.caprin_settings = backupData.caprin_settings;
       if (backupData.saved_formulas) this.storage.saved_formulas = backupData.saved_formulas;
       if (backupData.order_pricing) this.storage.order_pricing = backupData.order_pricing;
+      if (backupData.template_messages) this.storage.template_messages = backupData.template_messages;
       if (backupData.pricing_grids) this.storage.pricing_grids = backupData.pricing_grids;
       
       console.log('✅ Database restored from backup successfully');
@@ -563,6 +1602,16 @@ class SimpleTestDatabaseService {
     console.log('💾 backupDatabase called');
     
     const backupData = {
+      // FarmApp Backup File
+      _metadata: {
+        app_name: 'FarmApp',
+        export_type: 'full_backup',
+        export_date: getNowISO(),
+        generated_on: new Date().toLocaleString('fr-FR'),
+        version: '1.0.0',
+        description: 'Sauvegarde complète de toutes les données de la ferme'
+      },
+      // Data tables
       products: this.storage.products,
       orders: this.storage.orders,
       calendar_events: this.storage.calendar_events,
@@ -574,6 +1623,7 @@ class SimpleTestDatabaseService {
       caprin_settings: this.storage.caprin_settings,
       saved_formulas: this.storage.saved_formulas,
       order_pricing: this.storage.order_pricing,
+      template_messages: this.storage.template_messages,
       pricing_grids: this.storage.pricing_grids,
       backup_date: getNowISO()
     };
@@ -626,7 +1676,7 @@ class SimpleTestDatabaseService {
     const existingEvents = this.storage.calendar_events || [];
     
     console.log(`📋 Found ${orders.length} orders to sync`);
-    console.log('📋 Orders data:', orders);
+    // console.log('📋 Orders data:', orders);
     
     // Create calendar events for orders with delivery dates
     for (const order of orders) {
@@ -979,7 +2029,56 @@ class SimpleTestDatabaseService {
   async savePricingGrid(animalType, pricingGrid) {
     console.log('💰 savePricingGrid called');
     if (!this.storage.pricing_grids) {
-      this.storage.pricing_grids = {};
+      this.storage.pricing_grids = {
+        poussins: [
+          { ageMonths: 0, ageWeeks: 0, price: 3.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 4.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 4.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 5.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 6.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 7.00, sex: 'Tous' }
+        ],
+        canards: [
+          { ageMonths: 0, ageWeeks: 0, price: 4.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 5.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 6.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 7.50, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 8.50, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 9.50, sex: 'Tous' }
+        ],
+        oie: [
+          { ageMonths: 0, ageWeeks: 0, price: 8.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 10.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 12.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 15.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 18.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 22.00, sex: 'Tous' }
+        ],
+        lapin: [
+          { ageMonths: 0, ageWeeks: 0, price: 6.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 8.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 10.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 12.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 15.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 18.00, sex: 'Tous' }
+        ],
+        chèvre: [
+          { ageMonths: 0, ageWeeks: 0, price: 25.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 30.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 35.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 40.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 50.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 60.00, sex: 'Tous' }
+        ],
+        cailles: [
+          { ageMonths: 0, ageWeeks: 0, price: 2.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 3.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 3.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 4.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 4.50, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 5.00, sex: 'Tous' }
+        ]
+      };
     }
     this.storage.pricing_grids[animalType] = pricingGrid;
     return { success: true };
@@ -989,7 +2088,56 @@ class SimpleTestDatabaseService {
   async getPricingGrid(animalType) {
     console.log('💰 getPricingGrid called');
     if (!this.storage.pricing_grids) {
-      this.storage.pricing_grids = {};
+      this.storage.pricing_grids = {
+        poussins: [
+          { ageMonths: 0, ageWeeks: 0, price: 3.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 4.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 4.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 5.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 6.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 7.00, sex: 'Tous' }
+        ],
+        canards: [
+          { ageMonths: 0, ageWeeks: 0, price: 4.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 5.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 6.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 7.50, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 8.50, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 9.50, sex: 'Tous' }
+        ],
+        oie: [
+          { ageMonths: 0, ageWeeks: 0, price: 8.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 10.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 12.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 15.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 18.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 22.00, sex: 'Tous' }
+        ],
+        lapin: [
+          { ageMonths: 0, ageWeeks: 0, price: 6.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 8.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 10.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 12.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 15.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 18.00, sex: 'Tous' }
+        ],
+        chèvre: [
+          { ageMonths: 0, ageWeeks: 0, price: 25.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 30.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 35.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 40.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 50.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 60.00, sex: 'Tous' }
+        ],
+        cailles: [
+          { ageMonths: 0, ageWeeks: 0, price: 2.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 3.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 3.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 4.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 4.50, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 5.00, sex: 'Tous' }
+        ]
+      };
     }
     return this.storage.pricing_grids[animalType] || [];
   }
@@ -997,7 +2145,59 @@ class SimpleTestDatabaseService {
   // Get all pricing grids
   async getAllPricingGrids() {
     console.log('💰 getAllPricingGrids called');
-    return this.storage.pricing_grids || {};
+    if (!this.storage.pricing_grids) {
+      this.storage.pricing_grids = {
+        poussins: [
+          { ageMonths: 0, ageWeeks: 0, price: 3.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 4.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 4.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 5.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 6.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 7.00, sex: 'Tous' }
+        ],
+        canards: [
+          { ageMonths: 0, ageWeeks: 0, price: 4.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 5.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 6.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 7.50, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 8.50, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 9.50, sex: 'Tous' }
+        ],
+        oie: [
+          { ageMonths: 0, ageWeeks: 0, price: 8.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 10.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 12.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 15.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 18.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 22.00, sex: 'Tous' }
+        ],
+        lapin: [
+          { ageMonths: 0, ageWeeks: 0, price: 6.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 8.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 10.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 12.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 15.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 18.00, sex: 'Tous' }
+        ],
+        chèvre: [
+          { ageMonths: 0, ageWeeks: 0, price: 25.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 30.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 35.00, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 40.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 50.00, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 60.00, sex: 'Tous' }
+        ],
+        cailles: [
+          { ageMonths: 0, ageWeeks: 0, price: 2.50, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 4, price: 3.00, sex: 'Tous' },
+          { ageMonths: 0, ageWeeks: 8, price: 3.50, sex: 'Tous' },
+          { ageMonths: 1, ageWeeks: 0, price: 4.00, sex: 'Tous' },
+          { ageMonths: 2, ageWeeks: 0, price: 4.50, sex: 'Tous' },
+          { ageMonths: 3, ageWeeks: 0, price: 5.00, sex: 'Tous' }
+        ]
+      };
+    }
+    return this.storage.pricing_grids;
   }
 
   // Get available animal types with pricing grids
@@ -1161,6 +2361,44 @@ class SimpleTestDatabaseService {
     console.log('🗑️ deleteFormula called');
     if (this.storage.saved_formulas) {
       this.storage.saved_formulas = this.storage.saved_formulas.filter(f => f.id !== id);
+    }
+    return 1;
+  }
+
+  // ========== TEMPLATE MESSAGES CRUD ==========
+  
+  async getTemplateMessages() {
+    console.log('📋 getTemplateMessages called');
+    return this.storage.template_messages || [];
+  }
+
+  async addTemplateMessage(message) {
+    console.log('➕ addTemplateMessage called');
+    if (!this.storage.template_messages) {
+      this.storage.template_messages = [];
+    }
+    const newMessage = { id: Date.now(), ...message };
+    this.storage.template_messages.push(newMessage);
+    return { insertId: newMessage.id };
+  }
+
+  async updateTemplateMessage(id, message) {
+    console.log('✏️ updateTemplateMessage called');
+    if (!this.storage.template_messages) {
+      this.storage.template_messages = [];
+    }
+    const index = this.storage.template_messages.findIndex(m => m.id == id);
+    if (index !== -1) {
+      this.storage.template_messages[index] = { ...this.storage.template_messages[index], ...message };
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async deleteTemplateMessage(id) {
+    console.log('🗑️ deleteTemplateMessage called');
+    if (this.storage.template_messages) {
+      this.storage.template_messages = this.storage.template_messages.filter(m => m.id !== id);
     }
     return 1;
   }

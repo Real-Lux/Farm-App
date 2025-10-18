@@ -15,6 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
+import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
 export default function CaprinScreen({ navigation }) {
@@ -38,6 +39,13 @@ export default function CaprinScreen({ navigation }) {
     species: 'chèvre', // 'chèvre' or 'brebis'
     breed: '',
     birthDate: '',
+    entryDate: '',
+    exitDate: '',
+    entryCause: 'naissance', // 'naissance', 'décès', 'don', 'troc', 'acheté', 'vendu'
+    exitCause: '',
+    herdNumber: '',
+    earTagNumber: '',
+    buyerSellerName: '',
     mother: '',
     father: '',
     gender: 'femelle',
@@ -69,7 +77,23 @@ export default function CaprinScreen({ navigation }) {
   useEffect(() => {
     loadAnimals();
     loadCaprinSettings();
+    loadConfigs();
   }, []);
+
+  const loadConfigs = async () => {
+    try {
+      const milkMethod = await configService.loadCaprinMilkMethod();
+      const graphPeriod = await configService.loadCaprinGraphPeriod();
+      
+      setCaprinSettings(prev => ({
+        ...prev,
+        milkRecordingMethod: milkMethod,
+        graphPeriod: graphPeriod
+      }));
+    } catch (error) {
+      console.error('Error loading configs:', error);
+    }
+  };
 
   const loadAnimals = async () => {
     try {
@@ -98,6 +122,13 @@ export default function CaprinScreen({ navigation }) {
       species: 'chèvre',
       breed: '',
       birthDate: '',
+      entryDate: '',
+      exitDate: '',
+      entryCause: 'naissance',
+      exitCause: '',
+      herdNumber: '',
+      earTagNumber: '',
+      buyerSellerName: '',
       mother: '',
       father: '',
       gender: 'femelle',
@@ -115,6 +146,13 @@ export default function CaprinScreen({ navigation }) {
       species: animal.species,
       breed: animal.breed,
       birthDate: animal.birthDate,
+      entryDate: animal.entryDate || '',
+      exitDate: animal.exitDate || '',
+      entryCause: animal.entryCause || 'naissance',
+      exitCause: animal.exitCause || '',
+      herdNumber: animal.herdNumber || '',
+      earTagNumber: animal.earTagNumber || '',
+      buyerSellerName: animal.buyerSellerName || '',
       mother: animal.mother || '',
       father: animal.father || '',
       gender: animal.gender,
@@ -179,8 +217,8 @@ export default function CaprinScreen({ navigation }) {
   };
 
   const saveAnimal = async () => {
-    if (!animalForm.name || !animalForm.species || !animalForm.birthDate) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
+    if (!animalForm.name || !animalForm.species || !animalForm.birthDate || !animalForm.entryDate) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires (nom, espèce, date de naissance, date d\'entrée)');
       return;
     }
 
@@ -261,6 +299,9 @@ export default function CaprinScreen({ navigation }) {
   const saveSettings = async () => {
     try {
       await database.updateCaprinSettings(caprinSettings);
+      // Save configs to AsyncStorage
+      await configService.saveCaprinMilkMethod(caprinSettings.milkRecordingMethod);
+      await configService.saveCaprinGraphPeriod(caprinSettings.graphPeriod);
       await loadCaprinSettings();
       setModalVisible(false);
     } catch (error) {
@@ -474,6 +515,13 @@ export default function CaprinScreen({ navigation }) {
               <Text style={styles.cardInfo}>🎂 Âge: {age}</Text>
               <Text style={styles.cardInfo}>🏷️ Race: {item.breed}</Text>
               <Text style={styles.cardInfo}>⚥ Sexe: {item.gender}</Text>
+              {item.entryDate && <Text style={styles.cardInfo}>📥 Entrée le: {item.entryDate}</Text>}
+              {item.entryCause && <Text style={styles.cardInfo}>📋 Cause d'entrée: {item.entryCause}</Text>}
+              {item.exitDate && <Text style={styles.cardInfo}>📤 Sortie le: {item.exitDate}</Text>}
+              {item.exitCause && <Text style={styles.cardInfo}>📋 Cause de sortie: {item.exitCause}</Text>}
+              {item.herdNumber && <Text style={styles.cardInfo}>🏷️ Num cheptel: {item.herdNumber}</Text>}
+              {item.earTagNumber && <Text style={styles.cardInfo}>🔢 N° oreille: {item.earTagNumber}</Text>}
+              {item.buyerSellerName && <Text style={styles.cardInfo}>👤 Acheteur/Vendeur: {item.buyerSellerName}</Text>}
               {item.mother && <Text style={styles.cardInfo}>👩 Mère: {item.mother}</Text>}
               {item.father && <Text style={styles.cardInfo}>👨 Père: {item.father}</Text>}
               {item.gender === 'femelle' && (
@@ -912,6 +960,103 @@ export default function CaprinScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
 
+                <View style={styles.dateFieldContainer}>
+                  <Text style={styles.dateFieldLabel}>Date d'entrée *</Text>
+                  <TouchableOpacity 
+                    style={styles.datePickerButton}
+                    onPress={() => openCalendarModal('entryDate')}
+                  >
+                    <Text style={styles.datePickerText}>
+                      {animalForm.entryDate ? 
+                        formatForCalendar(animalForm.entryDate) : 
+                        '📅 Sélectionner une date'
+                      }
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.dateFieldContainer}>
+                  <Text style={styles.dateFieldLabel}>Date de sortie (optionnel)</Text>
+                  <TouchableOpacity 
+                    style={styles.datePickerButton}
+                    onPress={() => openCalendarModal('exitDate')}
+                  >
+                    <Text style={styles.datePickerText}>
+                      {animalForm.exitDate ? 
+                        formatForCalendar(animalForm.exitDate) : 
+                        '📅 Sélectionner une date'
+                      }
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.selectorContainer}>
+                  <Text style={styles.inputLabel}>Cause d'entrée:</Text>
+                  <View style={styles.selectorOptions}>
+                    {['naissance', 'décès', 'don', 'troc', 'acheté', 'vendu'].map((cause) => (
+                      <TouchableOpacity
+                        key={cause}
+                        style={[
+                          styles.selectorOption,
+                          animalForm.entryCause === cause && styles.selectorOptionSelected
+                        ]}
+                        onPress={() => setAnimalForm({...animalForm, entryCause: cause})}
+                      >
+                        <Text style={[
+                          styles.selectorOptionText,
+                          animalForm.entryCause === cause && styles.selectorOptionTextSelected
+                        ]}>
+                          {cause}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.selectorContainer}>
+                  <Text style={styles.inputLabel}>Cause de sortie (optionnel):</Text>
+                  <View style={styles.selectorOptions}>
+                    {['', 'décès', 'don', 'troc', 'acheté', 'vendu'].map((cause) => (
+                      <TouchableOpacity
+                        key={cause || 'aucune'}
+                        style={[
+                          styles.selectorOption,
+                          animalForm.exitCause === cause && styles.selectorOptionSelected
+                        ]}
+                        onPress={() => setAnimalForm({...animalForm, exitCause: cause})}
+                      >
+                        <Text style={[
+                          styles.selectorOptionText,
+                          animalForm.exitCause === cause && styles.selectorOptionTextSelected
+                        ]}>
+                          {cause || 'Aucune'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Num de cheptel du repère d'identification officiel"
+                  value={animalForm.herdNumber}
+                  onChangeText={(text) => setAnimalForm({...animalForm, herdNumber: text})}
+                />
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Numéro d'ordre attribués (ex: 00294)"
+                  value={animalForm.earTagNumber}
+                  onChangeText={(text) => setAnimalForm({...animalForm, earTagNumber: text})}
+                />
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nom de l'acheteur ou du vendeur (optionnel)"
+                  value={animalForm.buyerSellerName}
+                  onChangeText={(text) => setAnimalForm({...animalForm, buyerSellerName: text})}
+                />
+
                 <View style={styles.genderSelector}>
                   <Text style={styles.inputLabel}>Sexe:</Text>
                   <View style={styles.genderOptions}>
@@ -1211,7 +1356,9 @@ export default function CaprinScreen({ navigation }) {
             <View style={styles.calendarModalContent}>
               <View style={styles.calendarHeader}>
                 <Text style={styles.calendarTitle}>
-                  {calendarField === 'birthDate' ? 'Date de naissance' : 'Date'}
+                  {calendarField === 'birthDate' ? 'Date de naissance' : 
+                   calendarField === 'entryDate' ? 'Date d\'entrée' :
+                   calendarField === 'exitDate' ? 'Date de sortie' : 'Date'}
                 </Text>
                 <TouchableOpacity 
                   style={styles.calendarCloseBtn}
@@ -1223,7 +1370,7 @@ export default function CaprinScreen({ navigation }) {
               
               <Calendar
                 onDayPress={handleDateSelect}
-                maxDate={calendarField === 'birthDate' ? getTodayISO() : undefined}
+                maxDate={calendarField === 'birthDate' || calendarField === 'entryDate' ? getTodayISO() : undefined}
                 theme={{
                   backgroundColor: '#ffffff',
                   calendarBackground: '#ffffff',
@@ -1796,6 +1943,34 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   genderOptionTextSelected: {
+    color: 'white',
+  },
+  selectorContainer: {
+    marginBottom: 15,
+  },
+  selectorOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  selectorOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  selectorOptionSelected: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  selectorOptionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#333',
+  },
+  selectorOptionTextSelected: {
     color: 'white',
   },
   dateFieldContainer: {

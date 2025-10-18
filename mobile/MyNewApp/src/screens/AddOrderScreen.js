@@ -14,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
+import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 import { ORDER_STATUSES, getStatusColor, getStatusIcon } from '../../constants/StatusConstants';
 
@@ -21,7 +22,7 @@ export default function AddOrderScreen({ navigation, route }) {
   const { editingOrder, onSaveOrder } = route.params || {};
   const insets = useSafeAreaInsets();
   
-  const [expandedAnimals, setExpandedAnimals] = useState({ poules: true });
+  const [expandedAnimals, setExpandedAnimals] = useState({ poussins: true });
   const [availableStock, setAvailableStock] = useState({});
   const [lots, setLots] = useState([]);
   const [lotSelectionModal, setLotSelectionModal] = useState(false);
@@ -48,9 +49,9 @@ export default function AddOrderScreen({ navigation, route }) {
   const [pricingGridAvailable, setPricingGridAvailable] = useState(true);
   const [orderForm, setOrderForm] = useState(editingOrder ? {
     orderType: editingOrder.orderType || 'Adoption',
-    selectedAnimals: editingOrder.selectedAnimals || ['poules'],
+    selectedAnimals: editingOrder.selectedAnimals || ['poussins'],
     animalDetails: editingOrder.animalDetails || {
-      poules: {
+      poussins: {
         races: [],
         characteristics: [],
         colors: {},
@@ -70,9 +71,9 @@ export default function AddOrderScreen({ navigation, route }) {
     status: editingOrder.status || 'En attente'
   } : {
     orderType: 'Adoption',
-    selectedAnimals: ['poules'],
+    selectedAnimals: ['poussins'],
     animalDetails: {
-      poules: {
+      poussins: {
         races: [],
         characteristics: [],
         colors: {},
@@ -93,18 +94,20 @@ export default function AddOrderScreen({ navigation, route }) {
   });
 
   const orderTypes = ['Adoption', 'Poulets', 'Œufs de conso', 'Œufs fécondés', 'Fromage'];
-  const animalTypes = ['poules', 'canards', 'oie', 'lapin', 'chèvre'];
+  const animalTypes = ['poussins', 'canards', 'oie', 'lapin', 'chèvre', 'cailles'];
   const racesByAnimal = {
-    poules: ['Marans', 'Araucana', 'Cream Legbar', 'Leghorn', 'Pekin'],
+    poussins: ['Araucana', 'Cream Legbar', 'Leghorn', 'Marans', 'Vorwerk', 'Orpington', 'Brahma', 'Pékin', 'Soie'],
     canards: ['Coureur indien', 'Cayuga', 'Barbarie'],
     oie: ['Guinée', 'Toulouse'],
     lapin: ['Fermier'],
-    chèvre: ['Alpine', 'Saanen', 'Poitevine', 'Angora']
+    chèvre: ['Alpine', 'Saanen', 'Poitevine', 'Angora'],
+    cailles: ['Japonaise']
   };
 
   useEffect(() => {
     loadAvailableStock();
     loadCalendarEvents();
+    loadConfigs();
     
     // Ensure all race configurations have unique IDs
     if (editingOrder && editingOrder.animalDetails) {
@@ -133,6 +136,15 @@ export default function AddOrderScreen({ navigation, route }) {
     }
   }, []);
 
+  const loadConfigs = async () => {
+    try {
+      const expandedAnimals = await configService.loadAddOrderExpandedAnimals();
+      setExpandedAnimals(expandedAnimals);
+    } catch (error) {
+      console.error('Error loading configs:', error);
+    }
+  };
+
   // Calculate price whenever order details change
   useEffect(() => {
     calculatePrice();
@@ -157,12 +169,33 @@ export default function AddOrderScreen({ navigation, route }) {
       }
       
       setPricingGridAvailable(true);
-      const pricingData = database.calculateOrderPrice(orderForm);
-      setCalculatedPrice(pricingData.estimatedPrice);
-      setPriceBreakdown(pricingData.priceBreakdown);
+      
+      // Calculate pricing for each animal type separately
+      let totalCalculatedPrice = 0;
+      let allPriceBreakdowns = [];
+      
+      for (const animalType of selectedAnimalTypes) {
+        if (orderForm.animalDetails[animalType]?.races && orderForm.animalDetails[animalType].races.length > 0) {
+          // Create a temporary order form for this specific animal type
+          const animalSpecificOrder = {
+            ...orderForm,
+            selectedAnimals: [animalType],
+            animalDetails: {
+              [animalType]: orderForm.animalDetails[animalType]
+            }
+          };
+          
+          const pricingData = database.calculateOrderPrice(animalSpecificOrder);
+          totalCalculatedPrice += pricingData.estimatedPrice;
+          allPriceBreakdowns = [...allPriceBreakdowns, ...pricingData.priceBreakdown];
+        }
+      }
+      
+      setCalculatedPrice(totalCalculatedPrice);
+      setPriceBreakdown(allPriceBreakdowns);
       
       // Update the total price field with calculated price + adjustment
-      const finalPrice = pricingData.estimatedPrice + parseFloat(priceAdjustment || 0);
+      const finalPrice = totalCalculatedPrice + parseFloat(priceAdjustment || 0);
       setOrderForm(prev => ({
         ...prev,
         totalPrice: finalPrice.toFixed(2)
@@ -281,17 +314,42 @@ export default function AddOrderScreen({ navigation, route }) {
     });
   };
 
-  const toggleAnimalExpansion = (animal) => {
-    setExpandedAnimals({
+  const toggleAnimalExpansion = async (animal) => {
+    const newExpandedAnimals = {
       ...expandedAnimals,
       [animal]: !expandedAnimals[animal]
-    });
+    };
+    setExpandedAnimals(newExpandedAnimals);
+    await configService.saveAddOrderExpandedAnimals(newExpandedAnimals);
   };
 
   const getAnimalTotalQuantity = (animal) => {
     if (!orderForm.animalDetails[animal]?.races) return 0;
     return orderForm.animalDetails[animal].races
       .reduce((total, raceConfig) => total + (parseInt(raceConfig.quantity) || 0), 0);
+  };
+
+  const getAnimalSpecificPrice = (animal) => {
+    if (!orderForm.animalDetails[animal]?.races || orderForm.animalDetails[animal].races.length === 0) {
+      return 0;
+    }
+    
+    // Create a temporary order form for this specific animal type
+    const animalSpecificOrder = {
+      ...orderForm,
+      selectedAnimals: [animal],
+      animalDetails: {
+        [animal]: orderForm.animalDetails[animal]
+      }
+    };
+    
+    try {
+      const pricingData = database.calculateOrderPrice(animalSpecificOrder);
+      return pricingData.estimatedPrice;
+    } catch (error) {
+      console.error(`Error calculating price for ${animal}:`, error);
+      return 0;
+    }
   };
 
   // Group race configurations by race name
@@ -673,7 +731,7 @@ export default function AddOrderScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: Math.max(insets.top, 24) }]} />
+        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
         <View style={styles.headerContent}>
           <TouchableOpacity 
             style={styles.backButton}
@@ -884,6 +942,38 @@ export default function AddOrderScreen({ navigation, route }) {
                         ))}
                       </View>
                     ))}
+
+                    {/* Pricing Section for this animal */}
+                    {getAnimalTotalQuantity(animal) > 0 && (
+                      <View style={styles.animalPricingSection}>
+                        <Text style={styles.animalPricingTitle}>💰 Calcul du prix - {animal}</Text>
+                        
+                        {!pricingGridAvailable ? (
+                          <View style={styles.noPricingGridContainer}>
+                            <Text style={styles.noPricingGridText}>
+                              ⚠️ Aucune grille tarifaire configurée pour {animal}
+                            </Text>
+                            <TouchableOpacity 
+                              style={styles.goToPricingButton}
+                              onPress={() => navigation.navigate('Gestion')}
+                            >
+                              <Text style={styles.goToPricingButtonText}>
+                                📊 Configurer la grille tarifaire
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.animalPricingContent}>
+                            <Text style={styles.animalPricingSubtotal}>
+                              Sous-total {animal}: {getAnimalSpecificPrice(animal).toFixed(2)} €
+                            </Text>
+                            <Text style={styles.animalPricingBreakdown}>
+                              Basé sur {getAnimalTotalQuantity(animal)} {animal} configuré(s)
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </>
                 )}
               </View>
@@ -970,6 +1060,14 @@ export default function AddOrderScreen({ navigation, route }) {
           multiline={true}
           numberOfLines={3}
         />
+
+        {/* Total Price Preview */}
+        <View style={styles.totalPricePreview}>
+          <Text style={styles.totalPricePreviewLabel}>Prix total estimé:</Text>
+          <Text style={styles.totalPricePreviewValue}>
+            {orderForm.totalPrice || '0.00'} €
+          </Text>
+        </View>
 
         {/* Pricing Section */}
         <View style={styles.pricingSection}>
@@ -1109,7 +1207,11 @@ export default function AddOrderScreen({ navigation, route }) {
 
         <View style={styles.statusSelector}>
           <Text style={styles.statusSelectorLabel}>Statut de la commande:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.statusOptionsContainer}
+          >
             <View style={styles.statusOptions}>
               {orderStatuses.map((status) => (
                 <TouchableOpacity
@@ -1588,9 +1690,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
-    paddingHorizontal: 10, // Add horizontal padding
     zIndex: 1,
-    minHeight: 24, // Ensure minimum height for status bar
   },
   safeArea: {
     flex: 1,
@@ -1959,19 +2059,27 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#333',
   },
+  statusOptionsContainer: {
+    paddingHorizontal: 0,
+    minWidth: '100%',
+  },
   statusOptions: {
     flexDirection: 'row',
     gap: 8,
+    paddingHorizontal: 0,
   },
   statusOption: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 6,
     backgroundColor: '#f0f0f0',
+    minWidth: 80,
+    alignItems: 'center',
   },
   statusOptionText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
+    textAlign: 'center',
   },
   bottomPadding: {
     height: 50,
@@ -2546,5 +2654,56 @@ const styles = StyleSheet.create({
     color: '#856404',
     fontWeight: '600',
     fontSize: 14,
+  },
+  // Animal pricing section styles
+  animalPricingSection: {
+    backgroundColor: '#f0f8f0',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  animalPricingTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginBottom: 8,
+  },
+  animalPricingContent: {
+    alignItems: 'center',
+  },
+  animalPricingSubtotal: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginBottom: 4,
+  },
+  animalPricingBreakdown: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  // Total price preview styles
+  totalPricePreview: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#2196F3',
+  },
+  totalPricePreviewLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  totalPricePreviewValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2196F3',
   },
 });

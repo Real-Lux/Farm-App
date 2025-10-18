@@ -134,7 +134,7 @@ export default function DashboardScreen({ navigation }) {
       Alert.alert('Sauvegarde en cours', 'Création de la sauvegarde complète...');
       
       const filesToSend = [];
-      const tables = ['products', 'orders', 'calendar_events', 'elevage_lots', 'elevage_races', 'elevage_historique', 'caprin_animals', 'caprin_settings', 'saved_formulas', 'order_pricing', 'pricing_grids'];
+      const tables = ['products', 'orders', 'calendar_events', 'elevage_lots', 'elevage_races', 'elevage_historique', 'caprin_animals', 'caprin_settings', 'saved_formulas', 'order_pricing', 'pricing_grids', 'template_messages'];
       
       // Export each table to CSV
       for (const tableName of tables) {
@@ -220,6 +220,88 @@ export default function DashboardScreen({ navigation }) {
       console.error('Backup error:', error);
       Alert.alert('Erreur', 'Impossible de créer la sauvegarde');
     }
+  };
+
+  const handleImport = async () => {
+    try {
+      Alert.alert(
+        'Importer des données',
+        'Choisissez le type d\'importation:',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { 
+            text: 'Fichier JSON (Sauvegarde complète)', 
+            onPress: () => handleImportJSON()
+          },
+          { 
+            text: 'Fichier CSV (Données spécifiques)', 
+            onPress: () => handleImportCSV()
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Import error:', error);
+      Alert.alert('Erreur', 'Impossible d\'importer les données');
+    }
+  };
+
+  const handleImportJSON = async () => {
+    try {
+      Alert.alert(
+        'Import JSON',
+        'Cette fonctionnalité nécessite l\'accès aux fichiers. Dans une vraie application, vous pourriez utiliser un sélecteur de fichiers.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { 
+            text: 'Simuler Import', 
+            onPress: () => {
+              Alert.alert('Import simulé', 'Dans une vraie application, le fichier JSON serait lu et les données restaurées.');
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('JSON import error:', error);
+      Alert.alert('Erreur', 'Impossible d\'importer le fichier JSON');
+    }
+  };
+
+  const handleImportCSV = async () => {
+    try {
+      Alert.alert(
+        'Import CSV',
+        'Choisissez le type de données à importer:',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Commandes', onPress: () => simulateCSVImport('orders') },
+          { text: 'Produits', onPress: () => simulateCSVImport('products') },
+          { text: 'Événements Calendrier', onPress: () => simulateCSVImport('calendar_events') },
+          { text: 'Messages Modèles', onPress: () => simulateCSVImport('template_messages') },
+          { text: 'Animaux Caprins', onPress: () => simulateCSVImport('caprin_animals') }
+        ]
+      );
+    } catch (error) {
+      console.error('CSV import error:', error);
+      Alert.alert('Erreur', 'Impossible d\'importer le fichier CSV');
+    }
+  };
+
+  const simulateCSVImport = (dataType) => {
+    Alert.alert(
+      'Import CSV Simulé',
+      `Importation de ${dataType} simulée.\n\nDans une vraie application:\n1. Un sélecteur de fichiers s'ouvrirait\n2. Le fichier CSV serait lu\n3. Les données seraient validées\n4. Vous pourriez choisir de fusionner ou remplacer\n5. Les données seraient importées dans la base`,
+      [
+        { text: 'OK' },
+        { 
+          text: 'Simuler Fusion', 
+          onPress: () => Alert.alert('Fusion simulée', `Les données ${dataType} seraient fusionnées avec les données existantes.`)
+        },
+        { 
+          text: 'Simuler Remplacement', 
+          onPress: () => Alert.alert('Remplacement simulé', `Toutes les données ${dataType} existantes seraient remplacées.`)
+        }
+      ]
+    );
   };
 
   // Status colors and icons are now imported from StatusConstants
@@ -527,6 +609,12 @@ export default function DashboardScreen({ navigation }) {
             onPress={handleBackup}
           >
             <Text style={styles.actionButtonText}>💾 Sauvegarder Tout</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={handleImport}
+          >
+            <Text style={styles.actionButtonText}>📥 Importer Fichier</Text>
           </TouchableOpacity>
         </View>
         
