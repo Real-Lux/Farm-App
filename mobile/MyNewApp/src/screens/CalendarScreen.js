@@ -43,11 +43,16 @@ export default function CalendarScreen({ navigation }) {
   const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Récupération', 'Autre'];
   // Event colors are now imported from StatusConstants
 
+  // Helper function to check if selected date is today
+  const isToday = () => {
+    const today = new Date().toISOString().split('T')[0];
+    return selectedDate === today;
+  };
+
   // Define view mode options with French labels
   const viewModeOptions = [
     { key: 'month', label: 'Mois' },
     { key: 'week', label: 'Semaine' },
-    { key: 'day', label: 'Jour' },
     { key: 'year', label: 'Année' },
   ];
 
@@ -427,7 +432,7 @@ export default function CalendarScreen({ navigation }) {
     setModalVisible(true);
   };
 
-  const handleEventPress = (event) => {
+  const handleEventPress = async (event) => {
     // Check if this is a commande-related event
     if (event.type === 'Récupération' && event.order_id) {
       // Navigate to orders screen using the navigation prop
@@ -463,7 +468,13 @@ export default function CalendarScreen({ navigation }) {
       return;
     }
     
-    // For other events, open edit modal
+    // For other events, navigate to the event's date and open edit modal
+    const eventDate = (event.date || event.event_date)?.split('T')[0];
+    if (eventDate && eventDate !== selectedDate) {
+      console.log('📅 Navigating to event date:', eventDate);
+      setSelectedDate(eventDate);
+      await loadEvents(eventDate, viewMode);
+    }
     openEditModal(event);
   };
 
@@ -621,7 +632,7 @@ export default function CalendarScreen({ navigation }) {
         
         {/* Calendar Component */}
         <Calendar
-          key={`${selectedDate}-${viewMode}`} // Force re-render when date or view mode changes
+          key={`calendar-${currentYear}-${currentMonth}`} // Force re-render when month/year changes
           current={selectedDate}
           onDayPress={async (day) => {
             console.log('📅 Day pressed:', day.dateString);
@@ -630,8 +641,10 @@ export default function CalendarScreen({ navigation }) {
             await loadEvents(day.dateString, viewMode);
           }}
           hideArrows={true} // Hide built-in arrows since we have custom ones
+          hideExtraDays={false} // Show days from other months for better context
           markedDates={getMarkedDates()}
           markingType={'multi-dot'}
+          hideMonthText={true} // Hide the built-in month text since we have custom navigation
           theme={{
             backgroundColor: '#ffffff',
             calendarBackground: '#ffffff',
@@ -775,82 +788,6 @@ export default function CalendarScreen({ navigation }) {
     );
   };
 
-  const DayView = () => {
-    const dayEvents = getEventsForDate(selectedDate);
-    
-    // Navigation functions
-    const navigateToPreviousDay = async () => {
-      const newDate = new Date(selectedDate);
-      newDate.setDate(newDate.getDate() - 1);
-      const newDateString = newDate.toISOString().split('T')[0];
-      setSelectedDate(newDateString);
-      await loadEvents(newDateString, viewMode);
-    };
-    
-    const navigateToNextDay = async () => {
-      const newDate = new Date(selectedDate);
-      newDate.setDate(newDate.getDate() + 1);
-      const newDateString = newDate.toISOString().split('T')[0];
-      setSelectedDate(newDateString);
-      await loadEvents(newDateString, viewMode);
-    };
-    
-    return (
-      <View style={styles.dayView}>
-        {/* Day Navigation Header */}
-        <View style={styles.dayNavigation}>
-          <TouchableOpacity 
-            style={styles.dayArrow}
-            onPress={navigateToPreviousDay}
-          >
-            <Text style={styles.dayArrowText}>‹</Text>
-          </TouchableOpacity>
-          
-          <Text style={styles.dayViewTitle}>
-            {new Date(selectedDate).toLocaleDateString('fr-FR', {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })}
-          </Text>
-          
-          <TouchableOpacity 
-            style={styles.dayArrow}
-            onPress={navigateToNextDay}
-          >
-            <Text style={styles.dayArrowText}>›</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <ScrollView style={styles.dayEventsList}>
-          {dayEvents.length === 0 ? (
-            <Text style={styles.noEventsText}>No events for this day</Text>
-          ) : (
-            dayEvents.map(event => (
-              <TouchableOpacity
-                key={event.id}
-                style={[styles.dayEventItem, { borderLeftColor: getEventColor(event.type) }]}
-                onPress={() => handleEventPress(event)}
-              >
-                <View style={styles.dayEventHeader}>
-                  <Text style={styles.dayEventIcon}>{getEventIcon(event.type)}</Text>
-                  <Text style={styles.dayEventTitle}>{event.title}</Text>
-                </View>
-                <Text style={styles.dayEventType}>{event.type}</Text>
-                {event.product && (
-                  <Text style={styles.dayEventProduct}>🏷️ {event.product}</Text>
-                )}
-                {event.notes && (
-                  <Text style={styles.dayEventNotes}>📝 {event.notes}</Text>
-                )}
-              </TouchableOpacity>
-            ))
-          )}
-        </ScrollView>
-      </View>
-    );
-  };
 
   const YearView = () => {
     const currentYear = new Date(selectedDate).getFullYear();
@@ -978,7 +915,6 @@ export default function CalendarScreen({ navigation }) {
     switch (viewMode) {
       case 'month': return <MonthView />;
       case 'week': return <WeekView />;
-      case 'day': return <DayView />;
       case 'year': return <YearView />;
       default: return <MonthView />;
     }
@@ -1021,9 +957,51 @@ export default function CalendarScreen({ navigation }) {
         >
           {/* Events section at top */}
           <View style={styles.selectedDateSection}>
-            <Text style={styles.selectedDateTitle}>
-              Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')}):
-            </Text>
+            <View style={styles.selectedDateHeader}>
+              <TouchableOpacity 
+                style={styles.dayNavArrow}
+                onPress={async () => {
+                  const newDate = new Date(selectedDate);
+                  newDate.setDate(newDate.getDate() - 1);
+                  const newDateString = newDate.toISOString().split('T')[0];
+                  setSelectedDate(newDateString);
+                  await loadEvents(newDateString, viewMode);
+                }}
+              >
+                <Text style={styles.dayNavArrowText}>‹</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.selectedDateTitleContainer}>
+                <Text style={styles.selectedDateTitle}>
+                  Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')})
+                </Text>
+                {!isToday() && (
+                  <TouchableOpacity 
+                    style={styles.todayButton}
+                    onPress={async () => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setSelectedDate(today);
+                      await loadEvents(today, viewMode);
+                    }}
+                  >
+                    <Text style={styles.todayButtonText}>Aujourd'hui</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.dayNavArrow}
+                onPress={async () => {
+                  const newDate = new Date(selectedDate);
+                  newDate.setDate(newDate.getDate() + 1);
+                  const newDateString = newDate.toISOString().split('T')[0];
+                  setSelectedDate(newDateString);
+                  await loadEvents(newDateString, viewMode);
+                }}
+              >
+                <Text style={styles.dayNavArrowText}>›</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.eventsList}>
               {selectedDateEvents.length === 0 ? (
                 <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
@@ -1078,9 +1056,51 @@ export default function CalendarScreen({ navigation }) {
         >
           {/* Événements du jour - Show first, above calendar */}
           <View style={styles.selectedDateSection}>
-            <Text style={styles.selectedDateTitle}>
-              Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')}):
-            </Text>
+            <View style={styles.selectedDateHeader}>
+              <TouchableOpacity 
+                style={styles.dayNavArrow}
+                onPress={async () => {
+                  const newDate = new Date(selectedDate);
+                  newDate.setDate(newDate.getDate() - 1);
+                  const newDateString = newDate.toISOString().split('T')[0];
+                  setSelectedDate(newDateString);
+                  await loadEvents(newDateString, viewMode);
+                }}
+              >
+                <Text style={styles.dayNavArrowText}>‹</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.selectedDateTitleContainer}>
+                <Text style={styles.selectedDateTitle}>
+                  Événements du jour ({new Date(selectedDate).toLocaleDateString('fr-FR')})
+                </Text>
+                {!isToday() && (
+                  <TouchableOpacity 
+                    style={styles.todayButton}
+                    onPress={async () => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setSelectedDate(today);
+                      await loadEvents(today, viewMode);
+                    }}
+                  >
+                    <Text style={styles.todayButtonText}>Aujourd'hui</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.dayNavArrow}
+                onPress={async () => {
+                  const newDate = new Date(selectedDate);
+                  newDate.setDate(newDate.getDate() + 1);
+                  const newDateString = newDate.toISOString().split('T')[0];
+                  setSelectedDate(newDateString);
+                  await loadEvents(newDateString, viewMode);
+                }}
+              >
+                <Text style={styles.dayNavArrowText}>›</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.eventsList}>
               {selectedDateEvents.length === 0 ? (
                 <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
@@ -1475,30 +1495,37 @@ const styles = StyleSheet.create({
   monthNavigation: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
+    justifyContent: 'space-between',
+    paddingVertical: 15,
     backgroundColor: '#f8f9fa',
-    paddingHorizontal: 10,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
   },
   monthArrow: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#005F6B',
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 4,
+    marginHorizontal: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
   monthArrowText: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: 'bold',
     color: 'white',
   },
   monthViewTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-    marginHorizontal: 10,
+    marginHorizontal: 15,
     flex: 1,
     textAlign: 'center',
   },
@@ -1628,11 +1655,58 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 15,
   },
+  selectedDateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  selectedDateTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 10,
+  },
   selectedDateTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 10,
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  todayButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  todayButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dayNavArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#005F6B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  dayNavArrowText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: 'white',
   },
   eventsList: {
     maxHeight: 150,
