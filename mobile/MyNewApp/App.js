@@ -91,8 +91,16 @@ function OrdersNavigator({ route }) {
 }
 
 // Create a navigator component that handles ProductManagement, Elevage, and Caprin screens
-function GestionNavigator() {
+function GestionNavigator({ route }) {
   const [currentScreen, setCurrentScreen] = useState('ProductManagement');
+
+  // Handle route parameters for highlighting specific animals
+  React.useEffect(() => {
+    if (route?.params?.highlightAnimalId) {
+      console.log('🐐 GestionNavigator: Received highlightAnimalId:', route.params.highlightAnimalId);
+      setCurrentScreen('Caprin');
+    }
+  }, [route?.params]);
 
   const navigateToElevage = () => {
     setCurrentScreen('Elevage');
@@ -131,6 +139,7 @@ function GestionNavigator() {
     return (
       <CaprinScreen 
         navigation={mockNavigation}
+        route={route}
       />
     );
   }

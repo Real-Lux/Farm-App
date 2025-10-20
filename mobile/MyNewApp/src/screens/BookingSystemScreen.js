@@ -1029,7 +1029,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B',
-    paddingTop: 15,
+    paddingTop: 35,
   },
   headerContent: {
     padding: 10,

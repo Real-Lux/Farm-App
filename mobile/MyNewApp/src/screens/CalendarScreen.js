@@ -452,6 +452,59 @@ export default function CalendarScreen({ navigation }) {
       return;
     }
     
+    // Check if this is a chevre-related event (Naissance)
+    if (event.type === 'Naissance' && event.product === 'Chèvre') {
+      // Extract animal name from the event title
+      // Title format: "Naissance: ${animal.name} (${animal.species})"
+      const match = event.title.match(/Naissance:\s*(.+?)\s*\(/);
+      if (match && match[1]) {
+        const animalName = match[1];
+        console.log('🐐 Navigating to CaprinScreen for animal:', animalName);
+        
+        // Find the animal ID by name
+        try {
+          const animals = await database.getCaprinAnimals();
+          const targetAnimal = animals.find(animal => 
+            animal.name === animalName && animal.species === 'chèvre'
+          );
+          
+          if (targetAnimal) {
+            if (navigation && navigation.navigate) {
+              // Navigate to Gestion tab first, then the GestionNavigator will handle CaprinScreen navigation
+              navigation.navigate('Gestion', {
+                highlightAnimalId: targetAnimal.id,
+                highlightAnimalName: animalName
+              });
+            } else {
+              Alert.alert(
+                'Chèvre Event',
+                `This is a birth event for: ${animalName}\n\nDate: ${event.date}\n\nNavigate to Caprin tab to see details.`,
+                [{ text: 'OK' }]
+              );
+            }
+          } else {
+            console.log('🐐 Animal not found:', animalName);
+            Alert.alert(
+              'Animal non trouvé',
+              `L'animal "${animalName}" n'a pas été trouvé dans la base de données.`,
+              [{ text: 'OK' }]
+            );
+          }
+        } catch (error) {
+          console.error('Error finding animal:', error);
+          Alert.alert('Erreur', 'Impossible de trouver l\'animal dans la base de données.');
+        }
+      } else {
+        console.log('🐐 Could not extract animal name from title:', event.title);
+        Alert.alert(
+          'Erreur de format',
+          'Impossible d\'extraire le nom de l\'animal de l\'événement.',
+          [{ text: 'OK' }]
+        );
+      }
+      return;
+    }
+    
     // Check if this is a gestion-related event
     if (['Création lot', 'Éclosion', 'Mort', 'Sexage'].includes(event.type)) {
       // Navigate to products screen using the navigation prop
@@ -556,83 +609,9 @@ export default function CalendarScreen({ navigation }) {
   );
 
   const MonthView = () => {
-    const currentDate = new Date(selectedDate);
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
-    
-    // Navigation functions
-    const navigateToPreviousMonth = async () => {
-      const newDate = new Date(currentYear, currentMonth - 1, 1);
-      const newDateString = newDate.toISOString().split('T')[0];
-      console.log('📅 Navigating to previous month:', newDateString, 'from:', selectedDate);
-      setSelectedDate(newDateString);
-      await loadEvents(newDateString, 'month');
-    };
-    
-    const navigateToNextMonth = async () => {
-      const newDate = new Date(currentYear, currentMonth + 1, 1);
-      const newDateString = newDate.toISOString().split('T')[0];
-      console.log('📅 Navigating to next month:', newDateString, 'from:', selectedDate);
-      setSelectedDate(newDateString);
-      await loadEvents(newDateString, 'month');
-    };
-    
-    const navigateToPreviousYear = async () => {
-      const newDate = new Date(currentYear - 1, currentMonth, 1);
-      const newDateString = newDate.toISOString().split('T')[0];
-      console.log('📅 Navigating to previous year:', newDateString);
-      setSelectedDate(newDateString);
-      await loadEvents(newDateString, 'month');
-    };
-    
-    const navigateToNextYear = async () => {
-      const newDate = new Date(currentYear + 1, currentMonth, 1);
-      const newDateString = newDate.toISOString().split('T')[0];
-      console.log('📅 Navigating to next year:', newDateString);
-      setSelectedDate(newDateString);
-      await loadEvents(newDateString, 'month');
-    };
-    
     return (
       <View style={styles.monthViewContainer}>
-        {/* Month Navigation Header */}
-        <View style={styles.monthNavigation}>
-          <TouchableOpacity 
-            style={styles.monthArrow}
-            onPress={navigateToPreviousYear}
-          >
-            <Text style={styles.monthArrowText}>‹‹</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.monthArrow}
-            onPress={navigateToPreviousMonth}
-          >
-            <Text style={styles.monthArrowText}>‹</Text>
-          </TouchableOpacity>
-          
-          <Text style={styles.monthViewTitle}>
-            {currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
-          </Text>
-          
-          <TouchableOpacity 
-            style={styles.monthArrow}
-            onPress={navigateToNextMonth}
-          >
-            <Text style={styles.monthArrowText}>›</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.monthArrow}
-            onPress={navigateToNextYear}
-          >
-            <Text style={styles.monthArrowText}>››</Text>
-          </TouchableOpacity>
-        </View>
-        
-        {/* Calendar Component */}
         <Calendar
-          key={`calendar-${currentYear}-${currentMonth}`} // Force re-render when month/year changes
           current={selectedDate}
           onDayPress={async (day) => {
             console.log('📅 Day pressed:', day.dateString);
@@ -640,11 +619,15 @@ export default function CalendarScreen({ navigation }) {
             // Reload events for the selected day
             await loadEvents(day.dateString, viewMode);
           }}
-          hideArrows={true} // Hide built-in arrows since we have custom ones
-          hideExtraDays={false} // Show days from other months for better context
+          onMonthChange={async (month) => {
+            console.log('📅 Month changed:', month);
+            const newDate = month.dateString;
+            setSelectedDate(newDate);
+            await loadEvents(newDate, 'month');
+          }}
           markedDates={getMarkedDates()}
           markingType={'multi-dot'}
-          hideMonthText={true} // Hide the built-in month text since we have custom navigation
+          monthFormat={'MMMM yyyy'}
           theme={{
             backgroundColor: '#ffffff',
             calendarBackground: '#ffffff',
@@ -1282,7 +1265,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
-    paddingTop: 15,
+    paddingTop: 35,
   },
   headerContent: {
     padding: 10,
@@ -1491,43 +1474,6 @@ const styles = StyleSheet.create({
   },
   monthViewContainer: {
     flex: 1,
-  },
-  monthNavigation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 15,
-    backgroundColor: '#f8f9fa',
-    paddingHorizontal: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-  },
-  monthArrow: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#005F6B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginHorizontal: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  monthArrowText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  monthViewTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginHorizontal: 15,
-    flex: 1,
-    textAlign: 'center',
   },
   yearViewTitle: {
     fontSize: 24,

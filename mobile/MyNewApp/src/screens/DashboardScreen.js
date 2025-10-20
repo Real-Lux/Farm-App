@@ -648,11 +648,11 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
-    paddingTop: 15,
+    paddingTop: 35,
   },
   headerContent: {
     padding: 10,
-    paddingTop: 10,
+    paddingTop: 15,
   },
   headerTitle: {
     fontSize: 24,

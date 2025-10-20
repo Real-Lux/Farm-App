@@ -813,7 +813,6 @@ export default function AddOrderScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
         <View style={styles.headerContent}>
         <TouchableOpacity 
           style={styles.backButton}
@@ -1854,38 +1853,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f8ff', // Light blue-gray instead of white
   },
-  statusBarOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
-    zIndex: 1,
-  },
   safeArea: {
     flex: 1,
   },
   header: {
     backgroundColor: '#005F6B',
-    paddingTop: 10,
+    // paddingTop: 5,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerContent: {
-    padding: 15,
-    paddingTop: 10,
+    padding: 10,
+    paddingTop: 5,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 15,
   },
   backButton: {
-    padding: 8,
+    padding: 6,
   },
   backButtonText: {
     color: 'white',
-    fontSize: 25,
+    fontSize: 22,
     fontWeight: '600',
   },
   titleContainer: {
@@ -1894,16 +1885,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: 'white',
     textAlign: 'center',
   },
   saveButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   saveButtonDisabled: {
     backgroundColor: 'rgba(255,255,255,0.1)',

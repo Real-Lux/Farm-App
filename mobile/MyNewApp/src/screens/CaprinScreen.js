@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -18,10 +18,13 @@ import database from '../services/database';
 import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 
-export default function CaprinScreen({ navigation }) {
+export default function CaprinScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const [animals, setAnimals] = useState([]);
   const [activeTab, setActiveTab] = useState('animals');
+  
+  // Get route parameters for highlighting specific animals
+  const { highlightAnimalId, highlightAnimalName } = route?.params || {};
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState('animal'); // 'animal', 'milk', 'genealogy', 'settings'
   const [editingItem, setEditingItem] = useState(null);
@@ -33,6 +36,10 @@ export default function CaprinScreen({ navigation }) {
     groupMilkProduction: [],
     graphPeriod: 7
   });
+  const [animalSortOrder, setAnimalSortOrder] = useState('age'); // 'age', 'name', 'species', 'entryDate'
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const [highlightedAnimalId, setHighlightedAnimalId] = useState(null);
+  const [highlightedAnimalName, setHighlightedAnimalName] = useState(null);
   
   const [animalForm, setAnimalForm] = useState({
     name: '',
@@ -79,6 +86,35 @@ export default function CaprinScreen({ navigation }) {
     loadCaprinSettings();
     loadConfigs();
   }, []);
+
+  // Handle highlighting specific animal when navigating from calendar
+  useEffect(() => {
+    if (highlightAnimalId && animals.length > 0) {
+      const targetAnimal = animals.find(animal => animal.id == highlightAnimalId);
+      if (targetAnimal) {
+        // Set highlighted animal state (like commandes do)
+        setHighlightedAnimalId(highlightAnimalId);
+        setHighlightedAnimalName(highlightAnimalName || targetAnimal.name);
+        console.log('🐐 Highlighting animal from calendar:', targetAnimal.name);
+        
+        // Remove highlight after 3 seconds (like commandes do)
+        setTimeout(() => {
+          setHighlightedAnimalId(null);
+          setHighlightedAnimalName(null);
+        }, 3000);
+      }
+    }
+  }, [highlightAnimalId, animals]);
+
+  // Debug sort order changes
+  useEffect(() => {
+    console.log('🔧 Sort order changed to:', animalSortOrder);
+  }, [animalSortOrder]);
+
+  // Debug highlighting changes
+  useEffect(() => {
+    console.log('🎯 Highlighting state changed - ID:', highlightedAnimalId, 'Name:', highlightedAnimalName);
+  }, [highlightedAnimalId, highlightedAnimalName]);
 
   const loadConfigs = async () => {
     try {
@@ -175,14 +211,22 @@ export default function CaprinScreen({ navigation }) {
   };
 
   const openGenealogyModal = (animal) => {
-    setModalType('genealogy');
-    setGenealogyForm({
-      animalId: animal.id,
-      relationship: 'parent',
-      relatedAnimalId: '',
-      notes: ''
-    });
-    setModalVisible(true);
+    // Navigate to genealogy tab and highlight the animal
+    console.log('🐐 Navigating to genealogy for animal:', animal.name, 'ID:', animal.id, 'Type:', typeof animal.id);
+    setActiveTab('genealogy');
+    setHighlightedAnimalId(animal.id);
+    setHighlightedAnimalName(animal.name);
+    
+    // Debug: Log the highlighting state
+    console.log('🎯 Set highlightedAnimalId to:', animal.id);
+    console.log('🎯 Set highlightedAnimalName to:', animal.name);
+    
+    // Clear highlight after a few seconds
+    setTimeout(() => {
+      console.log('🎯 Clearing highlight after timeout');
+      setHighlightedAnimalId(null);
+      setHighlightedAnimalName(null);
+    }, 5000); // Increased to 5 seconds for better visibility
   };
 
   const openSettingsModal = () => {
@@ -356,6 +400,23 @@ export default function CaprinScreen({ navigation }) {
     }
   };
 
+  const getAnimalAgeForGenealogy = (birthDate) => {
+    const birth = new Date(birthDate);
+    const today = new Date();
+    const diffTime = Math.abs(today - birth);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const years = Math.floor(diffDays / 365);
+    const months = Math.floor((diffDays % 365) / 30);
+    
+    if (years > 0) {
+      return `${years}a ${months}m`;
+    } else if (months > 0) {
+      return `${months}m`;
+    } else {
+      return '0m';
+    }
+  };
+
   const getTotalMilkProduction = (animal) => {
     if (!animal.milkProduction || animal.milkProduction.length === 0) return 0;
     return animal.milkProduction.reduce((total, day) => total + day.total, 0);
@@ -462,6 +523,65 @@ export default function CaprinScreen({ navigation }) {
     });
   };
 
+  // Helper functions for genealogy tree
+  const findAnimalByName = (name) => {
+    return animals.find(animal => animal.name === name);
+  };
+
+  const buildFamilyTree = () => {
+    const tree = [];
+    const processed = new Set();
+
+    // Find root animals (those without parents or with unknown parents)
+    const rootAnimals = animals.filter(animal => 
+      (!animal.parents || (!animal.parents.mother && !animal.parents.father)) &&
+      !processed.has(animal.id)
+    );
+
+    const buildNode = (animal, level = 0) => {
+      if (processed.has(animal.id)) return null;
+      processed.add(animal.id);
+
+      const node = {
+        ...animal,
+        level,
+        children: []
+      };
+
+      // Find children
+      const children = animals.filter(child => 
+        (child.parents && 
+         (child.parents.mother === animal.name || child.parents.father === animal.name)) &&
+        !processed.has(child.id)
+      );
+
+      children.forEach(child => {
+        const childNode = buildNode(child, level + 1);
+        if (childNode) {
+          node.children.push(childNode);
+        }
+      });
+
+      return node;
+    };
+
+    rootAnimals.forEach(rootAnimal => {
+      const rootNode = buildNode(rootAnimal);
+      if (rootNode) {
+        tree.push(rootNode);
+      }
+    });
+
+    // Add any remaining animals that weren't connected
+    animals.forEach(animal => {
+      if (!processed.has(animal.id)) {
+        tree.push({ ...animal, level: 0, children: [] });
+      }
+    });
+
+    return tree;
+  };
+
   const getGrownMales = () => {
     return animals.filter(animal => {
       if (animal.gender !== 'mâle') return false;
@@ -479,8 +599,15 @@ export default function CaprinScreen({ navigation }) {
     const totalMilk = getTotalMilkProduction(item);
     const avgMilk = getAverageMilkProduction(item);
     
+    // Check if this animal is highlighted
+    const isHighlighted = (highlightedAnimalId === item.id || highlightedAnimalId == item.id) || 
+                         (highlightedAnimalName === item.name);
+    
     return (
-      <View style={styles.card}>
+      <View style={[
+        styles.card,
+        isHighlighted && styles.animalCardHighlighted
+      ]}>
         <TouchableOpacity 
           style={styles.cardHeader}
           onPress={() => toggleAnimalCollapse(item.id)}
@@ -501,9 +628,9 @@ export default function CaprinScreen({ navigation }) {
               </Text>
             )}
             <Text style={[styles.status, { 
-              color: item.status === 'vivant' ? '#4CAF50' : '#F44336' 
+              color: item.exitCause === 'décès' ? '#F44336' : '#4CAF50' 
             }]}>
-              {item.status}
+              {item.exitCause === 'décès' ? 'décédé' : 'vivant'}
             </Text>
           </View>
         </TouchableOpacity>
@@ -524,11 +651,6 @@ export default function CaprinScreen({ navigation }) {
               {item.buyerSellerName && <Text style={styles.cardInfo}>👤 Acheteur/Vendeur: {item.buyerSellerName}</Text>}
               {item.mother && <Text style={styles.cardInfo}>👩 Mère: {item.mother}</Text>}
               {item.father && <Text style={styles.cardInfo}>👨 Père: {item.father}</Text>}
-              {item.gender === 'femelle' && (
-                <Text style={styles.cardInfo}>
-                  🥛 Production totale: {totalMilk.toFixed(1)}L (moy: {avgMilk}L/jour)
-                </Text>
-              )}
             </View>
 
             {item.offspring && item.offspring.length > 0 && (
@@ -547,14 +669,6 @@ export default function CaprinScreen({ navigation }) {
               >
                 <Text style={styles.actionBtnText}>✏️ Modifier</Text>
               </TouchableOpacity>
-              {item.gender === 'femelle' && (
-                <TouchableOpacity 
-                  style={[styles.actionBtn, styles.milkBtn]}
-                  onPress={() => openMilkModal(item)}
-                >
-                  <Text style={styles.actionBtnText}>🥛 Lait</Text>
-                </TouchableOpacity>
-              )}
               <TouchableOpacity 
                 style={[styles.actionBtn, styles.genealogyBtn]}
                 onPress={() => openGenealogyModal(item)}
@@ -574,18 +688,118 @@ export default function CaprinScreen({ navigation }) {
     );
   };
 
+  const getBabyMales = () => {
+    return animals.filter(animal => {
+      if (animal.gender !== 'mâle') return false;
+      const birthDate = new Date(animal.birthDate);
+      const today = new Date();
+      const diffTime = Math.abs(today - birthDate);
+      const diffMonths = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+      return diffMonths < 7; // Baby males are 0-6 months old
+    });
+  };
+
+  const getBabyFemales = () => {
+    return animals.filter(animal => {
+      if (animal.gender !== 'femelle') return false;
+      const birthDate = new Date(animal.birthDate);
+      const today = new Date();
+      const diffTime = Math.abs(today - birthDate);
+      const diffMonths = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+      return diffMonths < 7; // Baby females are 0-6 months old
+    });
+  };
+
+  const getDeceasedAnimals = () => {
+    return animals.filter(animal => animal.exitCause === 'décès');
+  };
+
+  const sortedAnimals = useMemo(() => {
+    if (!animals || animals.length === 0) return [];
+    
+    const sorted = [...animals];
+    console.log('🔧 Sorting animals by:', animalSortOrder, 'Total animals:', sorted.length);
+    console.log('🔧 Animal names before sorting:', sorted.map(a => a.name));
+    
+    if (animalSortOrder === 'age') {
+      // Sort by age (oldest to youngest), then deceased at the end
+      sorted.sort((a, b) => {
+        const aIsDeceased = a.exitCause === 'décès';
+        const bIsDeceased = b.exitCause === 'décès';
+        
+        // Deceased animals go to the end
+        if (aIsDeceased && !bIsDeceased) return 1;
+        if (!aIsDeceased && bIsDeceased) return -1;
+        
+        // Among living animals, sort by age (oldest first)
+        if (!aIsDeceased && !bIsDeceased) {
+          const aAge = new Date(a.birthDate);
+          const bAge = new Date(b.birthDate);
+          return aAge - bAge; // Older dates first (oldest animals)
+        }
+        
+        // Among deceased animals, sort by age (oldest first)
+        const aAge = new Date(a.birthDate);
+        const bAge = new Date(b.birthDate);
+        return aAge - bAge;
+      });
+      console.log('🔧 After age sorting:', sorted.map(a => `${a.name} (${a.birthDate})`));
+    } else if (animalSortOrder === 'name') {
+      // Sort by name alphabetically, deceased at the end
+      sorted.sort((a, b) => {
+        const aIsDeceased = a.exitCause === 'décès';
+        const bIsDeceased = b.exitCause === 'décès';
+        
+        if (aIsDeceased && !bIsDeceased) return 1;
+        if (!aIsDeceased && bIsDeceased) return -1;
+        
+        return a.name.localeCompare(b.name);
+      });
+      console.log('🔧 After name sorting:', sorted.map(a => a.name));
+    } else if (animalSortOrder === 'species') {
+      // Sort by species, then age, deceased at the end
+      sorted.sort((a, b) => {
+        const aIsDeceased = a.exitCause === 'décès';
+        const bIsDeceased = b.exitCause === 'décès';
+        
+        if (aIsDeceased && !bIsDeceased) return 1;
+        if (!aIsDeceased && bIsDeceased) return -1;
+        
+        const speciesCompare = a.species.localeCompare(b.species);
+        if (speciesCompare !== 0) return speciesCompare;
+        
+        // Same species, sort by age
+        const aAge = new Date(a.birthDate);
+        const bAge = new Date(b.birthDate);
+        return aAge - bAge;
+      });
+      console.log('🔧 After species sorting:', sorted.map(a => `${a.name} (${a.species})`));
+    } else if (animalSortOrder === 'entryDate') {
+      // Sort by entry date (oldest first), deceased at the end
+      sorted.sort((a, b) => {
+        const aIsDeceased = a.exitCause === 'décès';
+        const bIsDeceased = b.exitCause === 'décès';
+        
+        if (aIsDeceased && !bIsDeceased) return 1;
+        if (!aIsDeceased && bIsDeceased) return -1;
+        
+        const aEntryDate = new Date(a.entryDate);
+        const bEntryDate = new Date(b.entryDate);
+        return aEntryDate - bEntryDate;
+      });
+      console.log('🔧 After entry date sorting:', sorted.map(a => `${a.name} (${a.entryDate})`));
+    }
+    
+    console.log('🔧 Final sorted animal names:', sorted.map(a => a.name));
+    return sorted;
+  }, [animals, animalSortOrder]);
+
   const renderAnimals = () => (
-    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>🐐🐑 Gestion Caprine</Text>
-        <Text style={styles.sectionDescription}>
-          Gestion complète de mes chèvres et brebis : naissances, production laitière, généalogie
-        </Text>
-        <TouchableOpacity style={styles.addButton} onPress={openAddAnimalModal}>
-          <Text style={styles.addButtonText}>+ Nouvel Animal</Text>
-        </TouchableOpacity>
-      </View>
-      
+    <ScrollView 
+      style={styles.tabContent} 
+      showsVerticalScrollIndicator={false}
+      onTouchStart={() => setShowSortDropdown(false)}
+    >
       <View style={styles.quickStats}>
         <Text style={styles.quickStatsTitle}>Statistiques Rapides</Text>
         <View style={styles.statsGrid}>
@@ -613,9 +827,15 @@ export default function CaprinScreen({ navigation }) {
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>
-              {getBabyAnimals().length}
+              {getBabyMales().length}
             </Text>
-            <Text style={styles.statLabel}>Bébés (0-6 mois)</Text>
+            <Text style={styles.statLabel}>Mâles Bébés</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>
+              {getBabyFemales().length}
+            </Text>
+            <Text style={styles.statLabel}>Femelles Bébés</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>
@@ -623,13 +843,74 @@ export default function CaprinScreen({ navigation }) {
             </Text>
             <Text style={styles.statLabel}>Mâles Adultes</Text>
           </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>
+              {getDeceasedAnimals().length}
+            </Text>
+            <Text style={styles.statLabel}>Décédés</Text>
+          </View>
         </View>
       </View>
       
       <View style={styles.animalsSection}>
-        <Text style={styles.animalsSectionTitle}>Animaux</Text>
-        {animals.map(animal => (
-          <AnimalItem key={animal.id} item={animal} />
+        <View style={styles.animalsHeader}>
+          <Text style={styles.animalsTitle}>🐐 Animaux</Text>
+          <TouchableOpacity style={styles.addButton} onPress={openAddAnimalModal}>
+            <Text style={styles.addButtonText}>+ Nouvel Animal</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.sortFilterContainer}>
+          <TouchableOpacity 
+            style={styles.sortDropdown}
+            onPress={() => setShowSortDropdown(!showSortDropdown)}
+          >
+            <Text style={styles.sortDropdownText}>
+              {animalSortOrder === 'age' ? 'Âge' :
+               animalSortOrder === 'name' ? 'Nom' :
+               animalSortOrder === 'species' ? 'Espèce' : 'Date d\'entrée'}
+            </Text>
+            <Text style={styles.sortDropdownArrow}>
+              {showSortDropdown ? '▲' : '▼'}
+            </Text>
+          </TouchableOpacity>
+          
+          {showSortDropdown && (
+            <View style={styles.sortDropdownMenu}>
+              {[
+                { key: 'age', label: 'Âge' },
+                { key: 'name', label: 'Nom' },
+                { key: 'species', label: 'Espèce' },
+                { key: 'entryDate', label: 'Date d\'entrée' }
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[
+                    styles.sortDropdownItem,
+                    animalSortOrder === option.key && styles.sortDropdownItemSelected
+                  ]}
+                  onPress={() => {
+                    console.log('🔧 Setting sort order to:', option.key);
+                    setAnimalSortOrder(option.key);
+                    // Small delay to ensure state update
+                    setTimeout(() => {
+                      setShowSortDropdown(false);
+                    }, 100);
+                  }}
+                >
+                  <Text style={[
+                    styles.sortDropdownItemText,
+                    animalSortOrder === option.key && styles.sortDropdownItemTextSelected
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+        {sortedAnimals.map((animal, index) => (
+          <AnimalItem key={`${animal.id}-${animalSortOrder}-${index}`} item={animal} />
         ))}
       </View>
     </ScrollView>
@@ -650,10 +931,7 @@ export default function CaprinScreen({ navigation }) {
         <View style={styles.milkStatsGrid}>
           <View style={styles.milkStatCard}>
             <Text style={styles.milkStatNumber}>
-              {caprinSettings.milkRecordingMethod === 'individual' 
-                ? animals.reduce((total, animal) => total + getTotalMilkProduction(animal), 0).toFixed(1)
-                : getTotalGroupMilkProduction().toFixed(1)
-              }L
+              {getTotalGroupMilkProduction().toFixed(1)}L
             </Text>
             <Text style={styles.milkStatLabel}>Total Général</Text>
           </View>
@@ -666,180 +944,212 @@ export default function CaprinScreen({ navigation }) {
         </View>
       </View>
       
-      {caprinSettings.milkRecordingMethod === 'individual' ? (
-        <>
-          
-          <View style={styles.milkProductionList}>
-            <Text style={styles.milkProductionTitle}>Production par Animal</Text>
-            {animals.filter(animal => animal.gender === 'femelle').map(animal => (
-              <View key={animal.id} style={styles.milkProductionCard}>
-                <View style={styles.milkProductionHeader}>
-                  <Text style={styles.milkProductionName}>
-                    {animal.species === 'chèvre' ? '🐐' : '🐑'} {animal.name}
-                  </Text>
-                  <Text style={styles.milkProductionTotal}>
-                    {getTotalMilkProduction(animal).toFixed(1)}L
-                  </Text>
-                </View>
+      <View style={styles.milkProductionList}>
+        <View style={styles.groupMilkHeader}>
+          <Text style={styles.milkProductionTitle} numberOfLines={2}>Production Quotidienne du Troupeau</Text>
+          <TouchableOpacity 
+            style={styles.addGroupMilkButton}
+            onPress={openGroupMilkModal}
+          >
+            <Text style={styles.addGroupMilkButtonText}>+ Ajouter</Text>
+          </TouchableOpacity>
+        </View>
+        {caprinSettings.groupMilkProduction && caprinSettings.groupMilkProduction.length > 0 ? (
+          caprinSettings.groupMilkProduction.slice(-10).reverse().map((day, index) => (
+            <View key={index} style={styles.milkProductionCard}>
+              <View style={styles.milkProductionHeader}>
+                <Text style={styles.milkProductionName}>
+                  📅 {day.date}
+                </Text>
+                <Text style={styles.milkProductionTotal}>
+                  {day.total}L
+                </Text>
+              </View>
+              {day.notes && (
                 <Text style={styles.milkProductionAverage}>
-                  Moyenne: {getAverageMilkProduction(animal)}L/jour
+                  Notes: {day.notes}
                 </Text>
-                {animal.milkProduction && animal.milkProduction.length > 0 && (
-                  <View style={styles.milkProductionHistory}>
-                    <Text style={styles.milkProductionHistoryTitle}>Dernières productions:</Text>
-                    {animal.milkProduction.slice(-3).map((day, index) => (
-                      <Text key={index} style={styles.milkProductionDay}>
-                        {day.date}: {day.total}L (M: {day.morning}L, S: {day.evening}L)
-                      </Text>
-                    ))}
-                  </View>
-                )}
-              </View>
-            ))}
-          </View>
-        </>
-      ) : (
-        <>
-          
-          <View style={styles.milkProductionList}>
-            <View style={styles.groupMilkHeader}>
-              <Text style={styles.milkProductionTitle} numberOfLines={2}>Production Quotidienne du Troupeau</Text>
-              <TouchableOpacity 
-                style={styles.addGroupMilkButton}
-                onPress={openGroupMilkModal}
-              >
-                <Text style={styles.addGroupMilkButtonText}>+ Ajouter</Text>
-              </TouchableOpacity>
+              )}
             </View>
-            {caprinSettings.groupMilkProduction && caprinSettings.groupMilkProduction.length > 0 ? (
-              caprinSettings.groupMilkProduction.slice(-10).reverse().map((day, index) => (
-                <View key={index} style={styles.milkProductionCard}>
-                  <View style={styles.milkProductionHeader}>
-                    <Text style={styles.milkProductionName}>
-                      📅 {day.date}
-                    </Text>
-                    <Text style={styles.milkProductionTotal}>
-                      {day.total}L
-                    </Text>
-                  </View>
-                  {day.notes && (
-                    <Text style={styles.milkProductionAverage}>
-                      Notes: {day.notes}
-                    </Text>
-                  )}
-                </View>
-              ))
-            ) : (
-              <View style={styles.noDataCard}>
-                <Text style={styles.noDataText}>
-                  Aucune production enregistrée pour le troupeau
-                </Text>
-              </View>
-            )}
+          ))
+        ) : (
+          <View style={styles.noDataCard}>
+            <Text style={styles.noDataText}>
+              Aucune production enregistrée pour le troupeau
+            </Text>
           </View>
-          
-          {/* Additional Statistics for Group Method */}
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>📊 Statistiques Détaillées</Text>
-            <View style={styles.detailedStatsGrid}>
-              <View style={styles.detailedStatCard}>
-                <Text style={styles.detailedStatNumber}>
-                  {getWeeklyMilkProduction().toFixed(1)}L
-                </Text>
-                <Text style={styles.detailedStatLabel}>Cette Semaine</Text>
-              </View>
-              <View style={styles.detailedStatCard}>
-                <Text style={styles.detailedStatNumber}>
-                  {getMonthlyMilkProduction().toFixed(1)}L
-                </Text>
-                <Text style={styles.detailedStatLabel}>Ce Mois</Text>
-              </View>
+        )}
+      </View>
+      
+      {/* Additional Statistics for Group Method */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>📊 Statistiques Détaillées</Text>
+        <View style={styles.detailedStatsGrid}>
+          <View style={styles.detailedStatCard}>
+            <Text style={styles.detailedStatNumber}>
+              {getWeeklyMilkProduction().toFixed(1)}L
+            </Text>
+            <Text style={styles.detailedStatLabel}>Cette Semaine</Text>
+          </View>
+          <View style={styles.detailedStatCard}>
+            <Text style={styles.detailedStatNumber}>
+              {getMonthlyMilkProduction().toFixed(1)}L
+            </Text>
+            <Text style={styles.detailedStatLabel}>Ce Mois</Text>
+          </View>
+        </View>
+      </View>
+      
+      {/* Production Graph Section */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>📈 Production des {caprinSettings.graphPeriod} derniers jours</Text>
+        
+        <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.graphScrollContainer}>
+          <View style={styles.graphContainer}>
+            {/* Y-axis labels */}
+            <View style={styles.yAxisContainer}>
+              <Text style={styles.yAxisLabel}>{getMaxDailyProductionForPeriod().toFixed(0)}L</Text>
+              <Text style={styles.yAxisLabel}>{(getMaxDailyProductionForPeriod() * 0.75).toFixed(0)}L</Text>
+              <Text style={styles.yAxisLabel}>{(getMaxDailyProductionForPeriod() * 0.5).toFixed(0)}L</Text>
+              <Text style={styles.yAxisLabel}>{(getMaxDailyProductionForPeriod() * 0.25).toFixed(0)}L</Text>
+              <Text style={styles.yAxisLabel}>0L</Text>
             </View>
-          </View>
-          
-          {/* Production Graph Section */}
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>📈 Production des {caprinSettings.graphPeriod} derniers jours</Text>
             
-            <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.graphScrollContainer}>
-              <View style={styles.graphContainer}>
-                {/* Y-axis labels */}
-                <View style={styles.yAxisContainer}>
-                  <Text style={styles.yAxisLabel}>{getMaxDailyProductionForPeriod().toFixed(0)}L</Text>
-                  <Text style={styles.yAxisLabel}>{(getMaxDailyProductionForPeriod() * 0.75).toFixed(0)}L</Text>
-                  <Text style={styles.yAxisLabel}>{(getMaxDailyProductionForPeriod() * 0.5).toFixed(0)}L</Text>
-                  <Text style={styles.yAxisLabel}>{(getMaxDailyProductionForPeriod() * 0.25).toFixed(0)}L</Text>
-                  <Text style={styles.yAxisLabel}>0L</Text>
+            {/* Graph area */}
+            <View style={styles.dailyGraph}>
+              {getPeriodData().map((day, index) => (
+                <View key={index} style={styles.graphBar}>
+                  <View 
+                    style={[
+                      styles.graphBarFill, 
+                      { height: Math.max(8, (day.total / getMaxDailyProductionForPeriod()) * 80) }
+                    ]} 
+                  />
+                  <Text style={styles.graphBarLabel}>{day.date.split('-')[2]}</Text>
                 </View>
-                
-                {/* Graph area */}
-                <View style={styles.dailyGraph}>
-                  {getPeriodData().map((day, index) => (
-                    <View key={index} style={styles.graphBar}>
-                      <View 
-                        style={[
-                          styles.graphBarFill, 
-                          { height: Math.max(8, (day.total / getMaxDailyProductionForPeriod()) * 80) }
-                        ]} 
-                      />
-                      <Text style={styles.graphBarLabel}>{day.date.split('-')[2]}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            </ScrollView>
+              ))}
+            </View>
           </View>
-        </>
-      )}
+        </ScrollView>
+      </View>
     </ScrollView>
   );
 
-  const renderGenealogy = () => (
-    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>🌳 Arbre Généalogique</Text>
-        <Text style={styles.sectionDescription}>
-          Relations familiales et lignées de vos animaux
-        </Text>
-      </View>
-      
-      <View style={styles.genealogyList}>
-        {animals.map(animal => (
-          <View key={animal.id} style={styles.genealogyCard}>
-            <View style={styles.genealogyHeader}>
-              <Text style={styles.genealogyName}>
-                {animal.species === 'chèvre' ? '🐐' : '🐑'} {animal.name}
-              </Text>
-              <Text style={styles.genealogyBreed}>{animal.breed}</Text>
+  const TreeNode = ({ node, isLast = false, hasSiblings = false }) => {
+    const isDeceased = node.exitCause === 'décès';
+    const age = getAnimalAgeForGenealogy(node.birthDate);
+    const isHighlighted = (highlightedAnimalId === node.id || highlightedAnimalId == node.id) || 
+                         (highlightedAnimalName === node.name);
+    
+    // Debug logging for all animals when highlighting is active
+    if (highlightedAnimalId || highlightedAnimalName) {
+      console.log(`🎯 TreeNode ${node.name}: ID=${node.id}, highlightedAnimalId=${highlightedAnimalId}, highlightedAnimalName=${highlightedAnimalName}, isHighlighted=${isHighlighted}`);
+    }
+    
+    // Debug logging
+    if (highlightedAnimalId && (highlightedAnimalId === node.id || highlightedAnimalId == node.id)) {
+      console.log('🎯 Found highlighted animal in tree by ID:', node.name, 'ID:', node.id, 'Highlighted ID:', highlightedAnimalId);
+    }
+    if (highlightedAnimalName && highlightedAnimalName === node.name) {
+      console.log('🎯 Found highlighted animal in tree by name:', node.name, 'Highlighted name:', highlightedAnimalName);
+    }
+    
+    return (
+      <View style={styles.treeNode}>
+        <View style={styles.treeNodeContent}>
+          {/* Connection lines */}
+          {node.level > 0 && (
+            <View style={styles.treeConnector}>
+              <View style={[styles.treeLine, isLast && styles.treeLineLast]} />
+              <View style={[styles.treeLineHorizontal, hasSiblings && styles.treeLineHorizontalWithSiblings]} />
             </View>
-            
-            {animal.parents && (animal.parents.mother || animal.parents.father) && (
-              <View style={styles.genealogyParents}>
-                <Text style={styles.genealogySectionTitle}>👨‍👩‍👧‍👦 Parents:</Text>
-                {animal.parents.mother && (
-                  <Text style={styles.genealogyParent}>👩 Mère: {animal.parents.mother}</Text>
-                )}
-                {animal.parents.father && (
-                  <Text style={styles.genealogyParent}>👨 Père: {animal.parents.father}</Text>
+          )}
+          
+          {/* Animal card */}
+          <View style={[
+            styles.treeAnimalCard,
+            isDeceased && styles.treeAnimalCardDeceased,
+            isHighlighted && styles.treeAnimalCardHighlighted,
+            { marginLeft: node.level * 20 }
+          ]}>
+            <View style={styles.treeAnimalHeader}>
+              <Text style={[
+                styles.treeAnimalIcon,
+                isDeceased && styles.treeAnimalIconDeceased
+              ]}>
+                {node.species === 'chèvre' ? '🐐' : '🐑'}
+              </Text>
+              <View style={styles.treeAnimalInfo}>
+                <Text style={[
+                  styles.treeAnimalName,
+                  isDeceased && styles.treeAnimalNameDeceased
+                ]}>
+                  {node.name}
+                </Text>
+                <Text style={[
+                  styles.treeAnimalDetails,
+                  isDeceased && styles.treeAnimalDetailsDeceased
+                ]}>
+                  {node.breed} • {node.gender === 'mâle' ? '♂️' : '♀️'} • ({age})
+                </Text>
+                {isDeceased && (
+                  <Text style={styles.treeAnimalStatus}>💀 Décédé</Text>
                 )}
               </View>
-            )}
-            
-            {animal.offspring && animal.offspring.length > 0 && (
-              <View style={styles.genealogyOffspring}>
-                <Text style={styles.genealogySectionTitle}>👶 Descendance:</Text>
-                {animal.offspring.map((child, index) => (
-                  <Text key={index} style={styles.genealogyChild}>
-                    • {child}
-                  </Text>
-                ))}
-              </View>
-            )}
+            </View>
           </View>
-        ))}
+        </View>
+        
+        {/* Render children */}
+        {node.children && node.children.length > 0 && (
+          <View style={styles.treeChildren}>
+            {node.children.map((child, index) => (
+              <TreeNode 
+                key={child.id} 
+                node={child} 
+                isLast={index === node.children.length - 1}
+                hasSiblings={node.children.length > 1}
+              />
+            ))}
+          </View>
+        )}
       </View>
-    </ScrollView>
-  );
+    );
+  };
+
+  const renderGenealogy = () => {
+    const familyTree = buildFamilyTree();
+    
+    return (
+      <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>🌳 Arbre Généalogique</Text>
+          <Text style={styles.sectionDescription}>
+            Relations familiales et lignées de vos animaux
+          </Text>
+        </View>
+        
+        <View style={styles.genealogyTree}>
+          {familyTree.length > 0 ? (
+            familyTree.map((rootNode, index) => (
+              <TreeNode 
+                key={rootNode.id} 
+                node={rootNode} 
+                isLast={index === familyTree.length - 1}
+                hasSiblings={familyTree.length > 1}
+              />
+            ))
+          ) : (
+            <View style={styles.noGenealogyData}>
+              <Text style={styles.noGenealogyText}>
+                Aucune donnée généalogique disponible
+              </Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -975,21 +1285,6 @@ export default function CaprinScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.dateFieldContainer}>
-                  <Text style={styles.dateFieldLabel}>Date de sortie (optionnel)</Text>
-                  <TouchableOpacity 
-                    style={styles.datePickerButton}
-                    onPress={() => openCalendarModal('exitDate')}
-                  >
-                    <Text style={styles.datePickerText}>
-                      {animalForm.exitDate ? 
-                        formatForCalendar(animalForm.exitDate) : 
-                        '📅 Sélectionner une date'
-                      }
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
                 <View style={styles.selectorContainer}>
                   <Text style={styles.inputLabel}>Cause d'entrée:</Text>
                   <View style={styles.selectorOptions}>
@@ -1011,6 +1306,21 @@ export default function CaprinScreen({ navigation }) {
                       </TouchableOpacity>
                     ))}
                   </View>
+                </View>
+
+                <View style={styles.dateFieldContainer}>
+                  <Text style={styles.dateFieldLabel}>Date de sortie (optionnel)</Text>
+                  <TouchableOpacity 
+                    style={styles.datePickerButton}
+                    onPress={() => openCalendarModal('exitDate')}
+                  >
+                    <Text style={styles.datePickerText}>
+                      {animalForm.exitDate ? 
+                        formatForCalendar(animalForm.exitDate) : 
+                        '📅 Sélectionner une date'
+                      }
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.selectorContainer}>
@@ -1272,23 +1582,19 @@ export default function CaprinScreen({ navigation }) {
               <View style={styles.milkMethodSelector}>
                 <Text style={styles.inputLabel}>Méthode d'enregistrement du lait:</Text>
                 <View style={styles.methodOptions}>
-                  {['individual', 'group'].map((method) => (
-                    <TouchableOpacity
-                      key={method}
-                      style={[
-                        styles.methodOption,
-                        caprinSettings.milkRecordingMethod === method && styles.methodOptionSelected
-                      ]}
-                      onPress={() => setCaprinSettings({...caprinSettings, milkRecordingMethod: method})}
-                    >
-                      <Text style={[
-                        styles.methodOptionText,
-                        caprinSettings.milkRecordingMethod === method && styles.methodOptionTextSelected
-                      ]}>
-                        {method === 'individual' ? '🐐 Par animal (matin/soir)' : '🐑 Par troupeau (total quotidien)'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  <TouchableOpacity
+                    style={[
+                      styles.methodOption,
+                      styles.methodOptionSelected
+                    ]}
+                  >
+                    <Text style={[
+                      styles.methodOptionText,
+                      styles.methodOptionTextSelected
+                    ]}>
+                      🐑 Par troupeau (total quotidien)
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -1319,10 +1625,7 @@ export default function CaprinScreen({ navigation }) {
               </View>
 
               <Text style={styles.settingsDescription}>
-                {caprinSettings.milkRecordingMethod === 'individual' 
-                  ? 'Enregistrez la production de chaque animal séparément avec les quantités du matin et du soir.'
-                  : 'Enregistrez la production totale quotidienne du troupeau en une seule fois.'
-                }
+                Enregistrez la production totale quotidienne du troupeau en une seule fois. Cette méthode est plus pratique et suffisante pour la plupart des élevages.
               </Text>
 
               <View style={styles.modalActions}>
@@ -1428,7 +1731,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#8B4513', // Brown color for caprine theme
-    paddingTop: 15,
+    paddingTop: 35,
   },
   headerContent: {
     padding: 15,
@@ -1520,14 +1823,15 @@ const styles = StyleSheet.create({
   addButton: {
     backgroundColor: '#8B4513',
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     alignItems: 'center',
+    minWidth: 120,
   },
   addButtonText: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 12,
   },
   quickStats: {
     backgroundColor: 'white',
@@ -1580,6 +1884,101 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  animalsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  animalsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#8B4513',
+    flex: 1,
+  },
+  sortFilterContainer: {
+    marginBottom: 12,
+    position: 'relative',
+  },
+  sortOptions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  sortOption: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  sortOptionSelected: {
+    backgroundColor: '#8B4513',
+    borderColor: '#8B4513',
+  },
+  sortOptionText: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#333',
+  },
+  sortOptionTextSelected: {
+    color: 'white',
+  },
+  sortDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 120,
+    alignSelf: 'flex-start',
+  },
+  sortDropdownText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#333',
+    flex: 1,
+  },
+  sortDropdownArrow: {
+    fontSize: 10,
+    color: '#666',
+    marginLeft: 4,
+  },
+  sortDropdownMenu: {
+    position: 'absolute',
+    top: 30,
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 1000,
+  },
+  sortDropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  sortDropdownItemSelected: {
+    backgroundColor: '#8B4513',
+  },
+  sortDropdownItemText: {
+    fontSize: 12,
+    color: '#333',
+  },
+  sortDropdownItemTextSelected: {
+    color: 'white',
+  },
   animalsSectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
@@ -1599,6 +1998,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
+  },
+  animalCardHighlighted: {
+    backgroundColor: '#E8F5E8',
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -2278,6 +2687,127 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
     marginTop: 3,
     width: 20,
+  },
+  
+  // Genealogy Tree Styles
+  genealogyTree: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  treeNode: {
+    marginBottom: 8,
+  },
+  treeNodeContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  treeConnector: {
+    position: 'absolute',
+    left: -15,
+    top: 0,
+    bottom: 0,
+    width: 15,
+  },
+  treeLine: {
+    position: 'absolute',
+    left: 7,
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: '#8B4513',
+  },
+  treeLineLast: {
+    bottom: '50%',
+  },
+  treeLineHorizontal: {
+    position: 'absolute',
+    left: 7,
+    top: 20,
+    width: 8,
+    height: 2,
+    backgroundColor: '#8B4513',
+  },
+  treeLineHorizontalWithSiblings: {
+    backgroundColor: '#8B4513',
+  },
+  treeAnimalCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    flex: 1,
+  },
+  treeAnimalCardDeceased: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#d3d3d3',
+  },
+  treeAnimalCardHighlighted: {
+    backgroundColor: '#e8f5e8',
+    borderColor: '#4CAF50',
+    borderWidth: 3,
+  },
+  treeAnimalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  treeAnimalIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  treeAnimalIconDeceased: {
+    opacity: 0.6,
+  },
+  treeAnimalInfo: {
+    flex: 1,
+  },
+  treeAnimalName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  treeAnimalNameDeceased: {
+    color: '#888',
+    textDecorationLine: 'line-through',
+  },
+  treeAnimalDetails: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  treeAnimalDetailsDeceased: {
+    color: '#999',
+  },
+  treeAnimalStatus: {
+    fontSize: 10,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  treeChildren: {
+    marginTop: 8,
+    paddingLeft: 20,
+  },
+  noGenealogyData: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  noGenealogyText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
   
 });
