@@ -2568,29 +2568,21 @@ class SimpleTestDatabaseService {
           });
         }
       });
-    } else if (orderDetails.orderType !== 'Adoption') {
-      // For non-adoption orders, use fixed pricing
-      const productPricing = {
-        'Poulets': { basePrice: 8.00, unit: 'kg' },
-        'Œufs de conso': { basePrice: 0.25, unit: 'pièce' },
-        'Œufs fécondés': { basePrice: 0.50, unit: 'pièce' },
-        'Fromage': { basePrice: 12.00, unit: 'kg' }
-      };
-      
-      const product = productPricing[orderDetails.orderType];
-      if (product && orderDetails.quantity) {
-        const quantity = parseInt(orderDetails.quantity) || 0;
-        totalPrice = product.basePrice * quantity;
+    } else if (orderDetails.orderType === 'Autres produits' && orderDetails.selectedProducts) {
+      // For 'Autres produits' orders, calculate price from selected products
+      orderDetails.selectedProducts.forEach(product => {
+        const productTotal = product.price * (product.quantity || 1);
+        totalPrice += productTotal;
         
         priceBreakdown.push({
-          product: orderDetails.orderType,
-          quantity,
-          unitPrice: product.basePrice.toFixed(2),
-          total: totalPrice.toFixed(2),
-          unit: product.unit,
-          pricingSource: 'Prix fixe'
+          item: product.name,
+          quantity: product.quantity || 1,
+          unitPrice: product.price.toFixed(2),
+          total: productTotal.toFixed(2),
+          category: product.category || 'Product',
+          pricingSource: 'Produit sélectionné'
         });
-      }
+      });
     }
 
     return {

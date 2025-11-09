@@ -336,11 +336,9 @@ export default function DashboardScreen({ navigation }) {
     recentOrders.forEach(order => {
       let activityText = '';
       if (order.orderType === 'Adoption') {
-        activityText = `🦆 Nouvelle adoption: ${order.customerName} - ${order.animalType} ${order.race}`;
-      } else if (order.orderType === 'Œufs de conso') {
-        activityText = `🥚 Nouvelle commande d'œufs: ${order.customerName} (${order.quantity} douzaines)`;
-      } else if (order.orderType === 'Fromage') {
-        activityText = `🧀 Nouvelle commande de fromage: ${order.customerName} - ${order.product}`;
+        activityText = `🦆 Nouvelle adoption: ${order.customerName} - ${order.animalType || 'animaux'} ${order.race || ''}`;
+      } else if (order.orderType === 'Autres produits') {
+        activityText = `📦 Nouvelle commande de produits: ${order.customerName} - ${order.product || 'produits'}`;
       } else {
         activityText = `📦 Nouvelle commande: ${order.customerName} - ${order.orderType}`;
       }

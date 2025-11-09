@@ -200,6 +200,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         onPress={() => {
           if (bulkActionMode) {
             toggleOrderSelection(item.id);
+          } else {
+            openEditModal(item);
           }
         }}
         onLongPress={() => {
@@ -208,6 +210,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             toggleOrderSelection(item.id);
           }
         }}
+        activeOpacity={0.7}
       >
         {bulkActionMode && (
           <View style={styles.selectionIndicator}>
@@ -232,7 +235,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
               { backgroundColor: getStatusColor(item.status) },
               statusDef.requiresAction && styles.statusBadgeRequiresAction
             ]}
-          onPress={() => {
+          onPress={(e) => {
+              e.stopPropagation();
               if (!bulkActionMode) {
                 setSelectedOrderForStatusChange(item);
                 setShowStatusChangeModal(true);
@@ -314,20 +318,53 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         {!bulkActionMode && (
       <View style={styles.orderActions}>
         <TouchableOpacity 
-          style={[styles.actionBtn, styles.editBtn]}
-          onPress={() => openEditModal(item)}
+          style={[styles.actionBtn, styles.messageBtn]}
+          onPress={(e) => {
+            e.stopPropagation();
+            if (item.customerEmail) {
+              Alert.alert(
+                'Envoyer un message',
+                `Envoyer un message à ${item.customerName}?\nEmail: ${item.customerEmail}`,
+                [
+                  { text: 'Annuler', style: 'cancel' },
+                  { text: 'Envoyer', onPress: () => {
+                    Alert.alert('Message', 'Fonctionnalité d\'envoi de message à venir');
+                  }}
+                ]
+              );
+            } else if (item.customerPhone) {
+              Alert.alert(
+                'Envoyer un message',
+                `Envoyer un SMS à ${item.customerName}?\nTéléphone: ${item.customerPhone}`,
+                [
+                  { text: 'Annuler', style: 'cancel' },
+                  { text: 'Envoyer', onPress: () => {
+                    Alert.alert('Message', 'Fonctionnalité d\'envoi de SMS à venir');
+                  }}
+                ]
+              );
+            } else {
+              Alert.alert('Information', 'Aucune information de contact disponible pour ce client');
+            }
+          }}
         >
-          <Text style={styles.actionBtnText}>✏️ Modifier</Text>
+          <Text style={styles.actionBtnText}>💬 Message</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.actionBtn, styles.callBtn]}
-          onPress={() => Alert.alert('Appeler le client', `Appeler ${item.customerName}?\n${item.customerPhone}`)}
+          onPress={(e) => {
+            e.stopPropagation();
+            Alert.alert('Appeler le client', `Appeler ${item.customerName}?\n${item.customerPhone}`)
+          }}
         >
           <Text style={styles.actionBtnText}>📞 Appeler</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.actionBtn, styles.deleteBtn]}
-          onPress={() => deleteOrder(item.id)}
+          onPress={(e) => {
+            e.stopPropagation();
+            deleteOrder(item.id);
+          }}
         >
           <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
         </TouchableOpacity>
@@ -1432,8 +1469,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignItems: 'center',
   },
-  editBtn: {
-    backgroundColor: '#2196F3',
+  messageBtn: {
+    backgroundColor: '#9C27B0',
   },
   callBtn: {
     backgroundColor: '#4CAF50',

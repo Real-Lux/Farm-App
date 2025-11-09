@@ -52,7 +52,7 @@ export default function AddOrderScreen({ navigation, route }) {
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [orderForm, setOrderForm] = useState(editingOrder ? {
     orderType: editingOrder.orderType || 'Adoption',
-    selectedAnimals: editingOrder.selectedAnimals || ['poussins'],
+    selectedAnimals: editingOrder.selectedAnimals || [],
     animalDetails: editingOrder.animalDetails || {
       poussins: {
         races: [],
@@ -74,7 +74,7 @@ export default function AddOrderScreen({ navigation, route }) {
     status: editingOrder.status || 'En attente'
   } : {
     orderType: 'Adoption',
-    selectedAnimals: ['poussins'],
+    selectedAnimals: [],
     animalDetails: {
       poussins: {
         races: [],
@@ -96,7 +96,8 @@ export default function AddOrderScreen({ navigation, route }) {
     status: 'En attente'
   });
 
-  const orderTypes = ['Adoption', 'Poulets', 'Œufs de conso', 'Œufs fécondés', 'Fromage'];
+  const orderTypes = ['Adoption', 'Autres produits'];
+  const [activeOrderSection, setActiveOrderSection] = useState('Adoption'); // Track which section is visible
   const animalTypes = ['poussins', 'canards', 'oie', 'lapin', 'chèvre', 'cailles'];
   const racesByAnimal = {
     poussins: ['Araucana', 'Cream Legbar', 'Leghorn', 'Marans', 'Vorwerk', 'Orpington', 'Brahma', 'Pékin', 'Soie'],
@@ -108,12 +109,9 @@ export default function AddOrderScreen({ navigation, route }) {
   };
 
   useEffect(() => {
-    // Only load what's needed based on order type
-    if (orderForm.orderType === 'Adoption') {
-      loadAvailableStock();
-    } else {
-      loadProducts();
-    }
+    // Load both adoption stock and products since we can combine them
+    loadAvailableStock();
+    loadProducts();
     loadConfigs();
     
     // Only load calendar events if we need the calendar modal
@@ -198,21 +196,17 @@ export default function AddOrderScreen({ navigation, route }) {
   // Calculate price whenever order details change
   useEffect(() => {
     calculatePrice();
-  }, [orderForm.orderType, orderForm.animalDetails, orderForm.quantity, selectedProducts]);
+  }, [orderForm.animalDetails, selectedProducts]);
 
-  // Load products when order type changes to non-adoption
-  useEffect(() => {
-    if (orderForm.orderType !== 'Adoption') {
-      loadProducts();
-    }
-  }, [orderForm.orderType]);
+  // Products are loaded on mount, no need for this effect
 
   const calculatePrice = async () => {
     try {
       let totalCalculatedPrice = 0;
       let allPriceBreakdowns = [];
       
-      if (orderForm.orderType === 'Adoption') {
+      // Calculate adoption prices
+      if (orderForm.selectedAnimals && orderForm.selectedAnimals.length > 0 && orderForm.animalDetails) {
         // Check if pricing grids are available for the selected animal types
         const pricingGrids = await database.getAllPricingGrids();
         const selectedAnimalTypes = Object.keys(orderForm.animalDetails || {});
@@ -250,10 +244,11 @@ export default function AddOrderScreen({ navigation, route }) {
             allPriceBreakdowns = [...allPriceBreakdowns, ...pricingData.priceBreakdown];
           }
         }
-      } else {
-        // For non-adoption orders, calculate price from selected products
+      }
+      
+      // Calculate products prices (can be combined with adoption)
+      if (selectedProducts && selectedProducts.length > 0) {
         setPricingGridAvailable(true);
-        setMissingPricingGrids([]);
         
         selectedProducts.forEach(product => {
           const productTotal = product.price * product.quantity;
@@ -772,9 +767,15 @@ export default function AddOrderScreen({ navigation, route }) {
       return;
     }
 
-    // For non-adoption orders, check if products are selected
-    if (orderForm.orderType !== 'Adoption' && selectedProducts.length === 0) {
-      Alert.alert('Erreur', 'Veuillez sélectionner au moins un produit');
+    // Check if at least one section has items (adoption or products)
+    const hasAdoptionItems = orderForm.selectedAnimals && orderForm.selectedAnimals.length > 0 && 
+      Object.values(orderForm.animalDetails || {}).some(detail => 
+        detail.races && detail.races.length > 0
+      );
+    const hasProducts = selectedProducts && selectedProducts.length > 0;
+    
+    if (!hasAdoptionItems && !hasProducts) {
+      Alert.alert('Erreur', 'Veuillez sélectionner au moins un animal ou un produit');
       return;
     }
 
@@ -790,10 +791,12 @@ export default function AddOrderScreen({ navigation, route }) {
       customerPhone: orderForm.customerPhone,
       customerEmail: orderForm.customerEmail,
       otherDetails: orderForm.otherDetails,
-      // For non-adoption orders, use selected products
-      product: orderForm.orderType === 'Adoption' ? orderForm.product : selectedProducts.map(p => p.name).join(', '),
-      selectedProducts: orderForm.orderType !== 'Adoption' ? selectedProducts : null,
-      quantity: orderForm.orderType === 'Adoption' ? (orderForm.quantity ? parseInt(orderForm.quantity) : null) : selectedProducts.reduce((total, p) => total + p.quantity, 0),
+      // Determine order type based on what's selected
+      orderType: hasAdoptionItems && hasProducts ? 'Mixte' : (hasAdoptionItems ? 'Adoption' : 'Autres produits'),
+      // Include products if any are selected
+      product: selectedProducts && selectedProducts.length > 0 ? selectedProducts.map(p => p.name).join(', ') : (orderForm.product || ''),
+      selectedProducts: selectedProducts && selectedProducts.length > 0 ? selectedProducts : null,
+      quantity: selectedProducts && selectedProducts.length > 0 ? selectedProducts.reduce((total, p) => total + p.quantity, 0) : (orderForm.quantity ? parseInt(orderForm.quantity) : null),
       totalPrice: orderForm.totalPrice ? parseFloat(orderForm.totalPrice) : 0,
       deliveryDate: toISODate(orderForm.deliveryDate),
       status: orderForm.status,
@@ -818,8 +821,13 @@ export default function AddOrderScreen({ navigation, route }) {
     navigation.goBack();
   };
 
-  const isFormValid = orderForm.customerName && orderForm.orderType && 
-    (orderForm.orderType === 'Adoption' || selectedProducts.length > 0);
+  // Form is valid if customer name is filled and at least one item is selected (adoption or products)
+  const hasAdoptionItems = orderForm.selectedAnimals && orderForm.selectedAnimals.length > 0 && 
+    Object.values(orderForm.animalDetails || {}).some(detail => 
+      detail.races && detail.races.length > 0
+    );
+  const hasProducts = selectedProducts && selectedProducts.length > 0;
+  const isFormValid = orderForm.customerName && (hasAdoptionItems || hasProducts);
 
   return (
     <View style={styles.container}>
@@ -878,34 +886,31 @@ export default function AddOrderScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        {/* Order Type Dropdown */}
-        <View style={styles.dropdownContainer}>
-          <Text style={styles.dropdownLabel}>Type de commande *</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.dropdownOptions}>
-              {orderTypes.map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.dropdownOption,
-                    { backgroundColor: orderForm.orderType === type ? '#005F6B' : '#f0f0f0' }
-                  ]}
-                  onPress={() => setOrderForm({...orderForm, orderType: type})}
-                >
-                  <Text style={[
-                    styles.dropdownOptionText,
-                    orderForm.orderType === type && { color: 'white' }
-                  ]}>
-                    {type}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
+        {/* Order Type Selector - Horizontal */}
+        <View style={styles.orderTypeSelectorContainer}>
+          <View style={styles.orderTypeSelector}>
+            {orderTypes.map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.orderTypeButton,
+                  activeOrderSection === type && styles.orderTypeButtonActive
+                ]}
+                onPress={() => setActiveOrderSection(type)}
+              >
+                <Text style={[
+                  styles.orderTypeButtonText,
+                  activeOrderSection === type && styles.orderTypeButtonTextActive
+                ]}>
+                  {type === 'Adoption' ? '🦆 Adoption' : '📦 Autres produits'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-
+        
         {/* Adoption-specific fields */}
-        {orderForm.orderType === 'Adoption' && (
+        {activeOrderSection === 'Adoption' && (
           <>
 
             {/* Animal Types Selection */}
@@ -1085,16 +1090,13 @@ export default function AddOrderScreen({ navigation, route }) {
                 )}
               </View>
             ))}
-
           </>
         )}
 
-        {/* Other order types fields */}
-        {orderForm.orderType !== 'Adoption' && (
+        {/* Product Selection */}
+        {activeOrderSection === 'Autres produits' && (
           <>
-            {/* Product Selection */}
             <View style={styles.productSelectionContainer}>
-              <Text style={styles.sectionTitle}>📦 Sélection des produits</Text>
               <Text style={styles.productSelectionSubtitle}>
                 Choisissez les produits disponibles dans votre inventaire :
               </Text>
@@ -1232,6 +1234,64 @@ export default function AddOrderScreen({ navigation, route }) {
               )}
             </View>
           </>
+        )}
+
+        {/* Price Breakdown Section */}
+        {(hasAdoptionItems || hasProducts) && priceBreakdown.length > 0 && (
+          <View style={styles.priceBreakdownSection}>
+            <Text style={styles.sectionTitle}>💰 Détail des prix</Text>
+            <View style={styles.priceBreakdownContainer}>
+              {priceBreakdown.map((item, index) => (
+                <View key={index} style={styles.priceBreakdownItem}>
+                  <View style={styles.priceBreakdownItemHeader}>
+                    <Text style={styles.priceBreakdownItemName}>
+                      {item.item || item.race || item.animalType || 'Article'}
+                    </Text>
+                    <Text style={styles.priceBreakdownItemTotal}>
+                      {item.total || item.configTotal || '0.00'} €
+                    </Text>
+                  </View>
+                  <View style={styles.priceBreakdownItemDetails}>
+                    <Text style={styles.priceBreakdownItemDetail}>
+                      {item.quantity && `Quantité: ${item.quantity}`}
+                      {item.unitPrice && ` • Prix unitaire: ${item.unitPrice} €`}
+                      {item.costPerAnimal && ` • Prix/animal: ${item.costPerAnimal} €`}
+                    </Text>
+                    {item.category && (
+                      <Text style={styles.priceBreakdownItemCategory}>
+                        {item.category}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+              <View style={styles.priceBreakdownTotal}>
+                <Text style={styles.priceBreakdownTotalLabel}>Sous-total:</Text>
+                <Text style={styles.priceBreakdownTotalValue}>
+                  {calculatedPrice.toFixed(2)} €
+                </Text>
+              </View>
+              {priceAdjustment !== 0 && (
+                <View style={styles.priceBreakdownAdjustment}>
+                  <Text style={styles.priceBreakdownAdjustmentLabel}>
+                    Ajustement:
+                  </Text>
+                  <Text style={[
+                    styles.priceBreakdownAdjustmentValue,
+                    { color: priceAdjustment > 0 ? '#4CAF50' : '#F44336' }
+                  ]}>
+                    {priceAdjustment > 0 ? '+' : ''}{priceAdjustment.toFixed(2)} €
+                  </Text>
+                </View>
+              )}
+              <View style={styles.priceBreakdownFinal}>
+                <Text style={styles.priceBreakdownFinalLabel}>TOTAL:</Text>
+                <Text style={styles.priceBreakdownFinalValue}>
+                  {orderForm.totalPrice || '0.00'} €
+                </Text>
+              </View>
+            </View>
+          </View>
         )}
 
         {/* Common client information */}
@@ -1437,6 +1497,25 @@ export default function AddOrderScreen({ navigation, route }) {
               ))}
             </View>
           </ScrollView>
+        </View>
+
+        {/* CONFIRM Button */}
+        <View style={styles.confirmButtonContainer}>
+          <TouchableOpacity 
+            style={[
+              styles.confirmButton,
+              !isFormValid && styles.confirmButtonDisabled
+            ]}
+            onPress={saveOrder}
+            disabled={!isFormValid}
+          >
+            <Text style={[
+              styles.confirmButtonText,
+              !isFormValid && styles.confirmButtonTextDisabled
+            ]}>
+              ✓ CONFIRMER
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Bottom padding for scroll */}
@@ -2284,6 +2363,166 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 50,
+  },
+  // Order type selector styles
+  orderTypeSelectorContainer: {
+    marginBottom: 20,
+  },
+  orderTypeSelector: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 4,
+    gap: 8,
+  },
+  orderTypeButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderTypeButtonActive: {
+    backgroundColor: '#005F6B',
+  },
+  orderTypeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  orderTypeButtonTextActive: {
+    color: 'white',
+  },
+  // Price breakdown section styles
+  priceBreakdownSection: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    marginTop: 10,
+  },
+  priceBreakdownContainer: {
+    marginTop: 10,
+  },
+  priceBreakdownItem: {
+    padding: 12,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 6,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  priceBreakdownItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  priceBreakdownItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+  },
+  priceBreakdownItemTotal: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  priceBreakdownItemDetails: {
+    marginTop: 4,
+  },
+  priceBreakdownItemDetail: {
+    fontSize: 12,
+    color: '#666',
+  },
+  priceBreakdownItemCategory: {
+    fontSize: 11,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  priceBreakdownTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#ddd',
+  },
+  priceBreakdownTotalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  priceBreakdownTotalValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  priceBreakdownAdjustment: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    marginTop: 4,
+  },
+  priceBreakdownAdjustmentLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  priceBreakdownAdjustmentValue: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  priceBreakdownFinal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    marginTop: 8,
+    borderTopWidth: 2,
+    borderTopColor: '#005F6B',
+  },
+  priceBreakdownFinalLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  priceBreakdownFinalValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  // Confirm button styles
+  confirmButtonContainer: {
+    padding: 20,
+    paddingBottom: 10,
+  },
+  confirmButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#ccc',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  confirmButtonTextDisabled: {
+    color: '#999',
   },
   // Calendar Modal Styles
   datePickerButton: {
