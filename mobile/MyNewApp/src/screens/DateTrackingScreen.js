@@ -239,7 +239,7 @@ export default function DateTrackingScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <Text style={styles.headerTitle}>📅 Suivi des Commandes</Text>
         <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
           <Text style={styles.addButtonText}>+ Ajouter</Text>
@@ -281,6 +281,7 @@ export default function DateTrackingScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Titre de l'événement"
+                placeholderTextColor="#999"
                 value={eventForm.title}
                 onChangeText={(text) => setEventForm({...eventForm, title: text})}
               />
@@ -288,6 +289,7 @@ export default function DateTrackingScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Date (YYYY-MM-DD)"
+                placeholderTextColor="#999"
                 value={eventForm.date}
                 onChangeText={(text) => setEventForm({...eventForm, date: text})}
               />
@@ -321,6 +323,7 @@ export default function DateTrackingScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Produit/Commande (optionnel)"
+                placeholderTextColor="#999"
                 value={eventForm.product}
                 onChangeText={(text) => setEventForm({...eventForm, product: text})}
               />
@@ -328,6 +331,7 @@ export default function DateTrackingScreen() {
               <TextInput
                 style={[styles.input, styles.notesInput]}
                 placeholder="Notes (optionnel)"
+                placeholderTextColor="#999"
                 value={eventForm.notes}
                 onChangeText={(text) => setEventForm({...eventForm, notes: text})}
                 multiline={true}

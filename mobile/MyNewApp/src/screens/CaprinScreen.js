@@ -1155,7 +1155,7 @@ export default function CaprinScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
           <TouchableOpacity 
             style={styles.backButton}
@@ -1221,6 +1221,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Nom de l'animal *"
+                  placeholderTextColor="#999"
                   value={animalForm.name}
                   onChangeText={(text) => setAnimalForm({...animalForm, name: text})}
                 />
@@ -1251,6 +1252,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Race *"
+                  placeholderTextColor="#999"
                   value={animalForm.breed}
                   onChangeText={(text) => setAnimalForm({...animalForm, breed: text})}
                 />
@@ -1349,6 +1351,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Num de cheptel du repère d'identification officiel"
+                  placeholderTextColor="#999"
                   value={animalForm.herdNumber}
                   onChangeText={(text) => setAnimalForm({...animalForm, herdNumber: text})}
                 />
@@ -1356,6 +1359,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Numéro d'ordre attribués (ex: 00294)"
+                  placeholderTextColor="#999"
                   value={animalForm.earTagNumber}
                   onChangeText={(text) => setAnimalForm({...animalForm, earTagNumber: text})}
                 />
@@ -1363,6 +1367,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Nom de l'acheteur ou du vendeur (optionnel)"
+                  placeholderTextColor="#999"
                   value={animalForm.buyerSellerName}
                   onChangeText={(text) => setAnimalForm({...animalForm, buyerSellerName: text})}
                 />
@@ -1393,6 +1398,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Mère (optionnel)"
+                  placeholderTextColor="#999"
                   value={animalForm.mother}
                   onChangeText={(text) => setAnimalForm({...animalForm, mother: text})}
                 />
@@ -1400,6 +1406,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Père (optionnel)"
+                  placeholderTextColor="#999"
                   value={animalForm.father}
                   onChangeText={(text) => setAnimalForm({...animalForm, father: text})}
                 />
@@ -1407,6 +1414,7 @@ export default function CaprinScreen({ navigation, route }) {
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   placeholder="Notes"
+                  placeholderTextColor="#999"
                   value={animalForm.notes}
                   onChangeText={(text) => setAnimalForm({...animalForm, notes: text})}
                   multiline={true}
@@ -1463,6 +1471,7 @@ export default function CaprinScreen({ navigation, route }) {
               <TextInput
                 style={styles.input}
                 placeholder="Lait du matin (L) *"
+                placeholderTextColor="#999"
                 value={milkForm.morning}
                 onChangeText={(text) => setMilkForm({...milkForm, morning: text})}
                 keyboardType="decimal-pad"
@@ -1471,6 +1480,7 @@ export default function CaprinScreen({ navigation, route }) {
               <TextInput
                 style={styles.input}
                 placeholder="Lait du soir (L) *"
+                placeholderTextColor="#999"
                 value={milkForm.evening}
                 onChangeText={(text) => setMilkForm({...milkForm, evening: text})}
                 keyboardType="decimal-pad"
@@ -1479,6 +1489,7 @@ export default function CaprinScreen({ navigation, route }) {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Notes"
+                placeholderTextColor="#999"
                 value={milkForm.notes}
                 onChangeText={(text) => setMilkForm({...milkForm, notes: text})}
                 multiline={true}
@@ -1534,6 +1545,7 @@ export default function CaprinScreen({ navigation, route }) {
               <TextInput
                 style={styles.input}
                 placeholder="Quantité totale de lait (L) *"
+                placeholderTextColor="#999"
                 value={groupMilkForm.total}
                 onChangeText={(text) => setGroupMilkForm({...groupMilkForm, total: text})}
                 keyboardType="decimal-pad"
@@ -1542,6 +1554,7 @@ export default function CaprinScreen({ navigation, route }) {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Notes"
+                placeholderTextColor="#999"
                 value={groupMilkForm.notes}
                 onChangeText={(text) => setGroupMilkForm({...groupMilkForm, notes: text})}
                 multiline={true}

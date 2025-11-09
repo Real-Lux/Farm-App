@@ -158,7 +158,19 @@ export default function AddOrderScreen({ navigation, route }) {
   const loadProducts = async () => {
     try {
       const productsData = await database.getProducts();
-      setAvailableProducts(productsData);
+      const cheeseProducts = await database.getCheeseProductsForOrders();
+      const availableCheeseStock = await database.getAvailableCheeseStock();
+      
+      // Update cheese products with available stock
+      const cheeseProductsWithStock = cheeseProducts.map(cheeseProduct => {
+        const stockInfo = availableCheeseStock.find(stock => stock.recipeId === cheeseProduct.recipeId);
+        return {
+          ...cheeseProduct,
+          quantity: stockInfo ? stockInfo.availableQuantity : 0
+        };
+      });
+      
+      setAvailableProducts([...productsData, ...cheeseProductsWithStock]);
     } catch (error) {
       console.error('Error loading products:', error);
     }
@@ -1011,6 +1023,8 @@ export default function AddOrderScreen({ navigation, route }) {
                     </TouchableOpacity>
                     <TextInput
                                 style={[styles.input, styles.quantityInputWithControls]}
+                                placeholder="1"
+                                placeholderTextColor="#999"
                                 value={raceConfig.quantity.toString()}
                                 onChangeText={(text) => updateRaceConfigQuantity(animal, raceConfig.id, parseInt(text) || 1)}
                       keyboardType="number-pad"
@@ -1087,35 +1101,50 @@ export default function AddOrderScreen({ navigation, route }) {
               
               {/* Available Products Grid */}
               <View style={styles.productsGrid}>
-                {availableProducts.map((product) => (
-                  <TouchableOpacity
-                    key={product.id}
-                    style={[
-                      styles.productCard,
-                      selectedProducts.some(p => p.id === product.id) && styles.productCardSelected
-                    ]}
-                    onPress={() => toggleProductSelection(product)}
-                  >
-                    <View style={styles.productCardHeader}>
-                      <Text style={styles.productCardName}>{product.name}</Text>
-                      <View style={[
-                        styles.stockBadge,
-                        { backgroundColor: product.quantity < 20 ? '#F44336' : '#4CAF50' }
-                      ]}>
-                        <Text style={styles.stockBadgeText}>
-                          {product.quantity < 20 ? '⚠️' : '✅'} {product.quantity}
+                {availableProducts.map((product) => {
+                  const isCheeseProduct = product.type === 'cheese';
+                  const isSelected = selectedProducts.some(p => p.id === product.id);
+                  
+                  return (
+                    <TouchableOpacity
+                      key={product.id}
+                      style={[
+                        styles.productCard,
+                        isCheeseProduct && styles.cheeseProductCard,
+                        isSelected && styles.productCardSelected
+                      ]}
+                      onPress={() => toggleProductSelection(product)}
+                    >
+                      <View style={styles.productCardHeader}>
+                        <Text style={styles.productCardName}>
+                          {isCheeseProduct ? '🧀 ' : ''}{product.name}
                         </Text>
+                        <View style={[
+                          styles.stockBadge,
+                          { backgroundColor: product.quantity < 20 ? '#F44336' : '#4CAF50' }
+                        ]}>
+                          <Text style={styles.stockBadgeText}>
+                            {product.quantity < 20 ? '⚠️' : '✅'} {product.quantity}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <Text style={styles.productCardPrice}>{product.price.toFixed(2)}€</Text>
-                    <Text style={styles.productCardCategory}>{product.category}</Text>
-                    {product.description && (
-                      <Text style={styles.productCardDescription} numberOfLines={2}>
-                        {product.description}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
+                      <Text style={styles.productCardPrice}>{product.price.toFixed(2)}€</Text>
+                      <Text style={styles.productCardCategory}>{product.category}</Text>
+                      {isCheeseProduct && (
+                        <Text style={styles.cheeseProductInfo}>
+                          {product.cheeseType === 'fromage_frais' ? 'Fromage Frais' : 'Tomme'}
+                          {product.size && ` - ${product.size}`}
+                          {product.flavor && product.flavor !== 'nature' && ` - ${product.flavor}`}
+                        </Text>
+                      )}
+                      {product.description && (
+                        <Text style={styles.productCardDescription} numberOfLines={2}>
+                          {product.description}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               {/* Selected Products */}
@@ -1153,6 +1182,8 @@ export default function AddOrderScreen({ navigation, route }) {
                             </TouchableOpacity>
                             <TextInput
                               style={[styles.input, styles.quantityInputWithControls]}
+                              placeholder="1"
+                              placeholderTextColor="#999"
                               value={product.quantity.toString()}
                               onChangeText={(text) => updateProductQuantity(product.id, parseInt(text) || 1)}
                               keyboardType="number-pad"
@@ -1209,6 +1240,7 @@ export default function AddOrderScreen({ navigation, route }) {
         <TextInput
           style={styles.input}
           placeholder="Nom/Prénom *"
+          placeholderTextColor="#999"
           value={orderForm.customerName}
           onChangeText={(text) => setOrderForm({...orderForm, customerName: text})}
         />
@@ -1216,6 +1248,7 @@ export default function AddOrderScreen({ navigation, route }) {
         <TextInput
           style={styles.input}
           placeholder="Contact direct (tél, msg)"
+          placeholderTextColor="#999"
           value={orderForm.customerPhone}
           onChangeText={(text) => setOrderForm({...orderForm, customerPhone: text})}
           keyboardType="phone-pad"
@@ -1224,6 +1257,7 @@ export default function AddOrderScreen({ navigation, route }) {
         <TextInput
           style={styles.input}
           placeholder="Mail (optionnel)"
+          placeholderTextColor="#999"
           value={orderForm.customerEmail}
           onChangeText={(text) => setOrderForm({...orderForm, customerEmail: text})}
           keyboardType="email-address"
@@ -1232,6 +1266,7 @@ export default function AddOrderScreen({ navigation, route }) {
         <TextInput
           style={[styles.input, styles.textArea]}
           placeholder="Autres précisions"
+          placeholderTextColor="#999"
           value={orderForm.otherDetails}
           onChangeText={(text) => setOrderForm({...orderForm, otherDetails: text})}
           multiline={true}
@@ -1297,6 +1332,7 @@ export default function AddOrderScreen({ navigation, route }) {
         <TextInput
                     style={[styles.input, styles.priceAdjustmentInput]}
                     placeholder="0.00"
+                    placeholderTextColor="#999"
                     value={priceAdjustment.toString()}
                     onChangeText={(text) => {
                       setPriceAdjustment(text);
@@ -1639,6 +1675,7 @@ export default function AddOrderScreen({ navigation, route }) {
                     <TextInput
                       style={styles.compactInput}
                       placeholder="0"
+                      placeholderTextColor="#999"
                       value={currentRaceConfig.ageMonths}
                       onChangeText={(text) => setCurrentRaceConfig({...currentRaceConfig, ageMonths: text})}
                       keyboardType="number-pad"
@@ -1672,6 +1709,7 @@ export default function AddOrderScreen({ navigation, route }) {
                     <TextInput
                       style={styles.compactInput}
                       placeholder="0"
+                      placeholderTextColor="#999"
                       value={currentRaceConfig.ageWeeks}
                       onChangeText={(text) => setCurrentRaceConfig({...currentRaceConfig, ageWeeks: text})}
                       keyboardType="number-pad"
@@ -1704,6 +1742,8 @@ export default function AddOrderScreen({ navigation, route }) {
                     </TouchableOpacity>
                     <TextInput
                       style={styles.compactInput}
+                      placeholder="1"
+                      placeholderTextColor="#999"
                       value={currentRaceConfig.quantity.toString()}
                       onChangeText={(text) => setCurrentRaceConfig({...currentRaceConfig, quantity: parseInt(text) || 1})}
                       keyboardType="number-pad"
@@ -1858,14 +1898,14 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B',
-    // paddingTop: 5,
+    paddingTop: 38,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerContent: {
     padding: 10,
-    paddingTop: 5,
+    paddingTop: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -2897,6 +2937,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#666',
     lineHeight: 14,
+  },
+  cheeseProductCard: {
+    backgroundColor: '#fff8e1',
+    borderColor: '#8B4513',
+  },
+  cheeseProductInfo: {
+    fontSize: 10,
+    color: '#8B4513',
+    fontWeight: '600',
+    marginBottom: 4,
   },
   selectedProductsContainer: {
     marginTop: 20,

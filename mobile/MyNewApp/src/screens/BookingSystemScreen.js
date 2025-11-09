@@ -472,7 +472,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
           <View style={styles.headerTitleContainer}>
             <Text style={styles.headerIcon}>🛒</Text>
@@ -1029,7 +1029,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B',
-    paddingTop: 35,
+    paddingTop: 38,
   },
   headerContent: {
     padding: 10,

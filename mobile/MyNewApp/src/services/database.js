@@ -408,6 +408,33 @@ class SimpleTestDatabaseService {
           quantity: 0
         }
       ],
+      elevage_incubations: [
+        // Example incubation data
+        {
+          id: 1,
+          lot_id: 1,
+          race: 'Marans',
+          eggs_count: 50,
+          fertilized_count: 42,
+          hatched_count: 38,
+          incubation_start_date: '2025-01-15',
+          fertilization_check_date: '2025-01-22',
+          hatching_date: '2025-02-05',
+          notes: 'Première incubation de l\'année - excellents résultats'
+        },
+        {
+          id: 2,
+          lot_id: 1,
+          race: 'Araucana',
+          eggs_count: 30,
+          fertilized_count: 25,
+          hatched_count: 22,
+          incubation_start_date: '2025-01-15',
+          fertilization_check_date: '2025-01-22',
+          hatching_date: '2025-02-05',
+          notes: 'Bons résultats pour les Araucana'
+        }
+      ],
       lot_notes: {},
       caprin_settings: {
         milkRecordingMethod: 'individual', // 'individual' or 'group'
@@ -1700,6 +1727,7 @@ class SimpleTestDatabaseService {
       if (backupData.elevage_lots) this.storage.elevage_lots = backupData.elevage_lots;
       if (backupData.elevage_races) this.storage.elevage_races = backupData.elevage_races;
       if (backupData.elevage_historique) this.storage.elevage_historique = backupData.elevage_historique;
+      if (backupData.elevage_incubations) this.storage.elevage_incubations = backupData.elevage_incubations;
       if (backupData.lot_notes) this.storage.lot_notes = backupData.lot_notes;
       if (backupData.caprin_animals) this.storage.caprin_animals = backupData.caprin_animals;
       if (backupData.caprin_settings) this.storage.caprin_settings = backupData.caprin_settings;
@@ -1736,6 +1764,7 @@ class SimpleTestDatabaseService {
       elevage_lots: this.storage.elevage_lots,
       elevage_races: this.storage.elevage_races,
       elevage_historique: this.storage.elevage_historique,
+      elevage_incubations: this.storage.elevage_incubations,
       lot_notes: this.storage.lot_notes,
       caprin_animals: this.storage.caprin_animals,
       caprin_settings: this.storage.caprin_settings,
@@ -1877,12 +1906,42 @@ class SimpleTestDatabaseService {
         }
       }
       
-      // Create events for eclosion dates
+      // Create events for estimated hatching dates (if different from actual)
+      if (lot.estimated_hatching_date && lot.estimated_hatching_date !== lot.date_eclosion) {
+        const eventTitle = `Éclosion estimée: ${lot.name}`;
+        const existingEvent = existingEvents.find(event => 
+          event.date === lot.estimated_hatching_date && 
+          event.title === eventTitle &&
+          event.lot_id === lot.id
+        );
+        
+        if (!existingEvent) {
+          const dateRange = lot.estimated_min_date && lot.estimated_max_date ?
+            ` (Entre ${lot.estimated_min_date} et ${lot.estimated_max_date})` : '';
+          const newEvent = {
+            id: Date.now() + Math.random(),
+            title: eventTitle,
+            date: lot.estimated_hatching_date,
+            type: 'Reproduction',
+            product: 'Élevage',
+            notes: `Éclosion/naissance estimée pour le lot ${lot.name}${dateRange}`,
+            lot_id: lot.id,
+            is_estimated: true,
+            created_at: getNowISO()
+          };
+          
+          this.storage.calendar_events.push(newEvent);
+        }
+      }
+      
+      // Create events for actual eclosion dates
       if (lot.date_eclosion) {
-        const eventTitle = `Éclosion: ${lot.name}`;
+        const eventTitle = lot.estimated_hatching_date === lot.date_eclosion ? 
+          `Éclosion: ${lot.name}` : `Éclosion réelle: ${lot.name}`;
         const existingEvent = existingEvents.find(event => 
           event.date === lot.date_eclosion && 
-          event.title === eventTitle
+          event.title === eventTitle &&
+          event.lot_id === lot.id
         );
         
         if (!existingEvent) {
@@ -1892,7 +1951,7 @@ class SimpleTestDatabaseService {
             date: lot.date_eclosion,
             type: 'Reproduction',
             product: 'Élevage',
-            notes: `Éclosion prévue pour le lot ${lot.name}`,
+            notes: `Éclosion/naissance pour le lot ${lot.name}`,
             lot_id: lot.id,
             created_at: getNowISO()
           };
@@ -2068,6 +2127,183 @@ class SimpleTestDatabaseService {
   }
 
   // ========== ELEVAGE CRUD ==========
+
+  // Egg Incubation CRUD
+  async addEggIncubation(incubation) {
+    console.log('🥚 addEggIncubation called');
+    const newIncubation = { 
+      id: Date.now(), 
+      ...incubation,
+      created_at: new Date().toISOString()
+    };
+    this.storage.elevage_incubations.push(newIncubation);
+    return { insertId: newIncubation.id };
+  }
+
+  async getEggIncubations(lotId = null) {
+    console.log('📋 getEggIncubations called');
+    if (lotId) {
+      return this.storage.elevage_incubations.filter(inc => inc.lot_id === lotId);
+    }
+    return this.storage.elevage_incubations;
+  }
+
+  async updateEggIncubation(id, incubation) {
+    console.log('✏️ updateEggIncubation called');
+    const index = this.storage.elevage_incubations.findIndex(inc => inc.id == id);
+    if (index !== -1) {
+      this.storage.elevage_incubations[index] = { 
+        ...this.storage.elevage_incubations[index], 
+        ...incubation,
+        updated_at: new Date().toISOString()
+      };
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async deleteEggIncubation(id) {
+    console.log('🗑️ deleteEggIncubation called');
+    const index = this.storage.elevage_incubations.findIndex(inc => inc.id == id);
+    if (index !== -1) {
+      this.storage.elevage_incubations.splice(index, 1);
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  // Get incubation statistics
+  async getIncubationStatistics(year = null) {
+    console.log('📊 getIncubationStatistics called');
+    let incubations = this.storage.elevage_incubations;
+    
+    if (year) {
+      incubations = incubations.filter(inc => {
+        const incYear = new Date(inc.created_at).getFullYear();
+        return incYear === year;
+      });
+    }
+
+    const stats = {
+      total_eggs: 0,
+      total_fertilized: 0,
+      total_hatched: 0,
+      fertility_rate: 0,
+      success_rate: 0,
+      overall_success_rate: 0,
+      by_race: {},
+      by_lot: {},
+      best_fecondeur: null,
+      best_success_race: null
+    };
+
+    incubations.forEach(inc => {
+      const race = inc.race;
+      const lotId = inc.lot_id;
+      
+      // Initialize race stats
+      if (!stats.by_race[race]) {
+        stats.by_race[race] = {
+          total_eggs: 0,
+          total_fertilized: 0,
+          total_hatched: 0,
+          fertility_rate: 0,
+          success_rate: 0,
+          overall_success_rate: 0
+        };
+      }
+      
+      // Initialize lot stats
+      if (!stats.by_lot[lotId]) {
+        stats.by_lot[lotId] = {
+          total_eggs: 0,
+          total_fertilized: 0,
+          total_hatched: 0,
+          fertility_rate: 0,
+          success_rate: 0,
+          overall_success_rate: 0
+        };
+      }
+
+      // Add to totals
+      stats.total_eggs += inc.eggs_count || 0;
+      stats.total_fertilized += inc.fertilized_count || 0;
+      stats.total_hatched += inc.hatched_count || 0;
+      
+      stats.by_race[race].total_eggs += inc.eggs_count || 0;
+      stats.by_race[race].total_fertilized += inc.fertilized_count || 0;
+      stats.by_race[race].total_hatched += inc.hatched_count || 0;
+      
+      stats.by_lot[lotId].total_eggs += inc.eggs_count || 0;
+      stats.by_lot[lotId].total_fertilized += inc.fertilized_count || 0;
+      stats.by_lot[lotId].total_hatched += inc.hatched_count || 0;
+    });
+
+    // Calculate rates
+    if (stats.total_eggs > 0) {
+      stats.fertility_rate = (stats.total_fertilized / stats.total_eggs) * 100;
+      stats.overall_success_rate = (stats.total_hatched / stats.total_eggs) * 100;
+    }
+    
+    if (stats.total_fertilized > 0) {
+      stats.success_rate = (stats.total_hatched / stats.total_fertilized) * 100;
+    }
+
+    // Calculate rates for each race
+    Object.keys(stats.by_race).forEach(race => {
+      const raceStats = stats.by_race[race];
+      if (raceStats.total_eggs > 0) {
+        raceStats.fertility_rate = (raceStats.total_fertilized / raceStats.total_eggs) * 100;
+        raceStats.overall_success_rate = (raceStats.total_hatched / raceStats.total_eggs) * 100;
+      }
+      if (raceStats.total_fertilized > 0) {
+        raceStats.success_rate = (raceStats.total_hatched / raceStats.total_fertilized) * 100;
+      }
+    });
+
+    // Calculate rates for each lot
+    Object.keys(stats.by_lot).forEach(lotId => {
+      const lotStats = stats.by_lot[lotId];
+      if (lotStats.total_eggs > 0) {
+        lotStats.fertility_rate = (lotStats.total_fertilized / lotStats.total_eggs) * 100;
+        lotStats.overall_success_rate = (lotStats.total_hatched / lotStats.total_eggs) * 100;
+      }
+      if (lotStats.total_fertilized > 0) {
+        lotStats.success_rate = (lotStats.total_hatched / lotStats.total_fertilized) * 100;
+      }
+    });
+
+    // Find best fecondeur (highest fertility rate with minimum eggs threshold)
+    let bestFertility = 0;
+    let bestSuccess = 0;
+    const minEggsThreshold = 10; // Minimum eggs to be considered
+
+    Object.keys(stats.by_race).forEach(race => {
+      const raceStats = stats.by_race[race];
+      if (raceStats.total_eggs >= minEggsThreshold) {
+        if (raceStats.fertility_rate > bestFertility) {
+          bestFertility = raceStats.fertility_rate;
+          stats.best_fecondeur = {
+            race: race,
+            fertility_rate: raceStats.fertility_rate,
+            total_eggs: raceStats.total_eggs,
+            total_fertilized: raceStats.total_fertilized
+          };
+        }
+        if (raceStats.overall_success_rate > bestSuccess) {
+          bestSuccess = raceStats.overall_success_rate;
+          stats.best_success_race = {
+            race: race,
+            overall_success_rate: raceStats.overall_success_rate,
+            total_eggs: raceStats.total_eggs,
+            total_hatched: raceStats.total_hatched
+          };
+        }
+      }
+    });
+
+    return stats;
+  }
 
   // Lots CRUD
   async addLot(lot) {
@@ -2657,6 +2893,160 @@ class SimpleTestDatabaseService {
     console.log('📋 getAllLotNotes called');
     this.storage.lot_notes = this.storage.lot_notes || {};
     return Object.values(this.storage.lot_notes);
+  }
+
+  // Cheese Production Management
+  async addCheeseProduction(production) {
+    console.log('🧀 addCheeseProduction called');
+    this.storage.cheese_productions = this.storage.cheese_productions || [];
+    const newProduction = {
+      id: Date.now(),
+      ...production,
+      createdAt: new Date().toISOString()
+    };
+    this.storage.cheese_productions.push(newProduction);
+    return newProduction;
+  }
+
+  async getCheeseProductions() {
+    console.log('🧀 getCheeseProductions called');
+    this.storage.cheese_productions = this.storage.cheese_productions || [];
+    return this.storage.cheese_productions;
+  }
+
+  async updateCheeseProduction(id, production) {
+    console.log('🧀 updateCheeseProduction called');
+    this.storage.cheese_productions = this.storage.cheese_productions || [];
+    const index = this.storage.cheese_productions.findIndex(p => p.id === id);
+    if (index !== -1) {
+      this.storage.cheese_productions[index] = { 
+        ...this.storage.cheese_productions[index], 
+        ...production, 
+        updatedAt: new Date().toISOString() 
+      };
+      return this.storage.cheese_productions[index];
+    }
+    throw new Error('Cheese production not found');
+  }
+
+  async deleteCheeseProduction(id) {
+    console.log('🧀 deleteCheeseProduction called');
+    this.storage.cheese_productions = this.storage.cheese_productions || [];
+    this.storage.cheese_productions = this.storage.cheese_productions.filter(p => p.id !== id);
+  }
+
+  // Cheese Recipes Management
+  async addCheeseRecipe(recipe) {
+    console.log('🧀 addCheeseRecipe called');
+    this.storage.cheese_recipes = this.storage.cheese_recipes || [];
+    const newRecipe = {
+      id: Date.now(),
+      ...recipe,
+      createdAt: new Date().toISOString()
+    };
+    this.storage.cheese_recipes.push(newRecipe);
+    return newRecipe;
+  }
+
+  async getCheeseRecipes() {
+    console.log('🧀 getCheeseRecipes called');
+    this.storage.cheese_recipes = this.storage.cheese_recipes || [];
+    return this.storage.cheese_recipes;
+  }
+
+  async updateCheeseRecipe(id, recipe) {
+    console.log('🧀 updateCheeseRecipe called');
+    this.storage.cheese_recipes = this.storage.cheese_recipes || [];
+    const index = this.storage.cheese_recipes.findIndex(r => r.id === id);
+    if (index !== -1) {
+      this.storage.cheese_recipes[index] = { 
+        ...this.storage.cheese_recipes[index], 
+        ...recipe, 
+        updatedAt: new Date().toISOString() 
+      };
+      return this.storage.cheese_recipes[index];
+    }
+    throw new Error('Cheese recipe not found');
+  }
+
+  async deleteCheeseRecipe(id) {
+    console.log('🧀 deleteCheeseRecipe called');
+    this.storage.cheese_recipes = this.storage.cheese_recipes || [];
+    this.storage.cheese_recipes = this.storage.cheese_recipes.filter(r => r.id !== id);
+  }
+
+  // Cheese Settings Management
+  async getCheeseSettings() {
+    console.log('🧀 getCheeseSettings called');
+    this.storage.cheese_settings = this.storage.cheese_settings || {
+      defaultRendementFromageFrais: 20,
+      defaultRendementTomme: 10,
+      graphPeriod: 30
+    };
+    return this.storage.cheese_settings;
+  }
+
+  async updateCheeseSettings(settings) {
+    console.log('🧀 updateCheeseSettings called');
+    this.storage.cheese_settings = { ...this.storage.cheese_settings, ...settings };
+  }
+
+  // Get cheese products for orders (from recipes)
+  async getCheeseProductsForOrders() {
+    console.log('🧀 getCheeseProductsForOrders called');
+    const recipes = await this.getCheeseRecipes();
+    return recipes.map(recipe => ({
+      id: `cheese_${recipe.id}`,
+      name: recipe.name,
+      price: recipe.price,
+      unit: recipe.cheeseType === 'tomme' ? 'kg' : 'unité',
+      category: 'Fromage',
+      description: recipe.description || `${recipe.cheeseType === 'fromage_frais' ? 'Fromage Frais' : 'Tomme'} - ${recipe.size || 'kg'} - ${recipe.flavor || 'Nature'}`,
+      quantity: 0, // Will be set based on available stock
+      type: 'cheese',
+      recipeId: recipe.id,
+      cheeseType: recipe.cheeseType,
+      size: recipe.size,
+      flavor: recipe.flavor
+    }));
+  }
+
+  // Get available cheese stock based on production
+  async getAvailableCheeseStock() {
+    console.log('🧀 getAvailableCheeseStock called');
+    const productions = await this.getCheeseProductions();
+    const recipes = await this.getCheeseRecipes();
+    
+    // Calculate total production by type
+    const stockByType = {};
+    productions.forEach(production => {
+      if (!stockByType[production.cheeseType]) {
+        stockByType[production.cheeseType] = 0;
+      }
+      stockByType[production.cheeseType] += production.practicalYield;
+    });
+
+    // Map to recipes and calculate available quantities
+    const availableStock = recipes.map(recipe => {
+      const totalStock = stockByType[recipe.cheeseType] || 0;
+      let availableQuantity = 0;
+      
+      if (recipe.cheeseType === 'fromage_frais') {
+        // For fromage frais, calculate based on size (assuming 1kg = 20 units of 50g or 8 units of 120g)
+        const sizeInKg = recipe.size === '50g' ? 0.05 : 0.12;
+        availableQuantity = Math.floor(totalStock / sizeInKg);
+      } else {
+        // For tomme, stock is in kg
+        availableQuantity = Math.floor(totalStock);
+      }
+      
+      return {
+        recipeId: recipe.id,
+        availableQuantity: Math.max(0, availableQuantity)
+      };
+    });
+
+    return availableStock;
   }
 }
 

@@ -451,7 +451,7 @@ export default function DashboardScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>🐓 La Ferme Aux oeufs bleus</Text>
           <Text style={styles.headerDate}>
@@ -636,8 +636,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'rgba(147, 178, 189, 0.44)', // Lighter blue with more opacity
-    paddingHorizontal: 10, // Add horizontal padding
-    paddingVertical: 10,
+    paddingHorizontal: 10, 
+    paddingVertical: 5, 
     zIndex: 1,
   },
   safeArea: {
@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
-    paddingTop: 35,
+    paddingTop: 38,
   },
   headerContent: {
     padding: 10,

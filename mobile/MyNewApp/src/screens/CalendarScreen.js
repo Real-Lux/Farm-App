@@ -910,7 +910,7 @@ export default function CalendarScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <View style={styles.header}>
-          <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+          <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>
               📅 Événements {isRefreshing && '🔄'}
@@ -1166,6 +1166,7 @@ export default function CalendarScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Event Title"
+                placeholderTextColor="#999"
                 value={eventForm.title}
                 onChangeText={(text) => setEventForm({...eventForm, title: text})}
               />
@@ -1173,6 +1174,7 @@ export default function CalendarScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Date (YYYY-MM-DD)"
+                placeholderTextColor="#999"
                 value={eventForm.date}
                 onChangeText={(text) => setEventForm({...eventForm, date: text})}
               />
@@ -1205,6 +1207,7 @@ export default function CalendarScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Product/Crop (optional)"
+                placeholderTextColor="#999"
                 value={eventForm.product}
                 onChangeText={(text) => setEventForm({...eventForm, product: text})}
               />
@@ -1212,6 +1215,7 @@ export default function CalendarScreen({ navigation }) {
               <TextInput
                 style={[styles.input, styles.notesInput]}
                 placeholder="Notes (optional)"
+                placeholderTextColor="#999"
                 value={eventForm.notes}
                 onChangeText={(text) => setEventForm({...eventForm, notes: text})}
                 multiline={true}
@@ -1265,7 +1269,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
-    paddingTop: 35,
+    paddingTop: 38,
   },
   headerContent: {
     padding: 10,

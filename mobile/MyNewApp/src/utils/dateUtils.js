@@ -107,3 +107,111 @@ export const formatForCalendar = (isoDate) => {
     day: 'numeric'
   });
 };
+
+/**
+ * Calculate estimated hatching/birth date based on species and incubation start date
+ * @param {string} species - Species name (poussins, cailles, canards, oies, dindes, lapins, chèvres, brebis)
+ * @param {string} race - Race name (for special cases like barbaries ducks)
+ * @param {string} incubationStartDate - Start date in ISO format (YYYY-MM-DD)
+ * @returns {object} - Object with { estimatedDate, minDate, maxDate }
+ */
+export const calculateEstimatedHatchingDate = (species, race, incubationStartDate) => {
+  if (!incubationStartDate) return { estimatedDate: null, minDate: null, maxDate: null };
+
+  const startDate = new Date(incubationStartDate);
+  if (isNaN(startDate.getTime())) return { estimatedDate: null, minDate: null, maxDate: null };
+
+  let days = 0;
+  let variance = 0;
+
+  switch (species) {
+    case 'poussins':
+      days = 21;
+      variance = 2;
+      break;
+    case 'cailles':
+      days = 17;
+      variance = 2;
+      break;
+    case 'canards':
+      // Special case for barbaries
+      if (race && race.toLowerCase().includes('barbarie')) {
+        days = 35;
+        variance = 2;
+      } else {
+        days = 28;
+        variance = 2;
+      }
+      break;
+    case 'oies':
+      days = 30;
+      // Oies: 30 jours - 2 jours et jusqu'à + 5 jours
+      variance = { min: 2, max: 5 };
+      break;
+    case 'dindes':
+      days = 28;
+      variance = 2;
+      break;
+    case 'lapins':
+      days = 30;
+      variance = 2;
+      break;
+    case 'chèvres':
+    case 'brebis':
+      // 5 months = approximately 150 days
+      days = 150;
+      variance = 7; // ±1 week
+      break;
+    default:
+      days = 21;
+      variance = 2;
+  }
+
+  // Calculate estimated date
+  const estimatedDate = new Date(startDate);
+  estimatedDate.setDate(startDate.getDate() + days);
+
+  // Calculate min and max dates
+  let minDate, maxDate;
+  if (species === 'oies') {
+    // Oies: 30 jours - 2 jours et jusqu'à + 5 jours
+    minDate = new Date(startDate);
+    minDate.setDate(startDate.getDate() + days - variance.min);
+    maxDate = new Date(startDate);
+    maxDate.setDate(startDate.getDate() + days + variance.max);
+  } else {
+    minDate = new Date(startDate);
+    minDate.setDate(startDate.getDate() + days - variance);
+    maxDate = new Date(startDate);
+    maxDate.setDate(startDate.getDate() + days + variance);
+  }
+
+  return {
+    estimatedDate: estimatedDate.toISOString().split('T')[0],
+    minDate: minDate.toISOString().split('T')[0],
+    maxDate: maxDate.toISOString().split('T')[0]
+  };
+};
+
+/**
+ * Add days to a date
+ * @param {string} isoDate - Date in ISO format
+ * @param {number} days - Number of days to add
+ * @returns {string} - New date in ISO format
+ */
+export const addDays = (isoDate, days) => {
+  if (!isoDate) return '';
+  const date = new Date(isoDate);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split('T')[0];
+};
+
+/**
+ * Calculate suggested fertilization check date (typically 7 days after incubation start)
+ * @param {string} incubationStartDate - Start date in ISO format
+ * @returns {string} - Suggested check date in ISO format
+ */
+export const getSuggestedFertilizationCheckDate = (incubationStartDate) => {
+  if (!incubationStartDate) return null;
+  return addDays(incubationStartDate, 7);
+};

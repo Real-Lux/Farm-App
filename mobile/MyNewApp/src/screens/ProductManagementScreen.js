@@ -5,6 +5,7 @@ import {
   StyleSheet, 
   ScrollView, 
   TouchableOpacity,
+  Pressable,
   TextInput,
   Modal,
   Alert,
@@ -156,7 +157,8 @@ export default function ProductManagementScreen({ navigation }) {
   const loadProducts = async () => {
     try {
       const productsData = await database.getProducts();
-      setProducts(productsData);
+      const cheeseProducts = await database.getCheeseProductsForOrders();
+      setProducts([...productsData, ...cheeseProducts]);
     } catch (error) {
       console.error('Error loading products:', error);
       Alert.alert('Erreur', 'Impossible de charger les produits');
@@ -526,60 +528,100 @@ export default function ProductManagementScreen({ navigation }) {
     );
   };
 
-  const ProductItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.productCard}
-      onPress={() => openEditModal(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.productHeader}>
-        <View style={styles.productTitleSection}>
-          <Text style={styles.productName}>{item.name}</Text>
-          <Text style={styles.productCategory}>{item.category}</Text>
+  const ProductItem = ({ item }) => {
+    const isCheeseProduct = item.type === 'cheese';
+    const isLowStock = item.quantity < 20;
+    
+    return (
+      <TouchableOpacity 
+        style={[styles.productCard, isCheeseProduct && styles.cheeseProductCard]}
+        onPress={() => isCheeseProduct ? null : openEditModal(item)}
+        activeOpacity={isCheeseProduct ? 1 : 0.7}
+      >
+        <View style={styles.productHeader}>
+          <View style={styles.productTitleSection}>
+            <Text style={styles.productName}>
+              {isCheeseProduct ? '🧀 ' : ''}{item.name}
+            </Text>
+            <View style={styles.categoryRow}>
+              <Text style={styles.productCategory}>{item.category}</Text>
+              {!isCheeseProduct && (
+                <View style={[styles.stockStatusBadge, { 
+                  backgroundColor: isLowStock ? '#fff3cd' : '#d4edda',
+                  borderColor: isLowStock ? '#ffc107' : '#28a745'
+                }]}>
+                  <Text style={[styles.stockStatusText, { 
+                    color: isLowStock ? '#856404' : '#155724' 
+                  }]}>
+                    {isLowStock ? 'Stock faible' : 'Bon stock'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+          <View style={styles.productHeaderRight}>
+            <View style={styles.stockIndicator}>
+              <Text style={[styles.stockStatus, { 
+                color: isLowStock ? '#F44336' : '#4CAF50' 
+              }]}>
+                {isLowStock ? '⚠️' : '✅'}
+              </Text>
+            </View>
+            {!isCheeseProduct && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.deleteButtonTop,
+                  pressed && styles.deleteButtonPressed
+                ]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  deleteProduct(item.id);
+                }}
+              >
+                <Text style={styles.deleteButtonTopText}>🗑️</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
-        <View style={styles.stockIndicator}>
-          <Text style={[styles.stockStatus, { 
-            color: item.quantity < 20 ? '#F44336' : '#4CAF50' 
-          }]}>
-            {item.quantity < 20 ? '⚠️' : '✅'}
-          </Text>
+        
+        <View style={styles.productDetails}>
+          <View style={styles.productInfoRow}>
+            <Text style={styles.productInfoLabel}>Prix:</Text>
+            <Text style={styles.productInfoValue}>{item.price.toFixed(2)}€</Text>
+          </View>
+          <View style={styles.productInfoRow}>
+            <Text style={styles.productInfoLabel}>Stock:</Text>
+            <Text style={styles.productInfoValue}>{item.quantity} {item.unit || 'unité(s)'}</Text>
+          </View>
+          {isCheeseProduct && (
+            <View style={styles.productInfoRow}>
+              <Text style={styles.productInfoLabel}>Type:</Text>
+              <Text style={styles.productInfoValue}>
+                {item.cheeseType === 'fromage_frais' ? 'Fromage Frais' : 'Tomme'}
+                {item.size && ` - ${item.size}`}
+                {item.flavor && item.flavor !== 'nature' && ` - ${item.flavor}`}
+              </Text>
+            </View>
+          )}
+          {item.description && (
+            <View style={styles.productDescription}>
+              <Text style={styles.productDescriptionText} numberOfLines={2}>
+                {item.description}
+              </Text>
+            </View>
+          )}
         </View>
-      </View>
-      
-      <View style={styles.productDetails}>
-        <View style={styles.productInfoRow}>
-          <Text style={styles.productInfoLabel}>Prix:</Text>
-          <Text style={styles.productInfoValue}>{item.price.toFixed(2)}€</Text>
-        </View>
-        <View style={styles.productInfoRow}>
-          <Text style={styles.productInfoLabel}>Stock:</Text>
-          <Text style={styles.productInfoValue}>{item.quantity} {item.unit || 'unité(s)'}</Text>
-        </View>
-        {item.description && (
-          <View style={styles.productDescription}>
-            <Text style={styles.productDescriptionText} numberOfLines={2}>
-              {item.description}
+        
+        {isCheeseProduct && (
+          <View style={styles.cheeseProductNote}>
+            <Text style={styles.cheeseProductNoteText}>
+              📝 Géré dans Production Fromage
             </Text>
           </View>
         )}
-      </View>
-
-      <View style={styles.productActions}>
-        <TouchableOpacity 
-          style={[styles.actionBtn, styles.editBtn]}
-          onPress={() => openEditModal(item)}
-        >
-          <Text style={styles.actionBtnText}>✏️</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.actionBtn, styles.deleteBtn]}
-          onPress={() => deleteProduct(item.id)}
-        >
-          <Text style={styles.actionBtnText}>🗑️</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   const MessageItem = ({ item }) => {
     if (!item) return null;
@@ -628,18 +670,16 @@ export default function ProductManagementScreen({ navigation }) {
 
   const renderElevageAvicole = () => (
     <View style={styles.tabContent}>
-      <View style={styles.sectionCard}>
+      <TouchableOpacity 
+        style={styles.sectionCard}
+        onPress={() => navigation.navigate('ElevageScreen')}
+        activeOpacity={0.7}
+      >
         <Text style={styles.sectionTitle}>🐓 Élevage Avicole</Text>
         <Text style={styles.sectionDescription}>
           Gestion complète de vos volailles : poules, canards, oies, lapins
         </Text>
-        <TouchableOpacity 
-          style={styles.primaryButton}
-              onPress={() => navigation.navigate('ElevageScreen')}
-            >
-          <Text style={styles.primaryButtonText}>Accéder à l'Élevage Avicole</Text>
-            </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
       
       <View style={styles.quickStats}>
         <Text style={styles.quickStatsTitle}>Statistiques Rapides</Text>
@@ -667,42 +707,61 @@ export default function ProductManagementScreen({ navigation }) {
 
   const renderElevageCaprin = () => (
     <View style={styles.tabContent}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>🐐 Élevage Caprin</Text>
-        <Text style={styles.sectionDescription}>
-          Gestion des chèvres et brebis : naissances, production laitière, généalogie
-        </Text>
-        <TouchableOpacity 
-          style={styles.primaryButton}
-          onPress={() => navigation.navigate('CaprinScreen')}
-        >
-          <Text style={styles.primaryButtonText}>Accéder à l'Élevage Caprin</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity 
+        style={styles.sectionCard}
+        onPress={() => navigation.navigate('CaprinScreen')}
+        activeOpacity={0.7}
+      >
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionTitleContainer}>
+            <Text style={styles.sectionTitle}>🐐 Élevage Caprin</Text>
+            <Text style={styles.sectionDescription}>
+              Gestion des chèvres et brebis : naissances, production laitière, généalogie
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.infoButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              Alert.alert(
+                'Fonctionnalités Élevage Caprin',
+                '• 👶 Gestion des naissances et nommage\n• 🥛 Suivi de production laitière\n• 📊 Statistiques par groupe\n• 📜 Historique de vie complet\n• 🌳 Arbre généalogique',
+                [{ text: 'OK' }]
+              );
+            }}
+          >
+            <Text style={styles.infoButtonText}>ℹ️</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
       
-      <View style={styles.featureList}>
-        <Text style={styles.featureListTitle}>Fonctionnalités disponibles :</Text>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureIcon}>👶</Text>
-          <Text style={styles.featureText}>Gestion des naissances et nommage</Text>
+      <TouchableOpacity 
+        style={styles.sectionCard}
+        onPress={() => navigation.navigate('CheeseScreen')}
+        activeOpacity={0.7}
+      >
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionTitleContainer}>
+            <Text style={styles.sectionTitle}>🧀 Production Fromage</Text>
+            <Text style={styles.sectionDescription}>
+              Gestion de la transformation laitière : recettes, affinage, stockage
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.infoButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              Alert.alert(
+                'Fonctionnalités Production Fromage',
+                '• 📝 Gestion des recettes\n• ⏰ Suivi d\'affinage\n• 📦 Contrôle de stockage\n• 📊 Statistiques de production\n• 🏷️ Étiquetage et traçabilité',
+                [{ text: 'OK' }]
+              );
+            }}
+          >
+            <Text style={styles.infoButtonText}>ℹ️</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureIcon}>🥛</Text>
-          <Text style={styles.featureText}>Suivi de production laitière</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureIcon}>📊</Text>
-          <Text style={styles.featureText}>Statistiques par groupe</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureIcon}>📜</Text>
-          <Text style={styles.featureText}>Historique de vie complet</Text>
-        </View>
-        <View style={styles.featureItem}>
-          <Text style={styles.featureIcon}>🌳</Text>
-          <Text style={styles.featureText}>Arbre généalogique</Text>
-        </View>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 
@@ -982,7 +1041,7 @@ export default function ProductManagementScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
-        <View style={[styles.statusBarOverlay, { height: insets.top }]} />
+        <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>🏡 Gestion de la Ferme</Text>
         </View>
@@ -1091,6 +1150,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Nom du produit"
+                placeholderTextColor="#999"
                 value={productForm.name}
                 onChangeText={(text) => setProductForm({...productForm, name: text})}
               />
@@ -1098,6 +1158,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Prix"
+                placeholderTextColor="#999"
                 value={productForm.price}
                 onChangeText={(text) => setProductForm({...productForm, price: text})}
                 keyboardType="decimal-pad"
@@ -1106,6 +1167,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Quantité"
+                placeholderTextColor="#999"
                 value={productForm.quantity}
                 onChangeText={(text) => setProductForm({...productForm, quantity: text})}
                 keyboardType="number-pad"
@@ -1114,6 +1176,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Unité (kg, têtes, boîtes, etc.)"
+                placeholderTextColor="#999"
                 value={productForm.unit}
                 onChangeText={(text) => setProductForm({...productForm, unit: text})}
               />
@@ -1121,6 +1184,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Catégorie"
+                placeholderTextColor="#999"
                 value={productForm.category}
                 onChangeText={(text) => setProductForm({...productForm, category: text})}
               />
@@ -1128,6 +1192,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Description (optionnel)"
+                placeholderTextColor="#999"
                 value={productForm.description}
                 onChangeText={(text) => setProductForm({...productForm, description: text})}
                 multiline={true}
@@ -1170,6 +1235,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Titre du message *"
+                placeholderTextColor="#999"
                 value={messageForm.title}
                 onChangeText={(text) => setMessageForm({...messageForm, title: text})}
               />
@@ -1200,6 +1266,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Contenu du message *"
+                placeholderTextColor="#999"
                 value={messageForm.content}
                 onChangeText={(text) => setMessageForm({...messageForm, content: text})}
                 multiline={true}
@@ -1264,6 +1331,7 @@ export default function ProductManagementScreen({ navigation }) {
                         onChangeText={(text) => updatePricingGrid(index, 'ageMonths', parseFloat(text) || 0)}
                         keyboardType="numeric"
                         placeholder="Ex: 1, 2, 3"
+                        placeholderTextColor="#999"
                       />
                     </View>
                     <View style={styles.settingsInputGroup}>
@@ -1274,6 +1342,7 @@ export default function ProductManagementScreen({ navigation }) {
                         onChangeText={(text) => updatePricingGrid(index, 'ageWeeks', parseFloat(text) || 0)}
                         keyboardType="numeric"
                         placeholder="Ex: 1, 2, 4"
+                        placeholderTextColor="#999"
                       />
                     </View>
                     <View style={styles.settingsInputGroup}>
@@ -1284,6 +1353,7 @@ export default function ProductManagementScreen({ navigation }) {
                         onChangeText={(text) => updatePricingGrid(index, 'price', parseFloat(text) || 0)}
                         keyboardType="numeric"
                         placeholder="0"
+                        placeholderTextColor="#999"
                       />
                     </View>
                     <View style={styles.settingsInputGroup}>
@@ -1372,6 +1442,7 @@ export default function ProductManagementScreen({ navigation }) {
                     <TextInput
                       style={styles.input}
                       placeholder="Dosage par kg (ex: 0.1)"
+                      placeholderTextColor="#999"
                       value={dosageForm.dosagePerKg}
                       onChangeText={(text) => setDosageForm({...dosageForm, dosagePerKg: text})}
                       keyboardType="decimal-pad"
@@ -1380,6 +1451,7 @@ export default function ProductManagementScreen({ navigation }) {
                     <TextInput
                       style={styles.input}
                       placeholder="Concentration (mg/ml ou %) - optionnel"
+                      placeholderTextColor="#999"
                       value={dosageForm.concentration}
                       onChangeText={(text) => setDosageForm({...dosageForm, concentration: text})}
                       keyboardType="decimal-pad"
@@ -1399,12 +1471,14 @@ export default function ProductManagementScreen({ navigation }) {
                         <TextInput
                           style={[styles.input, styles.animalNameInput]}
                           placeholder="Nom"
+                          placeholderTextColor="#999"
                           value={animal.name}
                           onChangeText={(text) => updateAnimal(animal.id, 'name', text)}
                         />
                         <TextInput
                           style={[styles.input, styles.animalWeightInput]}
                           placeholder="Poids (kg)"
+                          placeholderTextColor="#999"
                           value={animal.weight}
                           onChangeText={(text) => updateAnimal(animal.id, 'weight', text)}
                           keyboardType="decimal-pad"
@@ -1446,6 +1520,7 @@ export default function ProductManagementScreen({ navigation }) {
                       <TextInput
                         style={[styles.input, styles.formulaInput]}
                         placeholder="Ex: 0.21*12/X"
+                        placeholderTextColor="#999"
                         value={formulaForm.formula}
                         onChangeText={(text) => setFormulaForm({...formulaForm, formula: text})}
                       />
@@ -1469,6 +1544,7 @@ export default function ProductManagementScreen({ navigation }) {
                         <TextInput
                           style={[styles.input, styles.variableInput]}
                           placeholder="0"
+                          placeholderTextColor="#999"
                           value={formulaForm.variables[variable] || ''}
                           onChangeText={(text) => updateFormulaVariable(variable, text)}
                           keyboardType="decimal-pad"
@@ -1519,6 +1595,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Nom de la formule (ex: Dosage Antibiotique)"
+                placeholderTextColor="#999"
                 value={formulaName}
                 onChangeText={setFormulaName}
               />
@@ -1566,6 +1643,7 @@ export default function ProductManagementScreen({ navigation }) {
               <TextInput
                 style={styles.input}
                 placeholder="Ex: Canards, Oies, Chèvres, Lapins..."
+                placeholderTextColor="#999"
                 value={newAnimalTypeName}
                 onChangeText={setNewAnimalTypeName}
               />
@@ -1616,7 +1694,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#005F6B',
-    paddingTop: 35,
+    paddingTop: 38,
   },
   headerContent: {
     padding: 10,
@@ -1796,6 +1874,31 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 3,
     textAlign: 'center',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 15,
+  },
+  sectionTitleContainer: {
+    flex: 1,
+    marginRight: 10,
+  },
+  infoButton: {
+    backgroundColor: '#f0f8ff',
+    borderRadius: 20,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#005F6B',
+  },
+  infoButtonText: {
+    fontSize: 16,
+    color: '#005F6B',
+    fontWeight: 'bold',
   },
   featureList: {
     backgroundColor: 'white',
@@ -2098,6 +2201,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
+  cheeseProductCard: {
+    backgroundColor: '#fff8e1',
+    borderColor: '#8B4513',
+    borderWidth: 2,
+  },
   productHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2114,6 +2222,12 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
   },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   productCategory: {
     fontSize: 12,
     color: '#666',
@@ -2123,13 +2237,46 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignSelf: 'flex-start',
   },
+  stockStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  stockStatusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   stockIndicator: {
     alignItems: 'center',
     justifyContent: 'center',
+    width: 24,
+    height: 24,
   },
   stockStatus: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  productHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deleteButtonTop: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 1,
+  },
+  deleteButtonPressed: {
+    opacity: 0.5,
+    transform: [{ scale: 0.9 }],
+  },
+  deleteButtonTopText: {
+    fontSize: 14,
+    color: '#F44336',
   },
   productDetails: {
     marginBottom: 15,
@@ -2182,6 +2329,20 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 12,
+  },
+  cheeseProductNote: {
+    backgroundColor: '#f0f8ff',
+    borderRadius: 6,
+    padding: 8,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#8B4513',
+  },
+  cheeseProductNoteText: {
+    fontSize: 11,
+    color: '#8B4513',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,

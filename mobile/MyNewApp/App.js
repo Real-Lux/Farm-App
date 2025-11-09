@@ -10,6 +10,7 @@ import BookingSystemScreen from './src/screens/BookingSystemScreen';
 import AddOrderScreen from './src/screens/AddOrderScreen';
 import ElevageScreen from './src/screens/ElevageScreen';
 import CaprinScreen from './src/screens/CaprinScreen';
+import CheeseScreen from './src/screens/CheeseScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -114,12 +115,18 @@ function GestionNavigator({ route }) {
     setCurrentScreen('ProductManagement');
   };
 
+  const navigateToCheese = () => {
+    setCurrentScreen('Cheese');
+  };
+
   const mockNavigation = {
     navigate: (screenName, params) => {
       if (screenName === 'ElevageScreen') {
         navigateToElevage();
       } else if (screenName === 'CaprinScreen') {
         navigateToCaprin();
+      } else if (screenName === 'CheeseScreen') {
+        navigateToCheese();
       } else {
         navigateToProductManagement();
       }
@@ -138,6 +145,15 @@ function GestionNavigator({ route }) {
   if (currentScreen === 'Caprin') {
     return (
       <CaprinScreen 
+        navigation={mockNavigation}
+        route={route}
+      />
+    );
+  }
+
+  if (currentScreen === 'Cheese') {
+    return (
+      <CheeseScreen 
         navigation={mockNavigation}
         route={route}
       />
@@ -169,9 +185,9 @@ export default function App() {
                 backgroundColor: 'white',
                 borderTopWidth: 1,
                 borderTopColor: '#e0e0e0',
-                paddingBottom: 25,
+                paddingBottom: 35,
                 paddingTop: 8,
-                height: 85,
+                height: 95,
               },
               tabBarLabelStyle: {
                 fontSize: 12,
