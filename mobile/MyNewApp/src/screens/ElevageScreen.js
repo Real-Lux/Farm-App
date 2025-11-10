@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   ScrollView, 
   TouchableOpacity,
+  Pressable,
   TextInput,
   Modal,
   Alert,
   FlatList,
   StatusBar,
-  Platform
+  Platform,
+  KeyboardAvoidingView,
+  PanResponder
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
@@ -33,6 +36,12 @@ export default function ElevageScreen({ navigation }) {
   const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
   const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
+  
+  // Drag and drop state for races
+  const [draggingRaceId, setDraggingRaceId] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [dragStartY, setDragStartY] = useState(0);
+  const [dragCurrentY, setDragCurrentY] = useState(0);
   
   const [lotForm, setLotForm] = useState({
     name: '',
@@ -283,13 +292,20 @@ export default function ElevageScreen({ navigation }) {
     setModalVisible(true);
   };
 
-  const openAddRaceModal = () => {
+  const openAddRaceModal = async () => {
     setEditingItem(null);
     setModalType('race');
+    
+    // Get the highest order number and add 1 for the new race
+    const maxOrder = races.length > 0 
+      ? Math.max(...races.map(r => r.order !== undefined ? r.order : 0), -1) + 1
+      : 0;
+    
     setRaceForm({
       name: '',
       type: 'poules',
-      description: ''
+      description: '',
+      order: maxOrder
     });
     setModalVisible(true);
   };
@@ -482,8 +498,14 @@ export default function ElevageScreen({ navigation }) {
 
     try {
       if (editingItem) {
-        await database.updateRace(editingItem.id, raceForm);
+        // Preserve order when editing
+        const raceToSave = {
+          ...raceForm,
+          order: editingItem.order !== undefined ? editingItem.order : 999
+        };
+        await database.updateRace(editingItem.id, raceToSave);
       } else {
+        // Use the order from form (set in openAddRaceModal)
         await database.addRace(raceForm);
       }
       setModalVisible(false);
@@ -617,7 +639,7 @@ export default function ElevageScreen({ navigation }) {
     setLotForm(updatedForm);
   };
 
-  // Get available races filtered by species (for poultry)
+  // Get available races filtered by species (for poultry) and sorted by order
   const getRacesForSpecies = (species) => {
     if (!species) return [];
     // For poultry species, filter races by matching type
@@ -629,9 +651,20 @@ export default function ElevageScreen({ navigation }) {
       'dindes': 'dindes'
     };
     const typeToMatch = speciesToTypeMap[species];
-    if (!typeToMatch) return races; // For non-poultry, return all races
+    let filteredRaces = [];
     
-    return races.filter(race => race.type === typeToMatch || race.type === species);
+    if (!typeToMatch) {
+      filteredRaces = races; // For non-poultry, return all races
+    } else {
+      filteredRaces = races.filter(race => race.type === typeToMatch || race.type === species);
+    }
+    
+    // Sort by order (lower order number = higher priority)
+    return filteredRaces.sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : 999;
+      const orderB = b.order !== undefined ? b.order : 999;
+      return orderA - orderB;
+    });
   };
 
   const getStockStatus = (current, initial) => {
@@ -893,25 +926,151 @@ export default function ElevageScreen({ navigation }) {
     );
   };
 
-  const RaceItem = ({ item }) => {
+  const RaceItem = ({ item, index, totalRaces, sortedRaces }) => {
     const lotsWithRace = getLotsByRace(item.name);
     const totalStock = lotsWithRace.reduce((total, lot) => total + lot.races[item.name].current, 0);
+    const isDragging = draggingRaceId === item.id;
+    const isDragOver = dragOverIndex === index && draggingRaceId !== item.id;
+    const longPressTimer = useRef(null);
+    const touchStartY = useRef(0);
+    const touchStartIndex = useRef(index);
+    const isDraggingRef = useRef(false);
+    const touchStartTime = useRef(0);
+    const hasMoved = useRef(false);
+    const touchStartX = useRef(0);
+    const touchStartYRef = useRef(0);
+    const cardRef = useRef(null);
     
-    return (
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>{item.name}</Text>
-          <Text style={styles.animalType}>🐓 {item.type}</Text>
-        </View>
-        
-        <Text style={styles.cardInfo}>{item.description}</Text>
-        <Text style={styles.cardInfo}>📦 Stock total: {totalStock} animaux</Text>
-        <Text style={styles.cardInfo}>📍 Présent dans {lotsWithRace.length} lot(s)</Text>
-        
-        <View style={styles.cardActions}>
-          <TouchableOpacity 
-            style={[styles.actionBtn, styles.editBtn]}
-            onPress={() => {
+    isDraggingRef.current = isDragging;
+    
+    // PanResponder that works with FlatList by using capture
+    const panResponder = useRef(
+      PanResponder.create({
+        onStartShouldSetPanResponder: (evt) => {
+          // Don't capture if touch is on delete button
+          const touchX = evt.nativeEvent.locationX;
+          if (touchX > 280) {
+            return false;
+          }
+          // Only capture if we're already dragging
+          return isDraggingRef.current;
+        },
+        onStartShouldSetPanResponderCapture: (evt) => {
+          // Capture at capture phase to beat FlatList
+          if (isDraggingRef.current) {
+            return true;
+          }
+          const touchX = evt.nativeEvent.locationX;
+          if (touchX > 280) {
+            return false;
+          }
+          return false; // Don't capture initially, wait for long press
+        },
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          if (isDraggingRef.current) {
+            return true;
+          }
+          return false;
+        },
+        onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+          // Capture movement if dragging
+          if (isDraggingRef.current) {
+            return true;
+          }
+          // Also capture if we've held long enough and moved vertically
+          const timeHeld = Date.now() - touchStartTime.current;
+          if (timeHeld > 300 && Math.abs(gestureState.dy) > 15 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5) {
+            // Start dragging
+            setDraggingRaceId(item.id);
+            touchStartY.current = evt.nativeEvent.pageY;
+            touchStartIndex.current = index;
+            isDraggingRef.current = true;
+            return true;
+          }
+          return false;
+        },
+        onPanResponderGrant: (evt) => {
+          touchStartTime.current = Date.now();
+          touchStartX.current = evt.nativeEvent.locationX;
+          touchStartYRef.current = evt.nativeEvent.pageY;
+          touchStartY.current = evt.nativeEvent.pageY;
+          touchStartIndex.current = index;
+          hasMoved.current = false;
+        },
+        onPanResponderMove: (evt, gestureState) => {
+          if (isDraggingRef.current) {
+            hasMoved.current = true;
+            const currentY = evt.nativeEvent.pageY;
+            setDragCurrentY(currentY);
+            
+            // Calculate target index based on movement
+            const cardHeight = 120;
+            const deltaY = gestureState.dy;
+            const newIndex = Math.max(0, Math.min(totalRaces - 1, Math.round(touchStartIndex.current + deltaY / cardHeight)));
+            
+            if (newIndex !== index && newIndex >= 0 && newIndex < totalRaces) {
+              setDragOverIndex(newIndex);
+            }
+          }
+        },
+        onPanResponderRelease: async (evt) => {
+          if (isDraggingRef.current) {
+            // Handle drop
+            if (dragOverIndex !== null && dragOverIndex !== index && sortedRaces) {
+              try {
+                const targetRace = sortedRaces[dragOverIndex];
+                await database.reorderRaces(item.id, targetRace.id);
+                loadData();
+              } catch (error) {
+                console.error('Erreur lors du déplacement:', error);
+                Alert.alert('Erreur', 'Impossible de déplacer la race');
+              }
+            }
+            
+            // Reset dragging state
+            isDraggingRef.current = false;
+            setDraggingRaceId(null);
+            setDragOverIndex(null);
+            setDragStartY(0);
+            setDragCurrentY(0);
+          } else if (!hasMoved.current) {
+            // Quick tap - open edit
+            const touchX = evt.nativeEvent?.locationX || 0;
+            const timeHeld = Date.now() - touchStartTime.current;
+            if (timeHeld < 300 && touchX <= 280) {
+              setTimeout(() => {
+                if (!draggingRaceId) {
+                  handleEdit();
+                }
+              }, 50);
+            }
+          }
+          
+          hasMoved.current = false;
+          touchStartTime.current = 0;
+        },
+        onPanResponderTerminate: () => {
+          isDraggingRef.current = false;
+          setDraggingRaceId(null);
+          setDragOverIndex(null);
+          hasMoved.current = false;
+          touchStartTime.current = 0;
+        },
+      })
+    ).current;
+    
+    const handleLongPress = (evt) => {
+      if (!isDraggingRef.current) {
+        touchStartTime.current = Date.now();
+        touchStartY.current = evt.nativeEvent?.pageY || 0;
+        touchStartIndex.current = index;
+        setDraggingRaceId(item.id);
+        isDraggingRef.current = true;
+      }
+    };
+    
+    const handleEdit = () => {
+      if (draggingRaceId) return;
               setEditingItem(item);
               setModalType('race');
               setRaceForm({
@@ -920,11 +1079,113 @@ export default function ElevageScreen({ navigation }) {
                 description: item.description
               });
               setModalVisible(true);
-            }}
-          >
-            <Text style={styles.actionBtnText}>✏️ Modifier</Text>
-          </TouchableOpacity>
-        </View>
+    };
+
+    const handleDelete = (e) => {
+      e.stopPropagation();
+      Alert.alert(
+        'Supprimer la race',
+        `Êtes-vous sûr de vouloir supprimer la race "${item.name}" ? Cette action est irréversible.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Supprimer', style: 'destructive', onPress: async () => {
+            try {
+              await database.deleteRace(item.id);
+              loadData();
+            } catch (error) {
+              console.error('Erreur lors de la suppression:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer la race');
+            }
+          }}
+        ]
+      );
+    };
+
+
+    const handleMoveUp = async (e) => {
+      e.stopPropagation();
+      if (index > 0 && sortedRaces) {
+        try {
+          await database.reorderRaces(item.id, sortedRaces[index - 1].id);
+          loadData();
+        } catch (error) {
+          console.error('Erreur lors du déplacement:', error);
+          Alert.alert('Erreur', 'Impossible de déplacer la race');
+        }
+      }
+    };
+
+    const handleMoveDown = async (e) => {
+      e.stopPropagation();
+      if (index < totalRaces - 1 && sortedRaces) {
+        try {
+          await database.reorderRaces(item.id, sortedRaces[index + 1].id);
+          loadData();
+        } catch (error) {
+          console.error('Erreur lors du déplacement:', error);
+          Alert.alert('Erreur', 'Impossible de déplacer la race');
+        }
+      }
+    };
+    
+    return (
+      <View
+        ref={cardRef}
+        style={[
+          styles.card,
+          isDragging && styles.cardDragging,
+          isDragOver && styles.cardDragOver
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <TouchableOpacity
+          style={styles.cardContent}
+          activeOpacity={isDragging ? 1 : 0.7}
+          onPress={() => {
+            if (!isDragging && !isDraggingRef.current) {
+              handleEdit();
+            }
+          }}
+          onLongPress={handleLongPress}
+          delayLongPress={300}
+          disabled={isDragging}
+        >
+          {/* Drag Handle on the left */}
+          <View style={styles.dragHandleContainer}>
+            <Text style={styles.dragHandle}>☰</Text>
+          </View>
+          
+          {/* Main content area */}
+          <View style={styles.cardMainContent}>
+            <View style={styles.cardHeader}>
+              <View style={styles.cardHeaderLeft}>
+                <Text style={styles.cardTitle}>{item.name}</Text>
+                <Text style={styles.animalType}>🐓 {item.type}</Text>
+              </View>
+              <View style={styles.cardHeaderRight}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.deleteButtonTop,
+                    pressed && styles.deleteButtonPressed
+                  ]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleDelete(e);
+                  }}
+                >
+                  <Text style={styles.deleteButtonTopText}>🗑️</Text>
+                </Pressable>
+              </View>
+            </View>
+            
+            <Text style={styles.cardInfo}>{item.description}</Text>
+            <Text style={styles.cardInfo}>📦 Stock total: {totalStock} animaux</Text>
+            <Text style={styles.cardInfo}>📍 Présent dans {lotsWithRace.length} lot(s)</Text>
+            {isDragging && (
+              <Text style={styles.dragHint}>👆 Maintenez et glissez pour réorganiser</Text>
+            )}
+          </View>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -1018,7 +1279,14 @@ export default function ElevageScreen({ navigation }) {
           </>
         )}
 
-        {activeTab === 'races' && (
+        {activeTab === 'races' && (() => {
+          const sortedRaces = [...races].sort((a, b) => {
+            const orderA = a.order !== undefined ? a.order : 999;
+            const orderB = b.order !== undefined ? b.order : 999;
+            return orderA - orderB;
+          });
+          
+          return (
           <>
             <View style={styles.actionBar}>
               <TouchableOpacity style={styles.addButton} onPress={openAddRaceModal}>
@@ -1026,14 +1294,23 @@ export default function ElevageScreen({ navigation }) {
               </TouchableOpacity>
             </View>
             <FlatList
-              data={races}
-              renderItem={({ item }) => <RaceItem item={item} />}
+                data={sortedRaces}
+                renderItem={({ item, index }) => (
+                  <RaceItem 
+                    item={item} 
+                    index={index} 
+                    totalRaces={sortedRaces.length}
+                    sortedRaces={sortedRaces}
+                  />
+                )}
               keyExtractor={item => item.id.toString()}
               style={styles.list}
               showsVerticalScrollIndicator={false}
+              scrollEnabled={!draggingRaceId}
             />
           </>
-        )}
+          );
+        })()}
 
         {activeTab === 'historique' && (
           <FlatList
@@ -1334,9 +1611,17 @@ export default function ElevageScreen({ navigation }) {
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
           <View style={styles.modalContent}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}
+            >
               {modalType === 'lot' && (
                 <>
                   <Text style={styles.modalTitle}>
@@ -2082,7 +2367,7 @@ export default function ElevageScreen({ navigation }) {
               </View>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
         </Modal>
 
         {/* Calendar Modal */}
@@ -2281,6 +2566,85 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  reorderButtons: {
+    flexDirection: 'row',
+    gap: 4,
+    marginRight: 8,
+  },
+  reorderButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reorderButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.5,
+  },
+  reorderButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  reorderButtonTextDisabled: {
+    color: '#999',
+  },
+  deleteButtonTop: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 1,
+  },
+  deleteButtonPressed: {
+    opacity: 0.5,
+    transform: [{ scale: 0.9 }],
+  },
+  deleteButtonTopText: {
+    fontSize: 14,
+    color: '#F44336',
+  },
+  cardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dragHandleContainer: {
+    width: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  cardDragging: {
+    opacity: 0.7,
+    elevation: 8,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    transform: [{ scale: 1.02 }],
+    zIndex: 1000,
+  },
+  cardDragOver: {
+    borderTopWidth: 3,
+    borderTopColor: '#2196F3',
+    backgroundColor: '#e3f2fd',
+  },
+  dragHandle: {
+    fontSize: 18,
+    color: '#999',
+    fontWeight: 'bold',
+  },
+  cardMainContent: {
+    flex: 1,
+  },
+  dragHint: {
+    fontSize: 11,
+    color: '#2196F3',
+    fontStyle: 'italic',
+    marginTop: 5,
+    textAlign: 'center',
+  },
   collapseIndicator: {
     fontSize: 16,
     color: '#005F6B',
@@ -2421,7 +2785,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 20,
     width: '95%',
-    maxHeight: '80%',
+    maxHeight: Platform.OS === 'ios' ? '85%' : '90%',
+    maxWidth: '95%',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
   },
   modalTitle: {
     fontSize: 20,

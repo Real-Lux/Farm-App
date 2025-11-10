@@ -1,11 +1,53 @@
 // Simple test database service - no external dependencies
 import * as FileSystem from 'expo-file-system/legacy';
 import { toISODate, getTodayISO, getNowISO } from '../utils/dateUtils';
+
+// AsyncStorage for persistence
+let AsyncStorage;
+try {
+  AsyncStorage = require('@react-native-async-storage/async-storage').default;
+} catch (error) {
+  console.warn('AsyncStorage not available, using in-memory storage fallback');
+  AsyncStorage = {
+    setItem: async (key, value) => {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+      if (!global.__dbStorage) {
+        global.__dbStorage = {};
+      }
+      global.__dbStorage[key] = value;
+    },
+    getItem: async (key) => {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+      if (!global.__dbStorage) {
+        global.__dbStorage = {};
+      }
+      return global.__dbStorage[key] || null;
+    },
+    removeItem: async (key) => {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+      if (global.__dbStorage) {
+        delete global.__dbStorage[key];
+      }
+    }
+  };
+}
+
 console.log('🔄 Loading simple database service...');
+
+const STORAGE_KEY = 'farmapp_database_storage';
+const DEFAULT_DATA_KEY = 'farmapp_has_default_data';
 
 class SimpleTestDatabaseService {
   constructor() {
     console.log('🆕 SimpleTestDatabaseService constructor called');
+    this._isInitialized = false;
+    this._initPromise = null;
     this.storage = {
       products: [
         { id: 1, name: 'Œufs de consommation', price: 3.50, quantity: 120, category: 'oeufs consommation', description: 'Douzaine d\'œufs frais de poules élevées au sol' },
@@ -1349,6 +1391,89 @@ class SimpleTestDatabaseService {
       ]
     };
     console.log('✅ Simple storage initialized with test data');
+    
+    // Initialize data loading
+    this._initPromise = this.initializeData();
+  }
+
+  // Wait for initialization to complete
+  async waitForInitialization() {
+    if (this._isInitialized) {
+      return;
+    }
+    if (this._initPromise) {
+      await this._initPromise;
+    }
+  }
+
+  // Initialize data from persistent storage
+  async initializeData() {
+    try {
+      console.log('📂 Loading data from persistent storage...');
+      const savedData = await AsyncStorage.getItem(STORAGE_KEY);
+      
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        console.log('✅ Found saved data, loading...');
+        console.log(`📊 Orders in saved data: ${parsedData.orders ? parsedData.orders.length : 'undefined'} orders`);
+        
+        // Store default orders before overwriting
+        const defaultOrders = [...this.storage.orders];
+        
+        // Replace storage with saved data, but ensure all required keys exist with defaults if missing
+        this.storage = {
+          // Use saved data as primary source - IMPORTANT: Use empty array if orders is explicitly set to empty array
+          products: parsedData.products !== undefined ? parsedData.products : this.storage.products,
+          // Always use saved orders if they exist (even if empty array), only fallback to defaults if truly undefined
+          orders: Array.isArray(parsedData.orders) ? parsedData.orders : (parsedData.orders !== undefined ? parsedData.orders : defaultOrders),
+          calendar_events: parsedData.calendar_events !== undefined ? parsedData.calendar_events : this.storage.calendar_events,
+          elevage_lots: parsedData.elevage_lots !== undefined ? parsedData.elevage_lots : this.storage.elevage_lots,
+          elevage_races: parsedData.elevage_races !== undefined ? parsedData.elevage_races : this.storage.elevage_races,
+          elevage_historique: parsedData.elevage_historique !== undefined ? parsedData.elevage_historique : this.storage.elevage_historique,
+          elevage_incubations: parsedData.elevage_incubations !== undefined ? parsedData.elevage_incubations : this.storage.elevage_incubations,
+          lot_notes: parsedData.lot_notes !== undefined ? parsedData.lot_notes : this.storage.lot_notes,
+          caprin_animals: parsedData.caprin_animals !== undefined ? parsedData.caprin_animals : this.storage.caprin_animals,
+          caprin_settings: parsedData.caprin_settings !== undefined ? parsedData.caprin_settings : this.storage.caprin_settings,
+          saved_formulas: parsedData.saved_formulas !== undefined ? parsedData.saved_formulas : this.storage.saved_formulas,
+          order_pricing: parsedData.order_pricing !== undefined ? parsedData.order_pricing : this.storage.order_pricing,
+          template_messages: parsedData.template_messages !== undefined ? parsedData.template_messages : this.storage.template_messages,
+          pricing_grids: parsedData.pricing_grids !== undefined ? parsedData.pricing_grids : this.storage.pricing_grids,
+          cheese_productions: parsedData.cheese_productions !== undefined ? parsedData.cheese_productions : (this.storage.cheese_productions || []),
+          cheese_recipes: parsedData.cheese_recipes !== undefined ? parsedData.cheese_recipes : (this.storage.cheese_recipes || []),
+          cheese_settings: parsedData.cheese_settings !== undefined ? parsedData.cheese_settings : (this.storage.cheese_settings || {})
+        };
+        
+        console.log(`✅ Data loaded from persistent storage - ${this.storage.orders.length} orders loaded`);
+      } else {
+        console.log('📝 No saved data found, using default data');
+        // Save default data only once
+        const hasDefaultData = await AsyncStorage.getItem(DEFAULT_DATA_KEY);
+        if (!hasDefaultData) {
+          await this.saveToStorage();
+          await AsyncStorage.setItem(DEFAULT_DATA_KEY, 'true');
+        }
+      }
+      this._isInitialized = true;
+      console.log('✅ Database initialization complete');
+    } catch (error) {
+      console.error('❌ Error loading data from storage:', error);
+      console.error('Error details:', error.message, error.stack);
+      // Continue with default data if loading fails
+      this._isInitialized = true;
+    }
+  }
+
+  // Save data to persistent storage
+  async saveToStorage() {
+    try {
+      const dataToSave = JSON.stringify(this.storage);
+      await AsyncStorage.setItem(STORAGE_KEY, dataToSave);
+      console.log(`💾 Data saved to persistent storage - ${this.storage.orders.length} orders saved`);
+    } catch (error) {
+      console.error('❌ Error saving data to storage:', error);
+      console.error('Error details:', error.message, error.stack);
+      // Don't throw - allow app to continue, but log the error
+    }
   }
 
   // Products CRUD
@@ -1356,10 +1481,12 @@ class SimpleTestDatabaseService {
     console.log('➕ addProduct called');
     const newProduct = { id: Date.now(), ...product };
     this.storage.products.push(newProduct);
+    await this.saveToStorage();
     return { insertId: newProduct.id };
   }
 
   async getProducts() {
+    await this.waitForInitialization();
     console.log('📋 getProducts called - returning test data');
     return this.storage.products;
   }
@@ -1369,6 +1496,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.products.findIndex(p => p.id == id);
     if (index !== -1) {
       this.storage.products[index] = { ...this.storage.products[index], ...product };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -1379,6 +1507,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.products.findIndex(p => p.id == id);
     if (index !== -1) {
       this.storage.products.splice(index, 1);
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -1387,8 +1516,10 @@ class SimpleTestDatabaseService {
   // Orders CRUD
   async addOrder(order) {
     console.log('➕ addOrder called');
+    console.log(`📊 Current orders count before adding: ${this.storage.orders.length}`);
     const newOrder = { id: Date.now(), ...order };
     this.storage.orders.push(newOrder);
+    console.log(`✅ Order added with id: ${newOrder.id}, new count: ${this.storage.orders.length}`);
     
     // Auto-sync with calendar if delivery date exists
     if (newOrder.deliveryDate) {
@@ -1397,10 +1528,12 @@ class SimpleTestDatabaseService {
       await this.syncOrdersWithCalendar();
     }
     
+    await this.saveToStorage();
     return { insertId: newOrder.id };
   }
 
   async getOrders() {
+    await this.waitForInitialization();
     console.log('📋 getOrders called - returning test data');
     // Migrate old "poules" to "poussins" for backward compatibility
     const migratedOrders = this.storage.orders.map(order => {
@@ -1420,8 +1553,25 @@ class SimpleTestDatabaseService {
     const index = this.storage.orders.findIndex(o => o.id == id);
     if (index !== -1) {
       this.storage.orders[index] = { ...this.storage.orders[index], ...order };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
+    return { rowsAffected: 0 };
+  }
+
+  async deleteOrder(id) {
+    console.log(`🗑️ deleteOrder called for id: ${id}`);
+    console.log(`📊 Current orders count before deletion: ${this.storage.orders.length}`);
+    const index = this.storage.orders.findIndex(o => o.id == id);
+    if (index !== -1) {
+      this.storage.orders.splice(index, 1);
+      console.log(`✅ Order deleted, new count: ${this.storage.orders.length}`);
+      await this.saveToStorage();
+      // Sync with calendar after deletion
+      await this.syncOrdersWithCalendar();
+      return { rowsAffected: 1 };
+    }
+    console.log(`⚠️ Order with id ${id} not found`);
     return { rowsAffected: 0 };
   }
 
@@ -1430,10 +1580,12 @@ class SimpleTestDatabaseService {
     console.log('➕ addEvent called');
     const newEvent = { id: Date.now(), ...event };
     this.storage.calendar_events.push(newEvent);
+    await this.saveToStorage();
     return { insertId: newEvent.id };
   }
 
   async getEvents() {
+    await this.waitForInitialization();
     console.log('📋 getEvents called - returning test data');
     return this.storage.calendar_events;
   }
@@ -2137,6 +2289,7 @@ class SimpleTestDatabaseService {
       created_at: new Date().toISOString()
     };
     this.storage.elevage_incubations.push(newIncubation);
+    await this.saveToStorage();
     return { insertId: newIncubation.id };
   }
 
@@ -2157,6 +2310,7 @@ class SimpleTestDatabaseService {
         ...incubation,
         updated_at: new Date().toISOString()
       };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2167,6 +2321,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.elevage_incubations.findIndex(inc => inc.id == id);
     if (index !== -1) {
       this.storage.elevage_incubations.splice(index, 1);
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2310,10 +2465,12 @@ class SimpleTestDatabaseService {
     console.log('➕ addLot called');
     const newLot = { id: Date.now(), ...lot };
     this.storage.elevage_lots.push(newLot);
+    await this.saveToStorage();
     return { insertId: newLot.id };
   }
 
   async getLots() {
+    await this.waitForInitialization();
     console.log('📋 getLots called');
     return this.storage.elevage_lots;
   }
@@ -2323,6 +2480,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.elevage_lots.findIndex(l => l.id == id);
     if (index !== -1) {
       this.storage.elevage_lots[index] = { ...this.storage.elevage_lots[index], ...lot };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2333,6 +2491,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.elevage_lots.findIndex(l => l.id == id);
     if (index !== -1) {
       this.storage.elevage_lots.splice(index, 1);
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2341,22 +2500,41 @@ class SimpleTestDatabaseService {
   // Races CRUD
   async addRace(race) {
     console.log('➕ addRace called');
-    const newRace = { id: Date.now(), ...race };
+    // If order is not provided, set it to the end of the list
+    let order = race.order;
+    if (order === undefined) {
+      const maxOrder = this.storage.elevage_races.length > 0
+        ? Math.max(...this.storage.elevage_races.map(r => r.order !== undefined ? r.order : 0), -1) + 1
+        : 0;
+      order = maxOrder;
+    }
+    const newRace = { id: Date.now(), ...race, order };
     this.storage.elevage_races.push(newRace);
+    await this.saveToStorage();
     return { insertId: newRace.id };
   }
 
   async getRaces() {
+    await this.waitForInitialization();
     console.log('📋 getRaces called');
     // Migrate old "poules" to "poussins" for backward compatibility
-    return this.storage.elevage_races.map(race => {
+    // Also ensure all races have an order field
+    const races = this.storage.elevage_races.map((race, index) => {
+      const migratedRace = {
+        ...race,
+        order: race.order !== undefined ? race.order : index
+      };
       if (race.type === 'poules') {
-        return {
-          ...race,
-          type: 'poussins'
-        };
+        migratedRace.type = 'poussins';
       }
-      return race;
+      return migratedRace;
+    });
+    
+    // Sort by order
+    return races.sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : 999;
+      const orderB = b.order !== undefined ? b.order : 999;
+      return orderA - orderB;
     });
   }
 
@@ -2365,6 +2543,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.elevage_races.findIndex(r => r.id == id);
     if (index !== -1) {
       this.storage.elevage_races[index] = { ...this.storage.elevage_races[index], ...race };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2375,9 +2554,31 @@ class SimpleTestDatabaseService {
     const index = this.storage.elevage_races.findIndex(r => r.id == id);
     if (index !== -1) {
       this.storage.elevage_races.splice(index, 1);
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
+  }
+
+  async reorderRaces(raceId1, raceId2) {
+    console.log('🔄 reorderRaces called');
+    const race1Index = this.storage.elevage_races.findIndex(r => r.id == raceId1);
+    const race2Index = this.storage.elevage_races.findIndex(r => r.id == raceId2);
+    
+    if (race1Index === -1 || race2Index === -1) {
+      return { rowsAffected: 0 };
+    }
+    
+    // Swap the order values
+    const race1 = this.storage.elevage_races[race1Index];
+    const race2 = this.storage.elevage_races[race2Index];
+    
+    const tempOrder = race1.order !== undefined ? race1.order : race1Index;
+    race1.order = race2.order !== undefined ? race2.order : race2Index;
+    race2.order = tempOrder;
+    
+    await this.saveToStorage();
+    return { rowsAffected: 2 };
   }
 
   // Historique CRUD
@@ -2385,10 +2586,12 @@ class SimpleTestDatabaseService {
     console.log('➕ addHistorique called');
     const newEntry = { id: Date.now(), ...entry };
     this.storage.elevage_historique.push(newEntry);
+    await this.saveToStorage();
     return { insertId: newEntry.id };
   }
 
   async getHistorique(lotId = null) {
+    await this.waitForInitialization();
     console.log('📋 getHistorique called');
     if (lotId) {
       return this.storage.elevage_historique.filter(h => h.lot_id == lotId);
@@ -2461,6 +2664,7 @@ class SimpleTestDatabaseService {
     console.log('💰 savePricingGrid called');
     this._initializeDefaultPricingGrids();
     this.storage.pricing_grids[animalType] = pricingGrid;
+    await this.saveToStorage();
     return { success: true };
   }
 
@@ -2598,6 +2802,7 @@ class SimpleTestDatabaseService {
       this.storage.order_pricing = {};
     }
     this.storage.order_pricing[orderId] = pricingData;
+    await this.saveToStorage();
     return { success: true };
   }
 
@@ -2624,6 +2829,7 @@ class SimpleTestDatabaseService {
       this.storage.saved_formulas = [];
     }
     this.storage.saved_formulas.push(formula);
+    await this.saveToStorage();
     return { insertId: formula.id };
   }
 
@@ -2631,6 +2837,7 @@ class SimpleTestDatabaseService {
     console.log('🗑️ deleteFormula called');
     if (this.storage.saved_formulas) {
       this.storage.saved_formulas = this.storage.saved_formulas.filter(f => f.id !== id);
+      await this.saveToStorage();
     }
     return 1;
   }
@@ -2649,6 +2856,7 @@ class SimpleTestDatabaseService {
     }
     const newMessage = { id: Date.now(), ...message };
     this.storage.template_messages.push(newMessage);
+    await this.saveToStorage();
     return { insertId: newMessage.id };
   }
 
@@ -2660,6 +2868,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.template_messages.findIndex(m => m.id == id);
     if (index !== -1) {
       this.storage.template_messages[index] = { ...this.storage.template_messages[index], ...message };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2669,6 +2878,7 @@ class SimpleTestDatabaseService {
     console.log('🗑️ deleteTemplateMessage called');
     if (this.storage.template_messages) {
       this.storage.template_messages = this.storage.template_messages.filter(m => m.id !== id);
+      await this.saveToStorage();
     }
     return 1;
   }
@@ -2684,10 +2894,12 @@ class SimpleTestDatabaseService {
       parents: animal.parents || { mother: animal.mother || '', father: animal.father || '' }
     };
     this.storage.caprin_animals.push(newAnimal);
+    await this.saveToStorage();
     return { insertId: newAnimal.id };
   }
 
   async getCaprinAnimals() {
+    await this.waitForInitialization();
     console.log('📋 getCaprinAnimals called');
     return this.storage.caprin_animals;
   }
@@ -2702,6 +2914,7 @@ class SimpleTestDatabaseService {
         parents: { mother: animal.mother || this.storage.caprin_animals[index].parents.mother, 
                   father: animal.father || this.storage.caprin_animals[index].parents.father }
       };
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2712,6 +2925,7 @@ class SimpleTestDatabaseService {
     const index = this.storage.caprin_animals.findIndex(a => a.id == id);
     if (index !== -1) {
       this.storage.caprin_animals.splice(index, 1);
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2725,6 +2939,7 @@ class SimpleTestDatabaseService {
         this.storage.caprin_animals[animalIndex].milkProduction = [];
       }
       this.storage.caprin_animals[animalIndex].milkProduction.push(milkData);
+      await this.saveToStorage();
       return { insertId: Date.now() };
     }
     return { insertId: null };
@@ -2736,6 +2951,7 @@ class SimpleTestDatabaseService {
       this.storage.caprin_settings.groupMilkProduction = [];
     }
     this.storage.caprin_settings.groupMilkProduction.push(milkData);
+    await this.saveToStorage();
     return { insertId: Date.now() };
   }
 
@@ -2747,6 +2963,7 @@ class SimpleTestDatabaseService {
   async updateCaprinSettings(settings) {
     console.log('⚙️ updateCaprinSettings called');
     this.storage.caprin_settings = { ...this.storage.caprin_settings, ...settings };
+    await this.saveToStorage();
     return { rowsAffected: 1 };
   }
 
@@ -2804,6 +3021,8 @@ class SimpleTestDatabaseService {
         deaths_unsexed: newDeathsUnsexed
       };
       
+      await this.saveToStorage();
+      
       // Ajouter à l'historique avec détails par sexe
       const maleDeaths = newDeathsMales - (currentRace.deaths_males || 0);
       const femaleDeaths = newDeathsFemales - (currentRace.deaths_females || 0);
@@ -2855,6 +3074,7 @@ class SimpleTestDatabaseService {
         });
       }
       
+      await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2871,6 +3091,7 @@ class SimpleTestDatabaseService {
       notes: notes,
       updated_at: getNowISO()
     };
+    await this.saveToStorage();
     return { rowsAffected: 1 };
   }
 
@@ -2897,6 +3118,7 @@ class SimpleTestDatabaseService {
       createdAt: new Date().toISOString()
     };
     this.storage.cheese_productions.push(newProduction);
+    await this.saveToStorage();
     return newProduction;
   }
 
@@ -2916,6 +3138,7 @@ class SimpleTestDatabaseService {
         ...production, 
         updatedAt: new Date().toISOString() 
       };
+      await this.saveToStorage();
       return this.storage.cheese_productions[index];
     }
     throw new Error('Cheese production not found');
@@ -2925,6 +3148,7 @@ class SimpleTestDatabaseService {
     console.log('🧀 deleteCheeseProduction called');
     this.storage.cheese_productions = this.storage.cheese_productions || [];
     this.storage.cheese_productions = this.storage.cheese_productions.filter(p => p.id !== id);
+    await this.saveToStorage();
   }
 
   // Cheese Recipes Management
@@ -2937,6 +3161,7 @@ class SimpleTestDatabaseService {
       createdAt: new Date().toISOString()
     };
     this.storage.cheese_recipes.push(newRecipe);
+    await this.saveToStorage();
     return newRecipe;
   }
 
@@ -2956,6 +3181,7 @@ class SimpleTestDatabaseService {
         ...recipe, 
         updatedAt: new Date().toISOString() 
       };
+      await this.saveToStorage();
       return this.storage.cheese_recipes[index];
     }
     throw new Error('Cheese recipe not found');
@@ -2965,6 +3191,7 @@ class SimpleTestDatabaseService {
     console.log('🧀 deleteCheeseRecipe called');
     this.storage.cheese_recipes = this.storage.cheese_recipes || [];
     this.storage.cheese_recipes = this.storage.cheese_recipes.filter(r => r.id !== id);
+    await this.saveToStorage();
   }
 
   // Cheese Settings Management
@@ -2981,6 +3208,7 @@ class SimpleTestDatabaseService {
   async updateCheeseSettings(settings) {
     console.log('🧀 updateCheeseSettings called');
     this.storage.cheese_settings = { ...this.storage.cheese_settings, ...settings };
+    await this.saveToStorage();
   }
 
   // Get cheese products for orders (from recipes)

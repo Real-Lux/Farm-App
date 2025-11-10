@@ -10,7 +10,8 @@ import {
   Alert,
   FlatList,
   StatusBar,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -271,8 +272,15 @@ export default function DateTrackingScreen() {
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <ScrollView contentContainerStyle={styles.modalScrollContainer}>
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <ScrollView 
+            contentContainerStyle={styles.modalScrollContainer}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>
                 {editingEvent ? 'Modifier l\'événement' : 'Ajouter un événement'}
@@ -356,7 +364,7 @@ export default function DateTrackingScreen() {
               </View>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
       </SafeAreaView>
     </View>

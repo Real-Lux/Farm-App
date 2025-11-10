@@ -157,25 +157,39 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
-          setOrders(orders.filter(o => o.id !== id));
-          
-          // Sync with calendar when orders change
-          // database is not imported, assuming it's available globally or imported elsewhere
           try {
-            // await database.syncOrdersWithCalendar();
-            console.log('📅 Calendar synced after order deletion');
+            // Delete from database first
+            await database.deleteOrder(id);
+            // Update local state
+            setOrders(orders.filter(o => o.id !== id));
+            console.log('✅ Order deleted from database');
           } catch (error) {
-            console.error('Error syncing calendar after deletion:', error);
+            console.error('Error deleting order:', error);
+            Alert.alert('Erreur', 'Impossible de supprimer la commande');
           }
         }}
       ]
     );
   };
 
-  const updateOrderStatus = (orderId, newStatus) => {
-    setOrders(orders.map(o => 
-      o.id === orderId ? { ...o, status: newStatus } : o
-    ));
+  const updateOrderStatus = async (orderId, newStatus) => {
+    try {
+      // Find the order
+      const order = orders.find(o => o.id === orderId);
+      if (order) {
+        // Update in database
+        await database.updateOrder(orderId, { ...order, status: newStatus });
+        // Update local state
+        setOrders(orders.map(o => 
+          o.id === orderId ? { ...o, status: newStatus } : o
+        ));
+        // Sync with calendar
+        await database.syncOrdersWithCalendar();
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
+    }
   };
 
   // Status colors and icons are now imported from StatusConstants

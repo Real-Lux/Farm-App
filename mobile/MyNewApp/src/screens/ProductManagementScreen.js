@@ -11,7 +11,8 @@ import {
   Alert,
   FlatList,
   StatusBar,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -1141,11 +1142,20 @@ export default function ProductManagementScreen({ navigation }) {
           visible={modalVisible}
           onRequestClose={() => setModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
-              </Text>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>
+                  {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
+                </Text>
 
               <TextInput
                 style={styles.input}
@@ -1215,8 +1225,9 @@ export default function ProductManagementScreen({ navigation }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Message Template Modal */}
@@ -1226,11 +1237,20 @@ export default function ProductManagementScreen({ navigation }) {
           visible={messageModalVisible}
           onRequestClose={() => setMessageModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                {editingMessage ? 'Modifier le message' : 'Nouveau message modèle'}
-              </Text>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>
+                  {editingMessage ? 'Modifier le message' : 'Nouveau message modèle'}
+                </Text>
 
               <TextInput
                 style={styles.input}
@@ -1300,8 +1320,9 @@ export default function ProductManagementScreen({ navigation }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
 
@@ -1584,16 +1605,25 @@ export default function ProductManagementScreen({ navigation }) {
           visible={saveFormulaModal}
           onRequestClose={() => setSaveFormulaModal(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>💾 Sauvegarder Formule</Text>
-              
-              <Text style={styles.saveFormulaDescription}>
-                Donnez un nom à votre formule pour la retrouver facilement :
-              </Text>
-              
-              <TextInput
-                style={styles.input}
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>💾 Sauvegarder Formule</Text>
+                
+                <Text style={styles.saveFormulaDescription}>
+                  Donnez un nom à votre formule pour la retrouver facilement :
+                </Text>
+                
+                <TextInput
+                  style={styles.input}
                 placeholder="Nom de la formule (ex: Dosage Antibiotique)"
                 placeholderTextColor="#999"
                 value={formulaName}
@@ -1621,8 +1651,9 @@ export default function ProductManagementScreen({ navigation }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* New Animal Type Modal */}
@@ -1632,16 +1663,25 @@ export default function ProductManagementScreen({ navigation }) {
           visible={newAnimalTypeModal}
           onRequestClose={() => setNewAnimalTypeModal(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>🆕 Nouveau Type d'Animal</Text>
-              
-              <Text style={styles.templateDescription}>
-                Créez une nouvelle grille tarifaire pour un type d'animal :
-              </Text>
-              
-              <TextInput
-                style={styles.input}
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>🆕 Nouveau Type d'Animal</Text>
+                
+                <Text style={styles.templateDescription}>
+                  Créez une nouvelle grille tarifaire pour un type d'animal :
+                </Text>
+                
+                <TextInput
+                  style={styles.input}
                 placeholder="Ex: Canards, Oies, Chèvres, Lapins..."
                 placeholderTextColor="#999"
                 value={newAnimalTypeName}
@@ -1667,8 +1707,9 @@ export default function ProductManagementScreen({ navigation }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </SafeAreaView>
     </View>
@@ -2356,6 +2397,11 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxWidth: 400,
+    maxHeight: Platform.OS === 'ios' ? '85%' : '90%',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
   },
   modalTitle: {
     fontSize: 20,

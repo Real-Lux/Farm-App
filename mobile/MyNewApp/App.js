@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text, StatusBar } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { View, Text, StatusBar, Platform } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardScreen from './src/screens/DashboardScreen';
 import ProductManagementScreen from './src/screens/ProductManagementScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
@@ -167,34 +167,36 @@ function GestionNavigator({ route }) {
   );
 }
 
-export default function App() {
-  console.log('🚀 Application Ferme démarrant...');
+// Component that uses safe area insets for tab bar
+function TabNavigatorWithSafeArea() {
+  const insets = useSafeAreaInsets();
   
-  try {
-    return (
-      <SafeAreaProvider>
-        <View style={{ flex: 1 }}>
-          <StatusBar barStyle="light-content" backgroundColor="#4CAF50" />
-          <NavigationContainer>
-          <Tab.Navigator
-            screenOptions={{
-              tabBarActiveTintColor: '#4CAF50',
-              tabBarInactiveTintColor: '#999',
-              headerShown: false,
-              tabBarStyle: {
-                backgroundColor: 'white',
-                borderTopWidth: 1,
-                borderTopColor: '#e0e0e0',
-                paddingBottom: 35,
-                paddingTop: 8,
-                height: 95,
-              },
-              tabBarLabelStyle: {
-                fontSize: 12,
-                fontWeight: '600',
-              }
-            }}
-          >
+  // Calculate bottom padding: base padding + safe area inset
+  // For devices with gesture navigation, insets.bottom will be > 0
+  // For devices with button navigation, insets.bottom will be 0 or small
+  const bottomPadding = Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 10);
+  const tabBarHeight = 60 + bottomPadding; // Base height + safe area
+  
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        tabBarActiveTintColor: '#4CAF50',
+        tabBarInactiveTintColor: '#999',
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: 'white',
+          borderTopWidth: 1,
+          borderTopColor: '#e0e0e0',
+          paddingBottom: bottomPadding,
+          paddingTop: 8,
+          height: tabBarHeight,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+        }
+      }}
+    >
             <Tab.Screen 
               name="Accueil" 
               component={({ navigation }) => <DashboardScreen navigation={navigation} />}
@@ -233,7 +235,20 @@ export default function App() {
               }}
             />
           </Tab.Navigator>
-        </NavigationContainer>
+  );
+}
+
+export default function App() {
+  console.log('🚀 Application Ferme démarrant...');
+  
+  try {
+    return (
+      <SafeAreaProvider>
+        <View style={{ flex: 1 }}>
+          <StatusBar barStyle="light-content" backgroundColor="#4CAF50" />
+          <NavigationContainer>
+            <TabNavigatorWithSafeArea />
+          </NavigationContainer>
         </View>
       </SafeAreaProvider>
     );

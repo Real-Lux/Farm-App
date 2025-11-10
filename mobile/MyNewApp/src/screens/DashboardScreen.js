@@ -37,12 +37,20 @@ export default function DashboardScreen({ navigation }) {
   // Refresh data when screen comes into focus (user navigates back to dashboard)
   useFocusEffect(
     useCallback(() => {
-      loadDashboardData();
+      console.log('📊 Dashboard: Screen focused, refreshing data...');
+      // Add a small delay to ensure navigation is complete
+      const timer = setTimeout(() => {
+        loadDashboardData();
+      }, 100);
+      return () => clearTimeout(timer);
     }, [])
   );
 
   const loadDashboardData = async () => {
     try {
+      // Wait for database initialization to complete
+      await database.waitForInitialization();
+      
       const [products, orders, events, lots, historique] = await Promise.all([
         database.getProducts(),
         database.getOrders(),
@@ -51,17 +59,27 @@ export default function DashboardScreen({ navigation }) {
         database.getHistorique()
       ]);
 
+      console.log('📊 Dashboard: Loading data -', {
+        products: products.length,
+        orders: orders.length,
+        events: events.length,
+        lots: lots.length
+      });
+
       const pendingOrders = orders.filter(order => order.status === 'En attente');
       const totalRevenue = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
       const lowStockItems = products.filter(product => (product.quantity || 0) < 10).length;
 
-      setStats({
+      const newStats = {
         totalProducts: products.length,
         totalOrders: orders.length,
         pendingOrders: pendingOrders.length,
         totalRevenue: totalRevenue,
         lowStockItems: lowStockItems
-      });
+      };
+
+      console.log('📊 Dashboard: Setting stats -', newStats);
+      setStats(newStats);
 
       // Get events for the next 7 days
       const today = new Date();

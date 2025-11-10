@@ -10,7 +10,8 @@ import {
   Alert,
   FlatList,
   StatusBar,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
@@ -1211,9 +1212,17 @@ export default function CaprinScreen({ navigation, route }) {
           visible={modalVisible && modalType === 'animal'}
           onRequestClose={() => setModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.modalContent}>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
                 <Text style={styles.modalTitle}>
                   {editingItem ? 'Modifier l\'Animal' : 'Nouvel Animal'}
                 </Text>
@@ -1439,7 +1448,7 @@ export default function CaprinScreen({ navigation, route }) {
                 </View>
               </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Milk Production Modal */}
@@ -1449,8 +1458,17 @@ export default function CaprinScreen({ navigation, route }) {
           visible={modalVisible && modalType === 'milk'}
           onRequestClose={() => setModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
             <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
               <Text style={styles.modalTitle}>Production Laitière</Text>
 
               <View style={styles.dateFieldContainer}>
@@ -1512,8 +1530,9 @@ export default function CaprinScreen({ navigation, route }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Group Milk Production Modal */}
@@ -2282,7 +2301,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 20,
     width: '95%',
-    maxHeight: '80%',
+    maxHeight: Platform.OS === 'ios' ? '85%' : '90%',
+  },
+  modalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
   },
   modalTitle: {
     fontSize: 20,

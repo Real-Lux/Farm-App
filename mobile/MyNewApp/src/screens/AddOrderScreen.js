@@ -9,7 +9,8 @@ import {
   Alert,
   Modal,
   StatusBar,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
@@ -830,7 +831,11 @@ export default function AddOrderScreen({ navigation, route }) {
   const isFormValid = orderForm.customerName && (hasAdoptionItems || hasProducts);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <View style={styles.header}>
         <View style={styles.headerContent}>
@@ -863,8 +868,12 @@ export default function AddOrderScreen({ navigation, route }) {
         </View>
       </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
-
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={true}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={true}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.scrollViewContent}
+      >
         {/* Delivery Date - Moved to top */}
         <View style={styles.dateContainer}>
           <Text style={styles.dropdownLabel}>Date de livraison *</Text>
@@ -1521,6 +1530,7 @@ export default function AddOrderScreen({ navigation, route }) {
         {/* Bottom padding for scroll */}
         <View style={styles.bottomPadding} />
       </ScrollView>
+      </SafeAreaView>
 
       {/* Modal de sélection de lots */}
       <Modal
@@ -1672,7 +1682,11 @@ export default function AddOrderScreen({ navigation, route }) {
         visible={raceConfigModal}
         onRequestClose={() => setRaceConfigModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 80}
+        >
           <View style={styles.raceConfigModalContent}>
             <View style={styles.modalTitleContainer}>
               <Text style={styles.modalTitle}>
@@ -1680,7 +1694,13 @@ export default function AddOrderScreen({ navigation, route }) {
               </Text>
             </View>
 
-            <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={true}>
+            <ScrollView 
+              style={styles.modalScrollView}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
+            >
               {/* Race Selection */}
               <View style={styles.raceSelectionContainer}>
                 <Text style={styles.raceSelectionLabel}>Race *</Text>
@@ -1960,10 +1980,9 @@ export default function AddOrderScreen({ navigation, route }) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
-      </SafeAreaView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -2027,7 +2046,10 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollViewContent: {
     padding: 20,
+    paddingBottom: 40,
   },
   dropdownContainer: {
     marginBottom: 20,
@@ -2651,8 +2673,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 12,
     width: '95%',
-    height: '85%',
+    maxHeight: Platform.OS === 'ios' ? '85%' : '90%',
     flexDirection: 'column',
+    maxWidth: 500,
+    alignSelf: 'center',
+    minHeight: 400,
+    overflow: 'hidden',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 20,
   },
   modalTitleContainer: {
     padding: 16,
