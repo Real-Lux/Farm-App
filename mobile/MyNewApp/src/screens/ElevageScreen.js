@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -13,7 +13,9 @@ import {
   StatusBar,
   Platform,
   KeyboardAvoidingView,
-  PanResponder
+  PanResponder,
+  Animated,
+  Dimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
@@ -36,12 +38,9 @@ export default function ElevageScreen({ navigation }) {
   const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
   const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
-  
-  // Drag and drop state for races
-  const [draggingRaceId, setDraggingRaceId] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
-  const [dragStartY, setDragStartY] = useState(0);
-  const [dragCurrentY, setDragCurrentY] = useState(0);
+  const [isDraggingRace, setIsDraggingRace] = useState(false); // Track if any race is being dragged
+  const racesFlatListRef = useRef(null); // Ref for races FlatList
+  const racesScrollOffset = useRef(0); // Track current scroll offset
   
   const [lotForm, setLotForm] = useState({
     name: '',
@@ -57,6 +56,7 @@ export default function ElevageScreen({ navigation }) {
     fertilized_count: '', // Number of fertilized eggs
     rejected_count: '', // Number of rejected/unfertilized eggs
     hatched_count: '', // Number of hatched animals (becomes initial/current)
+    estimated_success_rate: '', // Estimated success rate percentage (e.g., 80 for 80%)
     races: {}, // For poultry: races within the species
     status: 'Actif',
     notes: ''
@@ -260,7 +260,9 @@ export default function ElevageScreen({ navigation }) {
       estimated_max_date: '',
       eggs_count: '',
       fertilized_count: '',
+      rejected_count: '',
       hatched_count: '',
+      estimated_success_rate: '',
       races: {},
       status: 'Actif',
       notes: ''
@@ -285,6 +287,7 @@ export default function ElevageScreen({ navigation }) {
       fertilized_count: lot.fertilized_count?.toString() || '',
       rejected_count: lot.rejected_count?.toString() || '',
       hatched_count: lot.hatched_count?.toString() || '',
+      estimated_success_rate: lot.estimated_success_rate?.toString() || '',
       races: lot.races,
       status: lot.status,
       notes: lot.notes
@@ -309,6 +312,7 @@ export default function ElevageScreen({ navigation }) {
     });
     setModalVisible(true);
   };
+
 
   const openIncubationUpdateModal = (lot) => {
     setEditingItem(lot);
@@ -413,23 +417,36 @@ export default function ElevageScreen({ navigation }) {
       finalLotForm.fertilized_count = parseInt(finalLotForm.fertilized_count) || 0;
       finalLotForm.rejected_count = parseInt(finalLotForm.rejected_count) || 0;
       finalLotForm.hatched_count = parseInt(finalLotForm.hatched_count) || 0;
+      finalLotForm.estimated_success_rate = parseFloat(finalLotForm.estimated_success_rate) || null;
 
-      // Only set initial/current from hatched_count if it's actually provided
-      // This allows initial creation with just eggs_count
-      if (finalLotForm.hatched_count > 0 && Object.keys(finalLotForm.races).length > 0) {
-        // Distribute hatched_count across races
-        const raceNames = Object.keys(finalLotForm.races);
-        const hatchedPerRace = Math.floor(finalLotForm.hatched_count / raceNames.length);
-        const remainder = finalLotForm.hatched_count % raceNames.length;
+      // Calculate initial quantities from hatched_count (real data) or estimated_success_rate (estimation)
+      if (Object.keys(finalLotForm.races).length > 0) {
+        let totalInitial = 0;
+        
+        // Priority 1: Use hatched_count if available (real data)
+        if (finalLotForm.hatched_count > 0) {
+          totalInitial = finalLotForm.hatched_count;
+        }
+        // Priority 2: Calculate from estimated_success_rate if no hatched_count but eggs_count and rate are provided
+        else if (finalLotForm.eggs_count > 0 && finalLotForm.estimated_success_rate && finalLotForm.estimated_success_rate > 0) {
+          totalInitial = Math.round(finalLotForm.eggs_count * (finalLotForm.estimated_success_rate / 100));
+        }
 
-        raceNames.forEach((raceName, index) => {
-          const count = hatchedPerRace + (index < remainder ? 1 : 0);
-          finalLotForm.races[raceName] = {
-            ...finalLotForm.races[raceName],
-            initial: count,
-            current: count
-          };
-        });
+        // Distribute totalInitial across races
+        if (totalInitial > 0) {
+          const raceNames = Object.keys(finalLotForm.races);
+          const initialPerRace = Math.floor(totalInitial / raceNames.length);
+          const remainder = totalInitial % raceNames.length;
+
+          raceNames.forEach((raceName, index) => {
+            const count = initialPerRace + (index < remainder ? 1 : 0);
+            finalLotForm.races[raceName] = {
+              ...finalLotForm.races[raceName],
+              initial: count,
+              current: count
+            };
+          });
+        }
       }
 
       if (editingItem) {
@@ -684,6 +701,52 @@ export default function ElevageScreen({ navigation }) {
     return lots.filter(lot => lot.races[raceName] && lot.races[raceName].current > 0);
   };
 
+  // Check if a lot uses estimated quantities (has estimated_success_rate but no hatched_count)
+  const isLotEstimated = (lot) => {
+    if (!lot) return false;
+    return lot.eggs_count > 0 && 
+           (!lot.hatched_count || lot.hatched_count === 0) && 
+           lot.estimated_success_rate && 
+           lot.estimated_success_rate > 0;
+  };
+
+  // Reusable component for gender badges
+  const GenderBadges = ({ males = 0, females = 0, unsexed = 0, showPercent = false, total = null, alwaysShow = false }) => {
+    const totalCount = total !== null ? total : (males + females + unsexed);
+    const malePercent = totalCount > 0 ? ((males / totalCount * 100).toFixed(1)) : '0.0';
+    const femalePercent = totalCount > 0 ? ((females / totalCount * 100).toFixed(1)) : '0.0';
+    
+    return (
+      <View style={styles.genderBadgesContainer}>
+        {(males > 0 || alwaysShow) && (
+          <View style={[styles.genderBadge, styles.maleBadge, males === 0 && styles.genderBadgeEmpty]}>
+            <Text style={styles.genderBadgeIcon}>♂️</Text>
+            <Text style={styles.genderBadgeText}>{males}</Text>
+            {showPercent && males > 0 && <Text style={styles.genderBadgePercent}>[{malePercent}%]</Text>}
+          </View>
+        )}
+        {(females > 0 || alwaysShow) && (
+          <View style={[styles.genderBadge, styles.femaleBadge, females === 0 && styles.genderBadgeEmpty]}>
+            <Text style={styles.genderBadgeIcon}>♀️</Text>
+            <Text style={styles.genderBadgeText}>{females}</Text>
+            {showPercent && females > 0 && <Text style={styles.genderBadgePercent}>[{femalePercent}%]</Text>}
+          </View>
+        )}
+        {(unsexed > 0 || alwaysShow) && (
+          <View style={[styles.genderBadge, styles.unsexedBadge, unsexed === 0 && styles.genderBadgeEmpty]}>
+            <Text style={styles.genderBadgeIcon}>❓</Text>
+            <Text style={styles.genderBadgeText}>{unsexed}</Text>
+          </View>
+        )}
+        {!alwaysShow && males === 0 && females === 0 && unsexed === 0 && (
+          <View style={[styles.genderBadge, styles.emptyBadge]}>
+            <Text style={styles.genderBadgeText}>0</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   const toggleLotCollapse = async (lotId) => {
     const newCollapsedLots = {
       ...collapsedLots,
@@ -745,9 +808,10 @@ export default function ElevageScreen({ navigation }) {
     const lotStatus = getLotStatus(item);
     const totalAlive = Object.values(item.races).reduce((total, race) => total + race.current, 0);
     const totalInitial = Object.values(item.races).reduce((total, race) => total + race.initial, 0);
+    const isEstimated = isLotEstimated(item);
     
     return (
-      <View style={styles.card}>
+      <View style={[styles.card, isEstimated && styles.cardEstimated]}>
         <TouchableOpacity 
           style={styles.cardHeader}
           onPress={() => toggleLotCollapse(item.id)}
@@ -765,6 +829,11 @@ export default function ElevageScreen({ navigation }) {
               {isCollapsed ? '▶' : '▼'}
             </Text>
             <Text style={styles.cardTitle}>{item.name}</Text>
+            {isEstimated && (
+              <View style={styles.estimatedBadge}>
+                <Text style={styles.estimatedBadgeText}>⚠️ Estimé</Text>
+              </View>
+            )}
           </View>
           <View style={styles.cardHeaderRight}>
             {isCollapsed && (
@@ -780,6 +849,13 @@ export default function ElevageScreen({ navigation }) {
         
         {!isCollapsed && (
           <>
+            {isEstimated && (
+              <View style={styles.estimatedWarning}>
+                <Text style={styles.estimatedWarningText}>
+                  ⚠️ Quantités estimées: {item.eggs_count} œufs × {item.estimated_success_rate}% = {totalInitial} initiaux estimés
+                </Text>
+              </View>
+            )}
             <View style={styles.cardDetails}>
               {item.species && (
                 <Text style={styles.cardInfo}>🐾 Espèce: {item.species}</Text>
@@ -888,8 +964,22 @@ export default function ElevageScreen({ navigation }) {
                       </Text>
                     </View>
                     <View style={styles.raceStats}>
-                      <Text style={styles.raceStatText}>🐓 {raceData.current} restants (♂️ {raceData.males || 0} | ♀️ {raceData.females || 0} | ❓ {raceData.unsexed || 0})</Text>
-                      <Text style={styles.raceStatText}>💀 {raceData.deaths || 0} morts (♂️ {raceData.deaths_males || 0} | ♀️ {raceData.deaths_females || 0} | ❓ {raceData.deaths_unsexed || 0})</Text>
+                      <View style={styles.raceStatRow}>
+                        <Text style={styles.raceStatLabel}>🐓 {raceData.current} restants</Text>
+                        <GenderBadges 
+                          males={raceData.males || 0} 
+                          females={raceData.females || 0} 
+                          unsexed={raceData.unsexed || 0} 
+                        />
+                      </View>
+                      <View style={styles.raceStatRow}>
+                        <Text style={styles.raceStatLabel}>💀 {raceData.deaths || 0} morts</Text>
+                        <GenderBadges 
+                          males={raceData.deaths_males || 0} 
+                          females={raceData.deaths_females || 0} 
+                          unsexed={raceData.deaths_unsexed || 0} 
+                        />
+                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -926,159 +1016,34 @@ export default function ElevageScreen({ navigation }) {
     );
   };
 
-  const RaceItem = ({ item, index, totalRaces, sortedRaces }) => {
+  const RaceItem = ({ item, index, totalRaces, sortedRaces, setIsDraggingRace, flatListRef, scrollOffsetRef }) => {
     const lotsWithRace = getLotsByRace(item.name);
     const totalStock = lotsWithRace.reduce((total, lot) => total + lot.races[item.name].current, 0);
-    const isDragging = draggingRaceId === item.id;
-    const isDragOver = dragOverIndex === index && draggingRaceId !== item.id;
-    const longPressTimer = useRef(null);
+    
+    const translateY = useRef(new Animated.Value(0)).current;
+    const scale = useRef(new Animated.Value(1)).current;
+    const opacity = useRef(new Animated.Value(1)).current;
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragOverIndex, setDragOverIndex] = useState(null);
     const touchStartY = useRef(0);
     const touchStartIndex = useRef(index);
-    const isDraggingRef = useRef(false);
+    const cardHeight = useRef(130); // Approximate card height
+    const longPressTimer = useRef(null);
     const touchStartTime = useRef(0);
     const hasMoved = useRef(false);
-    const touchStartX = useRef(0);
-    const touchStartYRef = useRef(0);
-    const cardRef = useRef(null);
-    
-    isDraggingRef.current = isDragging;
-    
-    // PanResponder that works with FlatList by using capture
-    const panResponder = useRef(
-      PanResponder.create({
-        onStartShouldSetPanResponder: (evt) => {
-          // Don't capture if touch is on delete button
-          const touchX = evt.nativeEvent.locationX;
-          if (touchX > 280) {
-            return false;
-          }
-          // Only capture if we're already dragging
-          return isDraggingRef.current;
-        },
-        onStartShouldSetPanResponderCapture: (evt) => {
-          // Capture at capture phase to beat FlatList
-          if (isDraggingRef.current) {
-            return true;
-          }
-          const touchX = evt.nativeEvent.locationX;
-          if (touchX > 280) {
-            return false;
-          }
-          return false; // Don't capture initially, wait for long press
-        },
-        onMoveShouldSetPanResponder: (evt, gestureState) => {
-          if (isDraggingRef.current) {
-            return true;
-          }
-          return false;
-        },
-        onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-          // Capture movement if dragging
-          if (isDraggingRef.current) {
-            return true;
-          }
-          // Also capture if we've held long enough and moved vertically
-          const timeHeld = Date.now() - touchStartTime.current;
-          if (timeHeld > 300 && Math.abs(gestureState.dy) > 15 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5) {
-            // Start dragging
-            setDraggingRaceId(item.id);
-            touchStartY.current = evt.nativeEvent.pageY;
-            touchStartIndex.current = index;
-            isDraggingRef.current = true;
-            return true;
-          }
-          return false;
-        },
-        onPanResponderGrant: (evt) => {
-          touchStartTime.current = Date.now();
-          touchStartX.current = evt.nativeEvent.locationX;
-          touchStartYRef.current = evt.nativeEvent.pageY;
-          touchStartY.current = evt.nativeEvent.pageY;
-          touchStartIndex.current = index;
-          hasMoved.current = false;
-        },
-        onPanResponderMove: (evt, gestureState) => {
-          if (isDraggingRef.current) {
-            hasMoved.current = true;
-            const currentY = evt.nativeEvent.pageY;
-            setDragCurrentY(currentY);
-            
-            // Calculate target index based on movement
-            const cardHeight = 120;
-            const deltaY = gestureState.dy;
-            const newIndex = Math.max(0, Math.min(totalRaces - 1, Math.round(touchStartIndex.current + deltaY / cardHeight)));
-            
-            if (newIndex !== index && newIndex >= 0 && newIndex < totalRaces) {
-              setDragOverIndex(newIndex);
-            }
-          }
-        },
-        onPanResponderRelease: async (evt) => {
-          if (isDraggingRef.current) {
-            // Handle drop
-            if (dragOverIndex !== null && dragOverIndex !== index && sortedRaces) {
-              try {
-                const targetRace = sortedRaces[dragOverIndex];
-                await database.reorderRaces(item.id, targetRace.id);
-                loadData();
-              } catch (error) {
-                console.error('Erreur lors du déplacement:', error);
-                Alert.alert('Erreur', 'Impossible de déplacer la race');
-              }
-            }
-            
-            // Reset dragging state
-            isDraggingRef.current = false;
-            setDraggingRaceId(null);
-            setDragOverIndex(null);
-            setDragStartY(0);
-            setDragCurrentY(0);
-          } else if (!hasMoved.current) {
-            // Quick tap - open edit
-            const touchX = evt.nativeEvent?.locationX || 0;
-            const timeHeld = Date.now() - touchStartTime.current;
-            if (timeHeld < 300 && touchX <= 280) {
-              setTimeout(() => {
-                if (!draggingRaceId) {
-                  handleEdit();
-                }
-              }, 50);
-            }
-          }
-          
-          hasMoved.current = false;
-          touchStartTime.current = 0;
-        },
-        onPanResponderTerminate: () => {
-          isDraggingRef.current = false;
-          setDraggingRaceId(null);
-          setDragOverIndex(null);
-          hasMoved.current = false;
-          touchStartTime.current = 0;
-        },
-      })
-    ).current;
-    
-    const handleLongPress = (evt) => {
-      if (!isDraggingRef.current) {
-        touchStartTime.current = Date.now();
-        touchStartY.current = evt.nativeEvent?.pageY || 0;
-        touchStartIndex.current = index;
-        setDraggingRaceId(item.id);
-        isDraggingRef.current = true;
-      }
-    };
+    const autoScrollTimer = useRef(null);
+    const currentPageY = useRef(0);
     
     const handleEdit = () => {
-      if (draggingRaceId) return;
-              setEditingItem(item);
-              setModalType('race');
-              setRaceForm({
-                name: item.name,
-                type: item.type,
-                description: item.description
-              });
-              setModalVisible(true);
+      if (isDragging) return;
+      setEditingItem(item);
+      setModalType('race');
+      setRaceForm({
+        name: item.name,
+        type: item.type,
+        description: item.description
+      });
+      setModalVisible(true);
     };
 
     const handleDelete = (e) => {
@@ -1101,62 +1066,282 @@ export default function ElevageScreen({ navigation }) {
       );
     };
 
+    const startDragging = useCallback(() => {
+      setIsDragging(true);
+      setIsDraggingRace(true);
+      
+      // Visual feedback when dragging starts
+      Animated.parallel([
+        Animated.spring(scale, {
+          toValue: 1.05,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.8,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, []);
 
-    const handleMoveUp = async (e) => {
-      e.stopPropagation();
-      if (index > 0 && sortedRaces) {
-        try {
-          await database.reorderRaces(item.id, sortedRaces[index - 1].id);
-          loadData();
-        } catch (error) {
-          console.error('Erreur lors du déplacement:', error);
-          Alert.alert('Erreur', 'Impossible de déplacer la race');
+    const panResponder = useMemo(() => PanResponder.create({
+      onStartShouldSetPanResponder: (evt) => {
+        // Check if touch is on drag handle (left side, first 50px)
+        const touchX = evt.nativeEvent.locationX;
+        return touchX < 50 || isDragging;
+      },
+      onStartShouldSetPanResponderCapture: (evt) => {
+        // Capture if on drag handle or already dragging
+        const touchX = evt.nativeEvent.locationX;
+        return touchX < 50 || isDragging;
+      },
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // If already dragging, capture all moves
+        if (isDragging) {
+          return true;
         }
-      }
-    };
-
-    const handleMoveDown = async (e) => {
-      e.stopPropagation();
-      if (index < totalRaces - 1 && sortedRaces) {
-        try {
-          await database.reorderRaces(item.id, sortedRaces[index + 1].id);
-          loadData();
-        } catch (error) {
-          console.error('Erreur lors du déplacement:', error);
-          Alert.alert('Erreur', 'Impossible de déplacer la race');
+        // Check if we've held long enough (300ms) and moved vertically
+        const timeHeld = Date.now() - touchStartTime.current;
+        return timeHeld > 300 && Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
+      },
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+        // Use capture to beat FlatList
+        if (isDragging) {
+          return true;
         }
-      }
-    };
+        const timeHeld = Date.now() - touchStartTime.current;
+        const touchX = evt.nativeEvent.locationX;
+        // Also capture if on drag handle
+        if (touchX < 50) {
+          return true;
+        }
+        return timeHeld > 300 && Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
+      },
+      onPanResponderGrant: (evt) => {
+        touchStartTime.current = Date.now();
+        touchStartY.current = evt.nativeEvent.pageY;
+        touchStartIndex.current = index;
+        hasMoved.current = false;
+        
+        // Check if touch is on drag handle (left side, first 50px)
+        const touchX = evt.nativeEvent.locationX;
+        if (touchX < 50) {
+          // Start dragging immediately if on drag handle
+          startDragging();
+        } else {
+          // Start long press timer for other areas
+          longPressTimer.current = setTimeout(() => {
+            if (!hasMoved.current) {
+              startDragging();
+            }
+          }, 300);
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (isDragging) {
+          hasMoved.current = true;
+          const currentY = evt.nativeEvent.pageY;
+          currentPageY.current = currentY;
+          const deltaY = currentY - touchStartY.current;
+          
+          // Update translateY for visual feedback
+          translateY.setValue(deltaY);
+          
+          // Calculate target index based on movement
+          const newIndex = Math.max(0, Math.min(totalRaces - 1, Math.round(touchStartIndex.current + deltaY / cardHeight.current)));
+          
+          if (newIndex !== dragOverIndex && newIndex !== index && newIndex >= 0 && newIndex < totalRaces) {
+            setDragOverIndex(newIndex);
+          }
+          
+          // Auto-scroll logic
+          if (flatListRef && flatListRef.current && scrollOffsetRef) {
+            const screenHeight = Dimensions.get('window').height;
+            const scrollThreshold = 100; // Distance from top/bottom to trigger scroll
+            const scrollSpeed = 15; // Pixels to scroll per interval
+            
+            // Clear previous timer
+            if (autoScrollTimer.current) {
+              clearInterval(autoScrollTimer.current);
+              autoScrollTimer.current = null;
+            }
+            
+            // Check if near top or bottom
+            if (currentY < scrollThreshold) {
+              // Near top - scroll up
+              autoScrollTimer.current = setInterval(() => {
+                if (flatListRef && flatListRef.current && scrollOffsetRef) {
+                  const newOffset = Math.max(0, scrollOffsetRef.current - scrollSpeed);
+                  scrollOffsetRef.current = newOffset;
+                  flatListRef.current.scrollToOffset({
+                    offset: newOffset,
+                    animated: false,
+                  });
+                }
+              }, 16); // ~60fps
+            } else if (currentY > screenHeight - scrollThreshold) {
+              // Near bottom - scroll down
+              autoScrollTimer.current = setInterval(() => {
+                if (flatListRef && flatListRef.current && scrollOffsetRef) {
+                  const newOffset = scrollOffsetRef.current + scrollSpeed;
+                  scrollOffsetRef.current = newOffset;
+                  flatListRef.current.scrollToOffset({
+                    offset: newOffset,
+                    animated: false,
+                  });
+                }
+              }, 16); // ~60fps
+            }
+          }
+        } else {
+          // Check if we should start dragging
+          const timeHeld = Date.now() - touchStartTime.current;
+          if (timeHeld > 300 && Math.abs(gestureState.dy) > 10) {
+            hasMoved.current = true;
+            startDragging();
+            touchStartY.current = evt.nativeEvent.pageY;
+            touchStartIndex.current = index;
+          }
+        }
+      },
+      onPanResponderRelease: async (evt, gestureState) => {
+        // Clear timers
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        if (autoScrollTimer.current) {
+          clearInterval(autoScrollTimer.current);
+          autoScrollTimer.current = null;
+        }
+        
+        if (isDragging) {
+          // Reset visual feedback
+          Animated.parallel([
+            Animated.spring(scale, {
+              toValue: 1,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(translateY, {
+              toValue: 0,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+          ]).start();
+          
+          // Handle drop
+          const currentDragOverIndex = dragOverIndex;
+          if (currentDragOverIndex !== null && currentDragOverIndex !== index && sortedRaces && currentDragOverIndex >= 0 && currentDragOverIndex < totalRaces) {
+            try {
+              const targetRace = sortedRaces[currentDragOverIndex];
+              await database.reorderRaces(item.id, targetRace.id);
+              loadData();
+            } catch (error) {
+              console.error('Erreur lors du déplacement:', error);
+              Alert.alert('Erreur', 'Impossible de déplacer la race');
+            }
+          }
+          
+          setIsDragging(false);
+          setIsDraggingRace(false);
+          setDragOverIndex(null);
+        } else if (!hasMoved.current) {
+          // Quick tap - open edit
+          const timeHeld = Date.now() - touchStartTime.current;
+          if (timeHeld < 300) {
+            setTimeout(() => {
+              if (!isDragging) {
+                handleEdit();
+              }
+            }, 50);
+          }
+        }
+        
+        hasMoved.current = false;
+        touchStartTime.current = 0;
+        touchStartY.current = 0;
+      },
+      onPanResponderTerminate: () => {
+        // Clear timers
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        if (autoScrollTimer.current) {
+          clearInterval(autoScrollTimer.current);
+          autoScrollTimer.current = null;
+        }
+        
+        // Reset on cancel
+        Animated.parallel([
+          Animated.spring(scale, {
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+        
+        setIsDragging(false);
+        setIsDraggingRace(false);
+        setDragOverIndex(null);
+        hasMoved.current = false;
+        touchStartTime.current = 0;
+        touchStartY.current = 0;
+      },
+    }), [index, totalRaces, sortedRaces, dragOverIndex, item.id, isDragging, startDragging, handleEdit]);
     
+    const handleLongPress = () => {
+      if (!isDragging) {
+        startDragging();
+      }
+    };
+
     return (
-      <View
-        ref={cardRef}
+      <Animated.View
         style={[
           styles.card,
-          isDragging && styles.cardDragging,
-          isDragOver && styles.cardDragOver
+          {
+            transform: [
+              { translateY: translateY },
+              { scale: scale }
+            ],
+            opacity: opacity,
+            zIndex: isDragging ? 1000 : 1,
+            elevation: isDragging ? 8 : 3,
+          },
+          dragOverIndex === index && styles.cardDragOver,
         ]}
         {...panResponder.panHandlers}
       >
-        <TouchableOpacity
-          style={styles.cardContent}
-          activeOpacity={isDragging ? 1 : 0.7}
-          onPress={() => {
-            if (!isDragging && !isDraggingRef.current) {
-              handleEdit();
-            }
-          }}
-          onLongPress={handleLongPress}
-          delayLongPress={300}
-          disabled={isDragging}
-        >
-          {/* Drag Handle on the left */}
+        <View style={styles.cardContent}>
+          {/* Drag handle on the left */}
           <View style={styles.dragHandleContainer}>
             <Text style={styles.dragHandle}>☰</Text>
           </View>
           
-          {/* Main content area */}
-          <View style={styles.cardMainContent}>
+          {/* Main content */}
+          <TouchableOpacity
+            style={styles.cardMainContent}
+            activeOpacity={0.7}
+            onPress={handleEdit}
+            onLongPress={handleLongPress}
+            delayLongPress={300}
+            disabled={isDragging}
+          >
             <View style={styles.cardHeader}>
               <View style={styles.cardHeaderLeft}>
                 <Text style={styles.cardTitle}>{item.name}</Text>
@@ -1168,10 +1353,7 @@ export default function ElevageScreen({ navigation }) {
                     styles.deleteButtonTop,
                     pressed && styles.deleteButtonPressed
                   ]}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleDelete(e);
-                  }}
+                  onPress={handleDelete}
                 >
                   <Text style={styles.deleteButtonTopText}>🗑️</Text>
                 </Pressable>
@@ -1184,9 +1366,9 @@ export default function ElevageScreen({ navigation }) {
             {isDragging && (
               <Text style={styles.dragHint}>👆 Maintenez et glissez pour réorganiser</Text>
             )}
-          </View>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     );
   };
 
@@ -1294,6 +1476,7 @@ export default function ElevageScreen({ navigation }) {
               </TouchableOpacity>
             </View>
             <FlatList
+                ref={racesFlatListRef}
                 data={sortedRaces}
                 renderItem={({ item, index }) => (
                   <RaceItem 
@@ -1301,12 +1484,19 @@ export default function ElevageScreen({ navigation }) {
                     index={index} 
                     totalRaces={sortedRaces.length}
                     sortedRaces={sortedRaces}
+                    setIsDraggingRace={setIsDraggingRace}
+                    flatListRef={racesFlatListRef}
+                    scrollOffsetRef={racesScrollOffset}
                   />
                 )}
               keyExtractor={item => item.id.toString()}
               style={styles.list}
               showsVerticalScrollIndicator={false}
-              scrollEnabled={!draggingRaceId}
+              scrollEnabled={!isDraggingRace}
+              onScroll={(event) => {
+                racesScrollOffset.current = event.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={16}
             />
           </>
           );
@@ -1481,11 +1671,19 @@ export default function ElevageScreen({ navigation }) {
                     <View style={styles.genderStatsRow}>
                       <View style={styles.genderStatGroup}>
                         <Text style={styles.genderStatTitle}>Vivants:</Text>
-                        <Text style={styles.genderStatText}>(♂️ {totalMales} | ♀️ {totalFemales} | ❓ {Object.values(lot.races).reduce((sum, race) => sum + (race.unsexed || 0), 0)})</Text>
+                        <GenderBadges 
+                          males={totalMales} 
+                          females={totalFemales} 
+                          unsexed={Object.values(lot.races).reduce((sum, race) => sum + (race.unsexed || 0), 0)} 
+                        />
                       </View>
                       <View style={styles.genderStatGroup}>
                         <Text style={styles.genderStatTitle}>Morts:</Text>
-                        <Text style={styles.genderStatText}>(♂️ {totalDeathsMales} | ♀️ {totalDeathsFemales} | ❓ {Object.values(lot.races).reduce((sum, race) => sum + (race.deaths_unsexed || 0), 0)})</Text>
+                        <GenderBadges 
+                          males={totalDeathsMales} 
+                          females={totalDeathsFemales} 
+                          unsexed={Object.values(lot.races).reduce((sum, race) => sum + (race.deaths_unsexed || 0), 0)} 
+                        />
                       </View>
                     </View>
 
@@ -1509,15 +1707,23 @@ export default function ElevageScreen({ navigation }) {
                           <View style={styles.compactRaceDetails}>
                             <View style={styles.compactRaceSection}>
                               <Text style={styles.compactRaceLabel}>Vivants:</Text>
-                              <Text style={styles.compactRaceData}>
-                                ♂️ {raceData.males||0} [{maleAlivePercent}%] | ♀️ {raceData.females||0} [{femaleAlivePercent}%] | ❓ {raceData.unsexed||0}
-                        </Text>
-                      </View>
+                              <GenderBadges 
+                                males={raceData.males || 0} 
+                                females={raceData.females || 0} 
+                                unsexed={raceData.unsexed || 0}
+                                showPercent={true}
+                                total={totalAlive}
+                              />
+                            </View>
                             <View style={styles.compactRaceSection}>
                               <Text style={styles.compactRaceLabel}>Morts:</Text>
-                              <Text style={styles.compactRaceData}>
-                                ♂️ {raceData.deaths_males||0} [{maleDeathPercent}%] | ♀️ {raceData.deaths_females||0} [{femaleDeathPercent}%] | ❓ {raceData.deaths_unsexed||0}
-                              </Text>
+                              <GenderBadges 
+                                males={raceData.deaths_males || 0} 
+                                females={raceData.deaths_females || 0} 
+                                unsexed={raceData.deaths_unsexed || 0}
+                                showPercent={true}
+                                total={totalDeaths}
+                              />
                             </View>
                           </View>
                         </View>
@@ -1586,11 +1792,23 @@ export default function ElevageScreen({ navigation }) {
                           <View style={styles.raceGenderStatsContainer}>
                             <View style={styles.raceGenderStatGroup}>
                               <Text style={styles.raceGenderStatTitle}>Vivants:</Text>
-                              <Text style={styles.raceGenderStatText}>(♂️ {totalMales} [{maleAlivePercent}%] | ♀️ {totalFemales} [{femaleAlivePercent}%] | ❓ {lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)})</Text>
+                              <GenderBadges 
+                                males={totalMales} 
+                                females={totalFemales} 
+                                unsexed={lotsWithRace.reduce((total, lot) => total + (lot.races[race.name].unsexed || 0), 0)}
+                                showPercent={true}
+                                total={totalAlive}
+                              />
                             </View>
                             <View style={styles.raceGenderStatGroup}>
                               <Text style={styles.raceGenderStatTitle}>Morts:</Text>
-                              <Text style={styles.raceGenderStatText}>(♂️ {totalDeathsMales} [{maleDeathPercent}%] | ♀️ {totalDeathsFemales} [{femaleDeathPercent}%] | ❓ {totalDeathsUnsexed})</Text>
+                              <GenderBadges 
+                                males={totalDeathsMales} 
+                                females={totalDeathsFemales} 
+                                unsexed={totalDeathsUnsexed}
+                                showPercent={true}
+                                total={totalDeaths}
+                              />
                             </View>
                           </View>
                         );
@@ -1754,8 +1972,31 @@ export default function ElevageScreen({ navigation }) {
                         keyboardType="number-pad"
                       />
 
+                      {/* Estimated Success Rate - Only show if hatched_count is not filled */}
+                      {(!lotForm.hatched_count || lotForm.hatched_count === '' || parseInt(lotForm.hatched_count) === 0) && (
+                        <>
+                          <TextInput
+                            style={styles.input}
+                            placeholder="Taux de réussite estimé (%) - Ex: 80 pour 80%"
+                            placeholderTextColor="#999"
+                            value={lotForm.estimated_success_rate}
+                            onChangeText={(text) => setLotForm({...lotForm, estimated_success_rate: text})}
+                            keyboardType="decimal-pad"
+                          />
+                          {lotForm.eggs_count && lotForm.estimated_success_rate && (
+                            <View style={styles.estimatedCalculation}>
+                              <Text style={styles.estimatedCalculationText}>
+                                💡 Estimation: {lotForm.eggs_count} œufs × {lotForm.estimated_success_rate}% = {Math.round(parseInt(lotForm.eggs_count) * (parseFloat(lotForm.estimated_success_rate) / 100))} initiaux estimés
+                              </Text>
+                            </View>
+                          )}
+                        </>
+                      )}
+
                       <Text style={styles.infoText}>
                         💡 Vous pourrez mettre à jour les données de fécondation et d'éclosion plus tard via le bouton "Mettre à jour" sur le lot.
+                        {(!lotForm.hatched_count || lotForm.hatched_count === '' || parseInt(lotForm.hatched_count) === 0) && 
+                          ' Si vous remplissez le taux de réussite estimé, les quantités initiales seront calculées automatiquement.'}
                       </Text>
                     </>
                   )}
@@ -2102,18 +2343,22 @@ export default function ElevageScreen({ navigation }) {
                         <Text style={[styles.statusDisplayValue, { color: '#4CAF50' }]}>
                           {getCurrentTotals().totalAlive}
                         </Text>
-                        <Text style={styles.statusDisplayBreakdown}>
-                          (♂️ {updateForm.males} | ♀️ {updateForm.females} | ❓ {updateForm.unsexed})
-                        </Text>
+                        <GenderBadges 
+                          males={parseInt(updateForm.males) || 0} 
+                          females={parseInt(updateForm.females) || 0} 
+                          unsexed={parseInt(updateForm.unsexed) || 0} 
+                        />
                       </View>
                       <View style={styles.statusDisplayItem}>
                         <Text style={styles.statusDisplayLabel}>Morts</Text>
                         <Text style={[styles.statusDisplayValue, { color: '#F44336' }]}>
                           {getCurrentTotals().totalDeaths}
                         </Text>
-                        <Text style={styles.statusDisplayBreakdown}>
-                          (♂️ {updateForm.deaths_males} | ♀️ {updateForm.deaths_females} | ❓ {updateForm.deaths_unsexed})
-                        </Text>
+                        <GenderBadges 
+                          males={parseInt(updateForm.deaths_males) || 0} 
+                          females={parseInt(updateForm.deaths_females) || 0} 
+                          unsexed={parseInt(updateForm.deaths_unsexed) || 0} 
+                        />
                       </View>
                     </View>
                   </View>
@@ -2529,7 +2774,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 20,
     paddingVertical: 10,
-    alignSelf: 'flex-start',
   },
   addButtonText: {
     color: 'white',
@@ -2542,19 +2786,62 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: 'white',
     borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    padding: 12,
+    marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
+  cardEstimated: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+    backgroundColor: '#FFF8E1',
+  },
+  estimatedBadge: {
+    backgroundColor: '#FF9800',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  estimatedBadgeText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'white',
+  },
+  estimatedWarning: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF9800',
+  },
+  estimatedWarningText: {
+    fontSize: 11,
+    color: '#856404',
+    fontWeight: '600',
+  },
+  estimatedCalculation: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: '#2196F3',
+  },
+  estimatedCalculationText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: '600',
+  },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 6,
   },
   cardHeaderLeft: {
     flexDirection: 'row',
@@ -2652,7 +2939,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
     flex: 1,
@@ -2671,38 +2958,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   animalType: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#666',
   },
   cardDetails: {
-    marginBottom: 15,
+    marginBottom: 8,
   },
   cardInfo: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
-    marginBottom: 3,
+    marginBottom: 2,
   },
   racesSection: {
-    marginBottom: 15,
+    marginBottom: 10,
   },
   racesSectionTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   raceItem: {
     backgroundColor: '#f9f9f9',
     borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
+    padding: 8,
+    marginBottom: 6,
   },
   raceInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 2,
   },
   raceName: {
     fontSize: 14,
@@ -2715,10 +3002,74 @@ const styles = StyleSheet.create({
   },
   raceStats: {
     flexDirection: 'column',
+    marginTop: 2,
+  },
+  raceStatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  raceStatLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginRight: 6,
   },
   raceStatText: {
     fontSize: 11,
     color: '#666',
+  },
+  genderBadgesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  genderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 6,
+    marginRight: 3,
+    marginBottom: 1,
+  },
+  maleBadge: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 0.5,
+    borderColor: '#2196F3',
+  },
+  femaleBadge: {
+    backgroundColor: '#F3E5F5',
+    borderWidth: 0.5,
+    borderColor: '#9C27B0',
+  },
+  unsexedBadge: {
+    backgroundColor: '#FFEBEE',
+    borderWidth: 0.5,
+    borderColor: '#F44336',
+  },
+  emptyBadge: {
+    backgroundColor: '#F5F5F5',
+    borderWidth: 0.5,
+    borderColor: '#9E9E9E',
+  },
+  genderBadgeEmpty: {
+    opacity: 0.5,
+  },
+  genderBadgeIcon: {
+    fontSize: 8,
+    marginRight: 1,
+  },
+  genderBadgeText: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: '#333',
+  },
+  genderBadgePercent: {
+    fontSize: 7,
+    color: '#666',
+    fontStyle: 'italic',
+    marginLeft: 1,
   },
   cardActions: {
     flexDirection: 'row',
@@ -3039,12 +3390,13 @@ const styles = StyleSheet.create({
   },
   genderStatGroup: {
     alignItems: 'center',
+    flex: 1,
   },
   genderStatTitle: {
     fontSize: 11,
     fontWeight: '600',
     color: '#666',
-    marginBottom: 2,
+    marginBottom: 6,
   },
   genderStatText: {
     fontSize: 12,
@@ -3123,13 +3475,13 @@ const styles = StyleSheet.create({
   },
   raceGenderStatGroup: {
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   raceGenderStatTitle: {
     fontSize: 11,
     fontWeight: '600',
     color: '#666',
-    marginBottom: 2,
+    marginBottom: 6,
   },
   raceGenderStatText: {
     fontSize: 12,
@@ -3390,17 +3742,20 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   compactRaceDetails: {
-    gap: 2,
+    marginTop: 4,
   },
   compactRaceSection: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 6,
+    flexWrap: 'wrap',
   },
   compactRaceLabel: {
     fontSize: 11,
     fontWeight: '600',
     color: '#666',
-    width: 50,
+    width: 60,
+    marginRight: 8,
   },
   compactRaceData: {
     fontSize: 11,

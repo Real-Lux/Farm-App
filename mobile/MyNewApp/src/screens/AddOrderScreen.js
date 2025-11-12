@@ -194,10 +194,10 @@ export default function AddOrderScreen({ navigation, route }) {
     setSelectedProducts(prev => prev.filter(p => p.id !== productId));
   };
 
-  // Calculate price whenever order details change
+  // Calculate price whenever order details change, including delivery date
   useEffect(() => {
     calculatePrice();
-  }, [orderForm.animalDetails, selectedProducts]);
+  }, [orderForm.animalDetails, orderForm.deliveryDate, selectedProducts]);
 
   // Products are loaded on mount, no need for this effect
 
@@ -231,18 +231,64 @@ export default function AddOrderScreen({ navigation, route }) {
         // Calculate pricing for each animal type separately
         for (const animalType of selectedAnimalTypes) {
           if (orderForm.animalDetails[animalType]?.races && orderForm.animalDetails[animalType].races.length > 0) {
-            // Create a temporary order form for this specific animal type
+            // Calculate actual age at delivery date for each race configuration
+            const racesWithActualAge = orderForm.animalDetails[animalType].races.map(raceConfig => {
+              // If there's a selected lot and a delivery date, calculate actual age at delivery
+              if (raceConfig.selectedLot && raceConfig.selectedLot.date_creation && orderForm.deliveryDate) {
+                const lotCreationDate = new Date(raceConfig.selectedLot.date_creation);
+                const deliveryDate = new Date(orderForm.deliveryDate);
+                
+                // Calculate precise age in months (with decimals)
+                const diffTime = deliveryDate - lotCreationDate;
+                const diffDays = diffTime / (1000 * 60 * 60 * 24);
+                const actualAgeInMonths = diffDays / 30.44; // Average days per month
+                
+                // Convert to months and weeks
+                const actualMonths = Math.floor(actualAgeInMonths);
+                const remainingDays = diffDays - (actualMonths * 30.44);
+                const actualWeeks = Math.round(remainingDays / 7);
+                
+                return {
+                  ...raceConfig,
+                  ageMonths: actualMonths.toString(),
+                  ageWeeks: actualWeeks.toString(),
+                  actualAgeAtDelivery: actualAgeInMonths
+                };
+              }
+              // If no lot selected, use desired age (fallback)
+              return {
+                ...raceConfig,
+                actualAgeAtDelivery: parseFloat(raceConfig.ageMonths || 0) + (parseFloat(raceConfig.ageWeeks || 0) / 4.33)
+              };
+            });
+            
+            // Create a temporary order form for this specific animal type with actual ages
             const animalSpecificOrder = {
               ...orderForm,
               selectedAnimals: [animalType],
               animalDetails: {
-                [animalType]: orderForm.animalDetails[animalType]
+                [animalType]: {
+                  ...orderForm.animalDetails[animalType],
+                  races: racesWithActualAge
+                }
               }
             };
             
             const pricingData = database.calculateOrderPrice(animalSpecificOrder);
             totalCalculatedPrice += pricingData.estimatedPrice;
-            allPriceBreakdowns = [...allPriceBreakdowns, ...pricingData.priceBreakdown];
+            
+            // Update price breakdown with actual age information
+            const updatedBreakdown = pricingData.priceBreakdown.map(item => ({
+              ...item,
+              ageMonths: racesWithActualAge.find(rc => 
+                rc.race === item.race && rc.sexPreference === item.sexPreference
+              )?.actualAgeAtDelivery || item.ageMonths,
+              pricingSource: orderForm.deliveryDate ? 
+                `Grille tarifaire ${animalType} (âge réel à la collecte)` : 
+                `Grille tarifaire ${animalType}`
+            }));
+            
+            allPriceBreakdowns = [...allPriceBreakdowns, ...updatedBreakdown];
           }
         }
       }
@@ -509,12 +555,58 @@ export default function AddOrderScreen({ navigation, route }) {
     ).join(', ');
   };
 
+  // Check if a lot uses estimated quantities
+  const isLotEstimated = (lot) => {
+    if (!lot) return false;
+    return lot.eggs_count > 0 && 
+           (!lot.hatched_count || lot.hatched_count === 0) && 
+           lot.estimated_success_rate && 
+           lot.estimated_success_rate > 0;
+  };
+
   const calculateAgeInMonths = (dateCreation, targetDate) => {
     const creationDate = new Date(dateCreation);
     const target = new Date(targetDate);
     const diffTime = Math.abs(target - creationDate);
     const diffMonths = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 30));
     return diffMonths;
+  };
+
+  // Calculate suggested date based on all race configurations
+  const getSuggestedCollectionDate = () => {
+    if (!orderForm.animalDetails || !orderForm.selectedAnimals || orderForm.selectedAnimals.length === 0) {
+      return null;
+    }
+
+    const suggestedDates = [];
+    
+    // Go through all animal types
+    orderForm.selectedAnimals.forEach(animal => {
+      const animalDetail = orderForm.animalDetails[animal];
+      if (!animalDetail?.races || animalDetail.races.length === 0) return;
+      
+      // Go through all race configurations for this animal
+      animalDetail.races.forEach(raceConfig => {
+        if (!raceConfig.selectedLot || !raceConfig.ageMonths && !raceConfig.ageWeeks) return;
+        
+        const lot = raceConfig.selectedLot;
+        const lotCreationDate = new Date(lot.date_creation);
+        const desiredAgeMonths = parseFloat(raceConfig.ageMonths || 0) + (parseFloat(raceConfig.ageWeeks || 0) / 4.33);
+        
+        // Calculate target date: lot creation date + desired age
+        const targetDate = new Date(lotCreationDate);
+        targetDate.setMonth(targetDate.getMonth() + Math.floor(desiredAgeMonths));
+        targetDate.setDate(targetDate.getDate() + Math.round((desiredAgeMonths % 1) * 30.44));
+        
+        suggestedDates.push(targetDate);
+      });
+    });
+    
+    if (suggestedDates.length === 0) return null;
+    
+    // Return the latest date (so all animals are ready)
+    const latestDate = new Date(Math.max(...suggestedDates.map(d => d.getTime())));
+    return toISODate(latestDate.toISOString().split('T')[0]);
   };
 
   const getSuggestedLots = (race, desiredAgeMonths, deliveryDate) => {
@@ -591,6 +683,13 @@ export default function AddOrderScreen({ navigation, route }) {
         const ageDifference = Math.abs(ageAtDelivery - totalAgeInMonths);
         const remainingAfterOrder = Math.max(0, lot.available - requestedQuantity);
         
+        // Calculate target date: when animals from this lot will reach desired age
+        const lotCreationDate = new Date(lot.date_creation);
+        const calculatedTargetDate = new Date(lotCreationDate);
+        calculatedTargetDate.setMonth(calculatedTargetDate.getMonth() + Math.floor(totalAgeInMonths));
+        calculatedTargetDate.setDate(calculatedTargetDate.getDate() + Math.round((totalAgeInMonths % 1) * 30.44));
+        const targetDateISO = toISODate(calculatedTargetDate.toISOString().split('T')[0]);
+        
         // Convert age difference to months, weeks, and days
         const ageDifferenceInDays = Math.round(ageDifference * 30.44); // Average days per month
         const months = Math.floor(ageDifferenceInDays / 30.44);
@@ -609,6 +708,13 @@ export default function AddOrderScreen({ navigation, route }) {
           ageDifference,
           ageDifferenceText: ageDifferenceText.trim(),
           remainingAfterOrder,
+          targetDate: targetDateISO,
+          targetDateFormatted: calculatedTargetDate.toLocaleDateString('fr-FR', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }),
           isOptimal: ageDifference <= 0.5 // Optimal if difference is less than 2 weeks
         };
       })
@@ -874,27 +980,6 @@ export default function AddOrderScreen({ navigation, route }) {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollViewContent}
       >
-        {/* Delivery Date - Moved to top */}
-        <View style={styles.dateContainer}>
-          <Text style={styles.dropdownLabel}>Date de livraison *</Text>
-          <TouchableOpacity 
-            style={styles.datePickerButton}
-            onPress={openCalendarModal}
-          >
-            <Text style={styles.datePickerText}>
-              {orderForm.deliveryDate ? 
-                new Date(orderForm.deliveryDate).toLocaleDateString('fr-FR', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                }) : 
-                '📅 Sélectionner une date'
-              }
-            </Text>
-          </TouchableOpacity>
-        </View>
-
         {/* Order Type Selector - Horizontal */}
         <View style={styles.orderTypeSelectorContainer}>
           <View style={styles.orderTypeSelector}>
@@ -1245,6 +1330,57 @@ export default function AddOrderScreen({ navigation, route }) {
           </>
         )}
 
+        {/* Collection Date - After product selection, before price breakdown */}
+        {(hasAdoptionItems || hasProducts) && (
+          <View style={styles.dateContainer}>
+            <Text style={styles.dropdownLabel}>Date de collecte *</Text>
+            {hasAdoptionItems && getSuggestedCollectionDate() && (
+              <View style={styles.suggestedDateContainer}>
+                <Text style={styles.suggestedDateText}>
+                  💡 Date suggérée basée sur les configurations: {new Date(getSuggestedCollectionDate()).toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.useSuggestedDateButton}
+                  onPress={() => setOrderForm({...orderForm, deliveryDate: getSuggestedCollectionDate()})}
+                >
+                  <Text style={styles.useSuggestedDateButtonText}>
+                    {orderForm.deliveryDate ? 'Utiliser la date suggérée' : 'Utiliser cette date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <TouchableOpacity 
+              style={styles.datePickerButton}
+              onPress={openCalendarModal}
+            >
+              <Text style={styles.datePickerText}>
+                {orderForm.deliveryDate ? 
+                  new Date(orderForm.deliveryDate).toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  }) : 
+                  '📅 Sélectionner une date'
+                }
+              </Text>
+            </TouchableOpacity>
+            {orderForm.deliveryDate && (
+              <TouchableOpacity 
+                style={styles.clearDateButton}
+                onPress={() => setOrderForm({...orderForm, deliveryDate: ''})}
+              >
+                <Text style={styles.clearDateButtonText}>✕ Effacer la date</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         {/* Price Breakdown Section */}
         {(hasAdoptionItems || hasProducts) && priceBreakdown.length > 0 && (
           <View style={styles.priceBreakdownSection}>
@@ -1576,6 +1712,9 @@ export default function AddOrderScreen({ navigation, route }) {
                   <View style={styles.lotOptionHeader}>
                     <Text style={styles.lotOptionName}>
                       {lot.isOptimal ? '⭐ ' : ''}{lot.lot_name}
+                      {isLotEstimated(lot) && (
+                        <Text style={styles.estimatedBadgeInline}> ⚠️ Estimé</Text>
+                      )}
                     </Text>
                     <Text style={[
                       styles.lotOptionAge,
@@ -1584,6 +1723,13 @@ export default function AddOrderScreen({ navigation, route }) {
                       {lot.ageAtDelivery} mois
                     </Text>
                   </View>
+                  {isLotEstimated(lot) && (
+                    <View style={styles.estimatedWarningInline}>
+                      <Text style={styles.estimatedWarningInlineText}>
+                        ⚠️ Quantités estimées: {lot.eggs_count} œufs × {lot.estimated_success_rate}%
+                      </Text>
+                    </View>
+                  )}
                   <Text style={styles.lotOptionDetails}>
                     📦 {lot.available} disponibles
                   </Text>
@@ -1637,40 +1783,55 @@ export default function AddOrderScreen({ navigation, route }) {
               Les points verts indiquent des événements du calendrier
             </Text>
             
-            <Calendar
-              onDayPress={handleDateSelect}
-              markedDates={getMarkedDates()}
-              markingType={'multi-dot'}
-              minDate={getTodayISO()}
-              theme={{
-                backgroundColor: '#ffffff',
-                calendarBackground: '#ffffff',
-                textSectionTitleColor: '#005F6B',
-                selectedDayBackgroundColor: '#005F6B',
-                selectedDayTextColor: '#ffffff',
-                todayTextColor: '#005F6B',
-                dayTextColor: '#2d4150',
-                textDisabledColor: '#d9e1e8',
-                dotColor: '#4CAF50',
-                selectedDotColor: '#ffffff',
-                arrowColor: '#005F6B',
-                monthTextColor: '#005F6B',
-                indicatorColor: '#005F6B',
-                textDayFontWeight: '300',
-                textMonthFontWeight: 'bold',
-                textDayHeaderFontWeight: '300',
-                textDayFontSize: 16,
-                textMonthFontSize: 16,
-                textDayHeaderFontSize: 13
-              }}
-            />
+            <View style={styles.calendarWrapper}>
+              <Calendar
+                onDayPress={handleDateSelect}
+                markedDates={getMarkedDates()}
+                markingType={'multi-dot'}
+                minDate={getTodayISO()}
+                theme={{
+                  backgroundColor: '#ffffff',
+                  calendarBackground: '#ffffff',
+                  textSectionTitleColor: '#005F6B',
+                  selectedDayBackgroundColor: '#005F6B',
+                  selectedDayTextColor: '#ffffff',
+                  todayTextColor: '#005F6B',
+                  dayTextColor: '#2d4150',
+                  textDisabledColor: '#d9e1e8',
+                  dotColor: '#4CAF50',
+                  selectedDotColor: '#ffffff',
+                  arrowColor: '#005F6B',
+                  monthTextColor: '#005F6B',
+                  indicatorColor: '#005F6B',
+                  textDayFontWeight: '300',
+                  textMonthFontWeight: 'bold',
+                  textDayHeaderFontWeight: '300',
+                  textDayFontSize: 16,
+                  textMonthFontSize: 16,
+                  textDayHeaderFontSize: 13
+                }}
+              />
+            </View>
             
-            <TouchableOpacity 
-              style={styles.calendarCancelBtn}
-              onPress={() => setCalendarModal(false)}
-            >
-              <Text style={styles.calendarCancelBtnText}>Annuler</Text>
-            </TouchableOpacity>
+            <View style={styles.calendarActions}>
+              {orderForm.deliveryDate && (
+                <TouchableOpacity 
+                  style={styles.calendarClearBtn}
+                  onPress={() => {
+                    setOrderForm({...orderForm, deliveryDate: ''});
+                    setCalendarModal(false);
+                  }}
+                >
+                  <Text style={styles.calendarClearBtnText}>Effacer la date</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity 
+                style={styles.calendarCancelBtn}
+                onPress={() => setCalendarModal(false)}
+              >
+                <Text style={styles.calendarCancelBtnText}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1884,6 +2045,9 @@ export default function AddOrderScreen({ navigation, route }) {
                         <View style={styles.suggestedLotHeader}>
                           <Text style={styles.suggestedLotName}>
                             {lot.isOptimal ? '⭐ ' : ''}{lot.lot_name}
+                            {isLotEstimated(lot) && (
+                              <Text style={styles.estimatedBadgeInline}> ⚠️ Estimé</Text>
+                            )}
                           </Text>
                           <Text style={[
                             styles.suggestedLotAge,
@@ -1892,6 +2056,13 @@ export default function AddOrderScreen({ navigation, route }) {
                             Ils auraient {lot.ageAtDelivery.toFixed(1)} mois
                           </Text>
                         </View>
+                        {isLotEstimated(lot) && (
+                          <View style={styles.estimatedWarningInline}>
+                            <Text style={styles.estimatedWarningInlineText}>
+                              ⚠️ Quantités estimées: {lot.eggs_count} œufs × {lot.estimated_success_rate}%
+                            </Text>
+                          </View>
+                        )}
                         <Text style={styles.suggestedLotDetails}>
                           📦 {lot.available} disponibles
                           {currentRaceConfig.quantity > 0 && (
@@ -1903,6 +2074,11 @@ export default function AddOrderScreen({ navigation, route }) {
                         <Text style={styles.suggestedLotDetails}>
                           🎯 Différence: {lot.ageDifferenceText}
                         </Text>
+                        {lot.targetDateFormatted && (
+                          <Text style={styles.suggestedLotDetails}>
+                            📅 Date cible: {lot.targetDateFormatted}
+                          </Text>
+                        )}
                         {lot.isOptimal && (
                           <Text style={styles.optimalBadge}>
                             ✅ Âge optimal
@@ -2076,6 +2252,32 @@ const styles = StyleSheet.create({
   },
   dateContainer: {
     marginBottom: 20,
+  },
+  suggestedDateContainer: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2196F3',
+  },
+  suggestedDateText: {
+    fontSize: 13,
+    color: '#1976D2',
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  useSuggestedDateButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  useSuggestedDateButtonText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
   },
   input: {
     borderWidth: 1,
@@ -2258,6 +2460,25 @@ const styles = StyleSheet.create({
     color: '#4CAF50',
     fontWeight: '600',
     marginTop: 5,
+  },
+  estimatedBadgeInline: {
+    fontSize: 10,
+    color: '#FF9800',
+    fontWeight: '600',
+  },
+  estimatedWarningInline: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 4,
+    padding: 6,
+    marginBottom: 6,
+    marginTop: 4,
+    borderLeftWidth: 2,
+    borderLeftColor: '#FF9800',
+  },
+  estimatedWarningInlineText: {
+    fontSize: 10,
+    color: '#856404',
+    fontWeight: '600',
   },
   modalActions: {
     flexDirection: 'row',
@@ -2559,6 +2780,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  clearDateButton: {
+    marginTop: 10,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#ffebee',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F44336',
+  },
+  clearDateButtonText: {
+    fontSize: 14,
+    color: '#F44336',
+    fontWeight: '600',
+  },
   calendarModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -2571,7 +2806,18 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '90%',
     maxWidth: 400,
-    maxHeight: '80%',
+    maxHeight: '90%',
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+  },
+  calendarWrapper: {
+    width: '100%',
+    minHeight: 300,
+  },
+  calendarActions: {
+    marginTop: 15,
+    gap: 8,
+    paddingTop: 10,
   },
   calendarHeader: {
     flexDirection: 'row',
@@ -2606,13 +2852,34 @@ const styles = StyleSheet.create({
   calendarCancelBtn: {
     backgroundColor: '#f0f0f0',
     borderRadius: 8,
-    padding: 15,
+    padding: 12,
     alignItems: 'center',
-    marginTop: 15,
   },
   calendarCancelBtnText: {
     fontSize: 16,
     color: '#666',
+    fontWeight: '600',
+  },
+  calendarClearBtn: {
+    backgroundColor: '#F44336',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  calendarClearBtnText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: '600',
+  },
+  calendarUseSuggestedBtn: {
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  calendarUseSuggestedBtnText: {
+    fontSize: 16,
+    color: 'white',
     fontWeight: '600',
   },
   // New styles for enhanced race configuration

@@ -8,7 +8,9 @@ import {
   RefreshControl,
   Alert,
   StatusBar,
-  Platform
+  Platform,
+  TextInput,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -29,6 +31,12 @@ export default function DashboardScreen({ navigation }) {
   });
   const [weeklyEvents, setWeeklyEvents] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [raceSearch, setRaceSearch] = useState('');
+  const [ageSearch, setAgeSearch] = useState('');
+  const [raceSuggestions, setRaceSuggestions] = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
+  const [allLots, setAllLots] = useState([]);
+  const [pricingGrids, setPricingGrids] = useState({});
 
   useEffect(() => {
     loadDashboardData();
@@ -51,12 +59,13 @@ export default function DashboardScreen({ navigation }) {
       // Wait for database initialization to complete
       await database.waitForInitialization();
       
-      const [products, orders, events, lots, historique] = await Promise.all([
+      const [products, orders, events, lots, historique, pricingGrids] = await Promise.all([
         database.getProducts(),
         database.getOrders(),
         database.getEvents(),
         database.getLots(),
-        database.getHistorique()
+        database.getHistorique(),
+        database.getAllPricingGrids()
       ]);
 
       console.log('📊 Dashboard: Loading data -', {
@@ -95,6 +104,10 @@ export default function DashboardScreen({ navigation }) {
       // Generate recent activity from all data sources
       const activity = generateRecentActivity(orders, products, events, lots, historique);
       setRecentActivity(activity);
+
+      // Store lots and pricing grids for search
+      setAllLots(lots);
+      setPricingGrids(pricingGrids);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
       Alert.alert('Error', 'Failed to load dashboard data');
@@ -324,6 +337,356 @@ export default function DashboardScreen({ navigation }) {
 
   // Status colors and icons are now imported from StatusConstants
 
+  // Get all unique race names from lots
+  const getAllRaceNames = (lots) => {
+    const raceNames = new Set();
+    lots.forEach(lot => {
+      if (lot.races && lot.status === 'Actif') {
+        Object.keys(lot.races).forEach(raceName => {
+          raceNames.add(raceName);
+        });
+      }
+    });
+    return Array.from(raceNames).sort();
+  };
+
+  // Check if a lot uses estimated quantities
+  const isLotEstimated = (lot) => {
+    if (!lot) return false;
+    return lot.eggs_count > 0 && 
+           (!lot.hatched_count || lot.hatched_count === 0) && 
+           lot.estimated_success_rate && 
+           lot.estimated_success_rate > 0;
+  };
+
+  // Handle race search input with autocomplete
+  const handleRaceSearch = (text) => {
+    setRaceSearch(text);
+    if (text.length > 0) {
+      const allRaces = getAllRaceNames(allLots);
+      const suggestions = allRaces.filter(race => 
+        race.toLowerCase().includes(text.toLowerCase())
+      );
+      setRaceSuggestions(suggestions.slice(0, 5));
+    } else {
+      setRaceSuggestions([]);
+    }
+    performSearch(text, ageSearch);
+  };
+
+  // Handle age search input
+  const handleAgeSearch = (text) => {
+    setAgeSearch(text);
+    performSearch(raceSearch, text);
+  };
+
+  // Parse age input (e.g., 1.25 = 1 month 1 week, 1.5 = 1 month and a half)
+  const parseAgeInput = (ageText) => {
+    if (!ageText || ageText.trim() === '') return null;
+    
+    const num = parseFloat(ageText);
+    if (isNaN(num)) return null;
+    
+    const months = Math.floor(num);
+    const decimal = num - months;
+    
+    // Convert decimal to weeks (approximate)
+    // 0.25 ≈ 1 week, 0.5 ≈ 2 weeks, 0.75 ≈ 3 weeks
+    const weeks = Math.round(decimal * 4);
+    
+    return {
+      months: months,
+      weeks: weeks,
+      totalMonths: num
+    };
+  };
+
+  // Format age for display
+  const formatAge = (months, weeks) => {
+    const parts = [];
+    if (months > 0) {
+      parts.push(`${months} mois`);
+    }
+    if (weeks > 0) {
+      parts.push(`${weeks} semaine${weeks > 1 ? 's' : ''}`);
+    }
+    return parts.join(' et ') || '0 mois';
+  };
+
+  // Calculate future age from a reference date
+  const calculateFutureAge = (referenceDate, targetDate) => {
+    if (!referenceDate || !targetDate) return { days: 0, months: 0, weeks: 0 };
+    
+    const ref = new Date(referenceDate);
+    const target = new Date(targetDate);
+    const diffMs = target - ref;
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const months = Math.floor(days / 30.44);
+    const weeks = Math.floor((days % 30.44) / 7);
+    
+    return { days, months, weeks };
+  };
+
+  // Find price from pricing grid
+  const findPrice = (ageMonths, sex, pricingGrid) => {
+    if (!pricingGrid || pricingGrid.length === 0) return 0;
+    
+    let bestMatch = null;
+    let bestAgeDifference = Infinity;
+
+    pricingGrid.forEach(item => {
+      const itemAgeMonths = item.ageMonths || 0;
+      const ageDifference = Math.abs(itemAgeMonths - ageMonths);
+      
+      const sexMatches = item.sex === 'Tous' || 
+                        (sex === 'female' && item.sex === 'Femelle') ||
+                        (sex === 'male' && item.sex === 'Mâle');
+      
+      if (sexMatches && ageDifference < bestAgeDifference) {
+        bestMatch = item;
+        bestAgeDifference = ageDifference;
+      }
+    });
+
+    return bestMatch ? bestMatch.price : 0;
+  };
+
+  // Calculate target date when lot will reach specified age
+  const calculateTargetDate = (referenceDate, targetAgeMonths) => {
+    if (!referenceDate) return null;
+    
+    const ref = new Date(referenceDate);
+    // Add months and weeks to reference date
+    const totalDays = Math.round(targetAgeMonths * 30.44);
+    const targetDate = new Date(ref);
+    targetDate.setDate(targetDate.getDate() + totalDays);
+    
+    return targetDate;
+  };
+
+  // Perform search
+  const performSearch = (raceQuery, ageQuery) => {
+    if (!raceQuery || raceQuery.trim() === '') {
+      setSearchResults([]);
+      return;
+    }
+
+    const parsedAge = parseAgeInput(ageQuery);
+    const pricingGrid = pricingGrids?.poussins || [];
+    const today = new Date();
+    const results = [];
+
+    allLots.forEach(lot => {
+      if (!lot.races || lot.status !== 'Actif') return;
+
+      const referenceDate = lot.date_eclosion || lot.date_creation;
+      if (!referenceDate) return;
+
+      Object.entries(lot.races).forEach(([raceName, raceInfo]) => {
+        if (!raceInfo) return;
+
+        // Check if race matches search
+        if (!raceName.toLowerCase().includes(raceQuery.toLowerCase())) return;
+
+        const males = raceInfo.males || 0;
+        const females = raceInfo.females || 0;
+        const total = males + females;
+
+        if (total === 0) return;
+
+        // Calculate current age
+        const currentAge = calculateFutureAge(referenceDate, today);
+        const currentAgeMonths = currentAge.months + (currentAge.weeks / 4.33);
+        const isActuallyAvailable = currentAge.days >= 0; // Only available if age is 0 or positive
+
+        let targetDate = null;
+        let targetAgeInfo = null;
+        let isAvailableNow = false;
+        let targetMalePrice = 0;
+        let targetFemalePrice = 0;
+        let soonestAvailableDate = null;
+        let soonestAvailableAge = null;
+
+        // Calculate soonest availability (when they reach 0 days if not available yet)
+        if (!isActuallyAvailable) {
+          soonestAvailableDate = new Date(referenceDate);
+          soonestAvailableAge = { days: 0, months: 0, weeks: 0 };
+        }
+
+        // If age filter is specified, calculate when lot will reach that age
+        if (parsedAge) {
+          const targetAgeMonths = parsedAge.totalMonths;
+          
+          // Check if already at or past target age AND actually available (days >= 0)
+          if (isActuallyAvailable && currentAgeMonths >= targetAgeMonths - 0.1) {
+            // Already available at target age
+            isAvailableNow = true;
+            targetDate = today;
+            targetAgeInfo = {
+              months: parsedAge.months,
+              weeks: parsedAge.weeks,
+              days: Math.round(currentAge.days)
+            };
+            targetMalePrice = findPrice(targetAgeMonths, 'male', pricingGrid);
+            targetFemalePrice = findPrice(targetAgeMonths, 'female', pricingGrid);
+          } else {
+            // Calculate when it will reach target age
+            targetDate = calculateTargetDate(referenceDate, targetAgeMonths);
+            if (targetDate && targetDate > today) {
+              const daysUntil = Math.floor((targetDate - today) / (1000 * 60 * 60 * 24));
+              targetAgeInfo = {
+                months: parsedAge.months,
+                weeks: parsedAge.weeks,
+                days: daysUntil
+              };
+              targetMalePrice = findPrice(targetAgeMonths, 'male', pricingGrid);
+              targetFemalePrice = findPrice(targetAgeMonths, 'female', pricingGrid);
+            } else {
+              // Should not happen, but skip if invalid
+              return;
+            }
+          }
+        }
+
+        // Calculate current prices (for display when no age filter)
+        const malePrice = findPrice(currentAgeMonths, 'male', pricingGrid);
+        const femalePrice = findPrice(currentAgeMonths, 'female', pricingGrid);
+
+        // Calculate future dates (1, 2, 3 months from now) - only if no age filter
+        const futureDates = [];
+        if (!parsedAge) {
+          for (let monthsAhead = 1; monthsAhead <= 3; monthsAhead++) {
+            const futureDate = new Date(today);
+            futureDate.setMonth(futureDate.getMonth() + monthsAhead);
+            const futureAge = calculateFutureAge(referenceDate, futureDate);
+            const futureAgeMonths = futureAge.months + (futureAge.weeks / 4.33);
+            const futureMalePrice = findPrice(futureAgeMonths, 'male', pricingGrid);
+            const futureFemalePrice = findPrice(futureAgeMonths, 'female', pricingGrid);
+
+            futureDates.push({
+              date: futureDate,
+              age: futureAge,
+              ageMonths: futureAgeMonths,
+              malePrice: futureMalePrice,
+              femalePrice: futureFemalePrice
+            });
+          }
+        }
+
+        results.push({
+          lotName: lot.name || `Lot ${lot.id}`,
+          race: raceName,
+          males: males,
+          females: females,
+          total: total,
+          referenceDate: referenceDate,
+          currentAge: currentAge,
+          currentAgeMonths: currentAgeMonths,
+          malePrice: malePrice,
+          femalePrice: femalePrice,
+          futureDates: futureDates,
+          // New fields for age-targeted search
+          targetDate: targetDate,
+          targetAgeInfo: targetAgeInfo,
+          isAvailableNow: isAvailableNow,
+          targetMalePrice: targetMalePrice,
+          targetFemalePrice: targetFemalePrice,
+          // Fields for availability check
+          isActuallyAvailable: isActuallyAvailable,
+          soonestAvailableDate: soonestAvailableDate,
+          soonestAvailableAge: soonestAvailableAge,
+          // Lot estimation info
+          eggs_count: lot.eggs_count,
+          hatched_count: lot.hatched_count,
+          estimated_success_rate: lot.estimated_success_rate
+        });
+      });
+    });
+
+    setSearchResults(results);
+  };
+
+  const calculateTopChickenRaces = (lots, pricingGrids) => {
+    const lotRaceData = [];
+    const today = new Date();
+    const pricingGrid = pricingGrids?.poussins || [];
+
+    // Helper to calculate age in days
+    const calculateAgeInDays = (dateString) => {
+      if (!dateString) return 0;
+      const date = new Date(dateString);
+      const diffMs = today - date;
+      return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    };
+
+    // Helper to calculate age in months for pricing
+    const calculateAgeInMonths = (dateString) => {
+      if (!dateString) return 0;
+      const date = new Date(dateString);
+      const diffMs = today - date;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      return diffDays / 30.44; // Average days per month
+    };
+
+    // Helper to find price
+    const findPrice = (ageMonths, sex) => {
+      const totalAgeInMonths = ageMonths;
+      let bestMatch = null;
+      let bestAgeDifference = Infinity;
+
+      pricingGrid.forEach(item => {
+        const itemAgeMonths = item.ageMonths || 0;
+        const ageDifference = Math.abs(itemAgeMonths - totalAgeInMonths);
+        
+        const sexMatches = item.sex === 'Tous' || 
+                          (sex === 'female' && item.sex === 'Femelle') ||
+                          (sex === 'male' && item.sex === 'Mâle');
+        
+        if (sexMatches && ageDifference < bestAgeDifference) {
+          bestMatch = item;
+          bestAgeDifference = ageDifference;
+        }
+      });
+
+      return bestMatch ? bestMatch.price : 0;
+    };
+
+    // Collect each lot-race combination separately
+    lots.forEach(lot => {
+      if (!lot.races || lot.status !== 'Actif') return;
+
+      const referenceDate = lot.date_eclosion || lot.date_creation;
+      const ageInDays = calculateAgeInDays(referenceDate);
+      const ageInMonths = calculateAgeInMonths(referenceDate);
+
+      Object.entries(lot.races).forEach(([raceName, raceInfo]) => {
+        if (!raceInfo) return;
+
+        const males = raceInfo.males || 0;
+        const females = raceInfo.females || 0;
+        const total = males + females;
+
+        if (total > 0) {
+          lotRaceData.push({
+            lotName: lot.name || `Lot ${lot.id}`,
+            race: raceName,
+            males: males,
+            females: females,
+            total: total,
+            ageInDays: ageInDays,
+            malePrice: findPrice(ageInMonths, 'male'),
+            femalePrice: findPrice(ageInMonths, 'female')
+          });
+        }
+      });
+    });
+
+    // Sort by total population and take top 4
+    return lotRaceData
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 4);
+  };
+
   const generateRecentActivity = (orders, products, events, lots, historique) => {
     const activities = [];
     const now = new Date();
@@ -480,20 +843,23 @@ export default function DashboardScreen({ navigation }) {
         </View>
       </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+      <KeyboardAvoidingView 
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
       <ScrollView 
         style={styles.scrollView}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.scrollViewContent}
       >
 
       {/* Compact General Status */}
       <View style={styles.compactStatusContainer}>
         <View style={styles.statusRow}>
-          <View style={styles.statusItem}>
-            <Text style={styles.statusLabel}>Produits</Text>
-            <Text style={[styles.statusValue, { color: '#4CAF50' }]}>{stats.totalProducts}</Text>
-          </View>
           <View style={styles.statusItem}>
             <Text style={styles.statusLabel}>Commandes</Text>
             <Text style={[styles.statusValue, { color: '#2196F3' }]}>{stats.totalOrders}</Text>
@@ -501,10 +867,6 @@ export default function DashboardScreen({ navigation }) {
           <View style={styles.statusItem}>
             <Text style={styles.statusLabel}>En Attente</Text>
             <Text style={[styles.statusValue, { color: '#FF9800' }]}>{stats.pendingOrders}</Text>
-          </View>
-          <View style={styles.statusItem}>
-            <Text style={styles.statusLabel}>Revenus</Text>
-            <Text style={[styles.statusValue, { color: '#4CAF50' }]}>{stats.totalRevenue.toFixed(0)}€</Text>
           </View>
         </View>
       </View>
@@ -561,20 +923,170 @@ export default function DashboardScreen({ navigation }) {
         )}
       </View>
 
+      {/* Race Search Interface */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Activité Récente</Text>
-        {recentActivity.length > 0 ? (
-          recentActivity.map((activity) => (
-            <View key={activity.id} style={styles.activityItem}>
-              <Text style={styles.activityText}>{activity.text}</Text>
-              <Text style={styles.activityTime}>{activity.time}</Text>
+        <Text style={styles.sectionTitle}>🔍 Recherche Rapide</Text>
+        
+        {/* Race Search Input */}
+        <View style={styles.searchContainer}>
+          <Text style={styles.searchLabel}>Race:</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Ex: Araucana (tapez 'ara' pour suggestions)"
+            value={raceSearch}
+            onChangeText={handleRaceSearch}
+            placeholderTextColor="#999"
+          />
+          {raceSuggestions.length > 0 && (
+            <View style={styles.suggestionsContainer}>
+              {raceSuggestions.map((suggestion, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.suggestionItem}
+                  onPress={() => {
+                    setRaceSearch(suggestion);
+                    setRaceSuggestions([]);
+                    performSearch(suggestion, ageSearch);
+                  }}
+                >
+                  <Text style={styles.suggestionText}>{suggestion}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          ))
-        ) : (
-          <View style={styles.activityItem}>
-            <Text style={styles.activityText}>📋 Aucune activité récente</Text>
-            <Text style={styles.activityTime}>Les nouvelles activités apparaîtront ici</Text>
+          )}
+        </View>
+
+        {/* Age Search Input */}
+        <View style={styles.searchContainer}>
+          <Text style={styles.searchLabel}>Âge (mois, ex: 1.25 = 1 mois 1 semaine):</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Ex: 2 ou 1.5 ou 1.25"
+            value={ageSearch}
+            onChangeText={handleAgeSearch}
+            keyboardType="decimal-pad"
+            placeholderTextColor="#999"
+          />
+        </View>
+
+        {/* Search Results */}
+        {searchResults.length > 0 && (
+          <View style={styles.resultsContainer}>
+            <Text style={styles.resultsTitle}>
+              {searchResults.length} lot{searchResults.length > 1 ? 's' : ''} trouvé{searchResults.length > 1 ? 's' : ''}
+            </Text>
+            {searchResults.map((result, index) => {
+              const resultIsEstimated = isLotEstimated({
+                eggs_count: result.eggs_count,
+                hatched_count: result.hatched_count,
+                estimated_success_rate: result.estimated_success_rate
+              });
+              
+              return (
+              <View key={index} style={[styles.resultCard, resultIsEstimated && styles.resultCardEstimated]}>
+                <View style={styles.resultHeader}>
+                  <View style={styles.resultHeaderLeft}>
+                    <Text style={styles.resultRace}>{result.race}</Text>
+                    <Text style={styles.resultLot}>{result.lotName}</Text>
+                    {resultIsEstimated && (
+                      <View style={styles.estimatedBadge}>
+                        <Text style={styles.estimatedBadgeText}>⚠️ Estimé</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+                
+                {resultIsEstimated && (
+                  <View style={styles.estimatedWarning}>
+                    <Text style={styles.estimatedWarningText}>
+                      ⚠️ Quantités estimées: {result.eggs_count} œufs × {result.estimated_success_rate}%
+                    </Text>
+                  </View>
+                )}
+                
+                {/* Age-targeted search results */}
+                {result.targetDate && (
+                  <View style={styles.availabilitySectionCompact}>
+                    <View style={styles.targetAvailabilityHeader}>
+                      <Text style={styles.availabilityTitleCompact}>
+                        {result.isAvailableNow && result.isActuallyAvailable ? '✅ Disponible maintenant' : `📅 Disponible le ${result.targetDate.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`}
+                      </Text>
+                      {!result.isAvailableNow && result.targetAgeInfo && (
+                        <Text style={styles.availabilitySubtitleCompact}>
+                          Dans {result.targetAgeInfo.days} jour{result.targetAgeInfo.days > 1 ? 's' : ''} ({formatAge(result.targetAgeInfo.months, result.targetAgeInfo.weeks)})
+                        </Text>
+                      )}
+                    </View>
+                    <View style={styles.availabilityRowCompact}>
+                      <Text style={styles.availabilityCompactText}>
+                        ♀️ {result.females} {result.targetFemalePrice > 0 && <Text style={styles.availabilityPriceInline}>• {result.targetFemalePrice}€</Text>}
+                      </Text>
+                      <Text style={styles.availabilityCompactText}>
+                        ♂️ {result.males} {result.targetMalePrice > 0 && <Text style={styles.availabilityPriceInline}>• {result.targetMalePrice}€</Text>}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Current Availability (when no age filter) */}
+                {!result.targetDate && (
+                  <>
+                    {result.isActuallyAvailable ? (
+                      <View style={styles.availabilitySectionCompact}>
+                        <Text style={styles.availabilityTitleCompact}>✅ Disponible maintenant</Text>
+                        <View style={styles.availabilityRowCompact}>
+                          <Text style={styles.availabilityCompactText}>
+                            ♀️ {result.females} {result.femalePrice > 0 && <Text style={styles.availabilityPriceInline}>• {result.femalePrice}€</Text>}
+                          </Text>
+                          <Text style={styles.availabilityCompactText}>
+                            ♂️ {result.males} {result.malePrice > 0 && <Text style={styles.availabilityPriceInline}>• {result.malePrice}€</Text>}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.availabilitySectionCompact}>
+                        <Text style={styles.availabilityTitleCompact}>
+                          📅 Disponible le {result.soonestAvailableDate?.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) || 'bientôt'}
+                        </Text>
+                        <Text style={styles.availabilitySubtitleCompact}>
+                          Dans {Math.abs(result.currentAge.days)} jour{Math.abs(result.currentAge.days) > 1 ? 's' : ''}
+                        </Text>
           </View>
+                    )}
+                  </>
+                )}
+
+                {/* Future Availability (only when no age filter) */}
+                {!result.targetDate && result.futureDates.length > 0 && (
+                  <View style={styles.futureSection}>
+                    <Text style={styles.futureTitle}>Disponibilité future:</Text>
+                    {result.futureDates.map((future, idx) => (
+                      <View key={idx} style={styles.futureItem}>
+                        <Text style={styles.futureDate}>
+                          {future.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} - {formatAge(future.age.months, future.age.weeks)}
+                        </Text>
+                        <View style={styles.futurePrices}>
+                          {future.femalePrice > 0 && (
+                            <Text style={styles.futurePrice}>♀️ {future.femalePrice}€</Text>
+                          )}
+                          {future.malePrice > 0 && (
+                            <Text style={styles.futurePrice}>♂️ {future.malePrice}€</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+              );
+            })}
+          </View>
+        )}
+
+        {raceSearch && searchResults.length === 0 && (
+          <Text style={styles.noResultsText}>
+            Aucun lot trouvé pour "{raceSearch}"
+          </Text>
         )}
       </View>
 
@@ -591,6 +1103,23 @@ export default function DashboardScreen({ navigation }) {
             <Text style={styles.actionButtonText}>📊 Statistiques</Text>
           </TouchableOpacity>
         </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Activité Récente</Text>
+        {recentActivity.length > 0 ? (
+          recentActivity.map((activity) => (
+            <View key={activity.id} style={styles.activityItem}>
+              <Text style={styles.activityText}>{activity.text}</Text>
+              <Text style={styles.activityTime}>{activity.time}</Text>
+            </View>
+          ))
+        ) : (
+          <View style={styles.activityItem}>
+            <Text style={styles.activityText}>📋 Aucune activité récente</Text>
+            <Text style={styles.activityTime}>Les nouvelles activités apparaîtront ici</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -636,6 +1165,7 @@ export default function DashboardScreen({ navigation }) {
         
       </View>
       </ScrollView>
+      </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
@@ -659,8 +1189,14 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
+  },
+  scrollViewContent: {
+    paddingBottom: 20,
   },
   header: {
     backgroundColor: '#005F6B', // Darker blue, like duck blue (bleu canard)
@@ -833,5 +1369,300 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 14,
+  },
+  raceCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#005F6B',
+  },
+  raceCardHeader: {
+    marginBottom: 10,
+  },
+  raceCardTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  raceCardName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    flex: 1,
+  },
+  raceCardBadge: {
+    backgroundColor: '#005F6B',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  raceCardBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'white',
+  },
+  raceCardLot: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  raceCardStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  raceCardStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  raceCardStatLabel: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  raceCardStatValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#005F6B',
+    marginBottom: 2,
+  },
+  raceCardStatPrice: {
+    fontSize: 11,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  raceCardDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#e0e0e0',
+    marginHorizontal: 10,
+  },
+  searchContainer: {
+    marginBottom: 15,
+  },
+  searchLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 6,
+  },
+  searchInput: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    color: '#333',
+  },
+  suggestionsContainer: {
+    marginTop: 5,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    maxHeight: 150,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#005F6B',
+  },
+  resultsContainer: {
+    marginTop: 10,
+  },
+  resultsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+  },
+  resultCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#005F6B',
+  },
+  resultCardEstimated: {
+    borderLeftColor: '#FF9800',
+    backgroundColor: '#FFF8E1',
+  },
+  resultHeader: {
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  resultHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  resultRace: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 4,
+    marginRight: 8,
+  },
+  resultLot: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginRight: 8,
+  },
+  estimatedBadge: {
+    backgroundColor: '#FF9800',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  estimatedBadgeText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'white',
+  },
+  estimatedWarning: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF9800',
+  },
+  estimatedWarningText: {
+    fontSize: 11,
+    color: '#856404',
+    fontWeight: '600',
+  },
+  availabilitySection: {
+    marginBottom: 12,
+  },
+  availabilitySectionCompact: {
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+  },
+  targetAvailabilityHeader: {
+    marginBottom: 6,
+  },
+  availabilityTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  availabilityTitleCompact: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 3,
+  },
+  availabilitySubtitle: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  availabilitySubtitleCompact: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  availabilityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 6,
+  },
+  availabilityRowCompact: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  availabilityItem: {
+    alignItems: 'center',
+  },
+  availabilityLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#005F6B',
+    marginBottom: 2,
+  },
+  availabilityCompactText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#005F6B',
+    flex: 1,
+  },
+  availabilityPrice: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  availabilityPriceInline: {
+    fontSize: 13,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  availabilityAge: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  futureSection: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  futureTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  futureItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  futureDate: {
+    fontSize: 12,
+    color: '#333',
+    flex: 1,
+  },
+  futurePrices: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  futurePrice: {
+    fontSize: 11,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  noResultsText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 10,
   },
 });
