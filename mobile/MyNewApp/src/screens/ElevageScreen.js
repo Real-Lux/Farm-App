@@ -1445,20 +1445,13 @@ export default function ElevageScreen({ navigation }) {
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
         <View style={styles.content}>
         {activeTab === 'lots' && (
-          <>
-            <View style={styles.actionBar}>
-              <TouchableOpacity style={styles.addButton} onPress={openAddLotModal}>
-                <Text style={styles.addButtonText}>+ Nouveau Lot</Text>
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={lots}
-              renderItem={({ item }) => <LotItem item={item} />}
-              keyExtractor={item => item.id.toString()}
-              style={styles.list}
-              showsVerticalScrollIndicator={false}
-            />
-          </>
+          <FlatList
+            data={lots}
+            renderItem={({ item }) => <LotItem item={item} />}
+            keyExtractor={item => item.id.toString()}
+            style={styles.list}
+            showsVerticalScrollIndicator={false}
+          />
         )}
 
         {activeTab === 'races' && (() => {
@@ -1470,11 +1463,6 @@ export default function ElevageScreen({ navigation }) {
           
           return (
           <>
-            <View style={styles.actionBar}>
-              <TouchableOpacity style={styles.addButton} onPress={openAddRaceModal}>
-                <Text style={styles.addButtonText}>+ Nouvelle Race</Text>
-              </TouchableOpacity>
-            </View>
             <FlatList
                 ref={racesFlatListRef}
                 data={sortedRaces}
@@ -2676,6 +2664,23 @@ export default function ElevageScreen({ navigation }) {
             </View>
           </View>
         </Modal>
+
+        {/* Floating Add Button */}
+        {(activeTab === 'lots' || activeTab === 'races') && (
+          <TouchableOpacity
+            style={styles.floatingAddButton}
+            onPress={() => {
+              if (activeTab === 'lots') {
+                openAddLotModal();
+              } else if (activeTab === 'races') {
+                openAddRaceModal();
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.floatingAddButtonText}>+</Text>
+          </TouchableOpacity>
+        )}
       </SafeAreaView>
     </View>
   );
@@ -4102,5 +4107,27 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
     marginTop: 5,
+  },
+  floatingAddButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 1000,
+  },
+  floatingAddButtonText: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: 'bold',
   },
 });

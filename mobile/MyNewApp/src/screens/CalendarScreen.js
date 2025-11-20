@@ -460,7 +460,7 @@ export default function CalendarScreen({ navigation }) {
       const match = event.title.match(/Naissance:\s*(.+?)\s*\(/);
       if (match && match[1]) {
         const animalName = match[1];
-        console.log('🐐 Navigating to CaprinScreen for animal:', animalName);
+        console.log('🐐 Navigating to EtableScreen for animal:', animalName);
         
         // Find the animal ID by name
         try {
@@ -471,7 +471,7 @@ export default function CalendarScreen({ navigation }) {
           
           if (targetAnimal) {
             if (navigation && navigation.navigate) {
-              // Navigate to Gestion tab first, then the GestionNavigator will handle CaprinScreen navigation
+              // Navigate to Gestion tab first, then the GestionNavigator will handle EtableScreen navigation
               navigation.navigate('Gestion', {
                 highlightAnimalId: targetAnimal.id,
                 highlightAnimalName: animalName

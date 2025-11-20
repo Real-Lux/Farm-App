@@ -68,6 +68,7 @@ export default function AddOrderScreen({ navigation, route }) {
     customerName: editingOrder.customerName || '',
     customerPhone: editingOrder.customerPhone || '',
     customerEmail: editingOrder.customerEmail || '',
+    customerLocation: editingOrder.customerLocation || '',
     otherDetails: editingOrder.otherDetails || '',
     product: editingOrder.product || '',
     quantity: editingOrder.quantity ? editingOrder.quantity.toString() : '',
@@ -90,6 +91,7 @@ export default function AddOrderScreen({ navigation, route }) {
     customerName: '',
     customerPhone: '',
     customerEmail: '',
+    customerLocation: '',
     otherDetails: '',
     product: '',
     quantity: '',
@@ -897,6 +899,7 @@ export default function AddOrderScreen({ navigation, route }) {
       customerName: orderForm.customerName,
       customerPhone: orderForm.customerPhone,
       customerEmail: orderForm.customerEmail,
+      customerLocation: orderForm.customerLocation || '',
       otherDetails: orderForm.otherDetails,
       // Determine order type based on what's selected
       orderType: hasAdoptionItems && hasProducts ? 'Mixte' : (hasAdoptionItems ? 'Adoption' : 'Autres produits'),
@@ -1466,6 +1469,14 @@ export default function AddOrderScreen({ navigation, route }) {
           value={orderForm.customerEmail}
           onChangeText={(text) => setOrderForm({...orderForm, customerEmail: text})}
           keyboardType="email-address"
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder="Lieu (optionnel)"
+          placeholderTextColor="#999"
+          value={orderForm.customerLocation}
+          onChangeText={(text) => setOrderForm({...orderForm, customerLocation: text})}
         />
 
         <TextInput

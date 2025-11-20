@@ -35,17 +35,11 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const [editingOrder, setEditingOrder] = useState(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('date'); // 'date', 'status', 'customer', 'price'
+  const [searchSuggestions, setSearchSuggestions] = useState([]);
+  const [sortBy, setSortBy] = useState('date'); // 'date', 'status'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
-  const [showStatusDefinitions, setShowStatusDefinitions] = useState(false);
-  const [viewMode, setViewMode] = useState('list'); // 'list', 'grid', 'kanban'
-  const [selectedOrders, setSelectedOrders] = useState([]);
-  const [bulkActionMode, setBulkActionMode] = useState(false);
-  const [showSearchBar, setShowSearchBar] = useState(false);
-  const [showSortModal, setShowSortModal] = useState(false);
-  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [selectedOrderType, setSelectedOrderType] = useState('Tous'); // 'Tous', 'Adoption', 'Autres produits', 'Mixte'
   const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
-  const [showBulkStatusModal, setShowBulkStatusModal] = useState(false);
   const [selectedOrderForStatusChange, setSelectedOrderForStatusChange] = useState(null);
   const flatListRef = useRef(null);
 
@@ -200,42 +194,17 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
 
 
   const OrderItem = ({ item }) => {
-    const isSelected = selectedOrders.includes(item.id);
     const statusDef = getStatusDefinition(item.status);
     
     return (
       <TouchableOpacity 
         style={[
           styles.orderCard,
-          highlightedOrderId === item.id && styles.highlightedOrderCard,
-          isSelected && styles.selectedOrderCard,
-          bulkActionMode && styles.bulkActionCard
+          highlightedOrderId === item.id && styles.highlightedOrderCard
         ]}
-        onPress={() => {
-          if (bulkActionMode) {
-            toggleOrderSelection(item.id);
-          } else {
-            openEditModal(item);
-          }
-        }}
-        onLongPress={() => {
-          if (!bulkActionMode) {
-            setBulkActionMode(true);
-            toggleOrderSelection(item.id);
-          }
-        }}
+        onPress={() => openEditModal(item)}
         activeOpacity={0.7}
       >
-        {bulkActionMode && (
-          <View style={styles.selectionIndicator}>
-            <View style={[
-              styles.selectionCheckbox,
-              isSelected && styles.selectionCheckboxSelected
-            ]}>
-              {isSelected && <Text style={styles.selectionCheckmark}>✓</Text>}
-            </View>
-          </View>
-        )}
         
       <View style={styles.orderHeader}>
         <View style={styles.orderTitleSection}>
@@ -251,10 +220,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             ]}
           onPress={(e) => {
               e.stopPropagation();
-              if (!bulkActionMode) {
-                setSelectedOrderForStatusChange(item);
-                setShowStatusChangeModal(true);
-              }
+              setSelectedOrderForStatusChange(item);
+              setShowStatusChangeModal(true);
           }}
         >
           <Text style={styles.statusText}>
@@ -324,12 +291,14 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         {item.customerEmail && (
           <Text style={styles.orderInfo}>📧 {item.customerEmail}</Text>
         )}
+        {item.customerLocation && (
+          <Text style={styles.orderInfo}>📍 {item.customerLocation}</Text>
+        )}
         {item.deliveryDate && (
           <Text style={styles.orderInfo}>🏠 Récupération: {formatDate(item.deliveryDate)}</Text>
         )}
       </View>
 
-        {!bulkActionMode && (
       <View style={styles.orderActions}>
         <TouchableOpacity 
           style={[styles.actionBtn, styles.messageBtn]}
@@ -383,7 +352,6 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
         </TouchableOpacity>
       </View>
-        )}
       </TouchableOpacity>
   );
   };
@@ -415,21 +383,139 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     });
   };
 
+  // Generate search suggestions from orders
+  const generateSearchSuggestions = (query) => {
+    if (!query || query.trim().length === 0) {
+      setSearchSuggestions([]);
+      return;
+    }
+
+    const queryLower = query.toLowerCase();
+    const suggestions = new Set();
+
+    orders.forEach(order => {
+      // Customer names
+      if (order.customerName?.toLowerCase().includes(queryLower)) {
+        suggestions.add(order.customerName);
+      }
+      
+      // Customer locations
+      if (order.customerLocation?.toLowerCase().includes(queryLower)) {
+        suggestions.add(order.customerLocation);
+      }
+
+      // Animal types
+      if (order.animalDetails) {
+        Object.keys(order.animalDetails).forEach(animalType => {
+          if (animalType.toLowerCase().includes(queryLower)) {
+            suggestions.add(animalType);
+          }
+        });
+      }
+
+      // Races
+      if (order.animalDetails) {
+        Object.values(order.animalDetails).forEach(animalDetail => {
+          if (animalDetail.races && Array.isArray(animalDetail.races)) {
+            animalDetail.races.forEach(raceConfig => {
+              if (raceConfig.race?.toLowerCase().includes(queryLower)) {
+                suggestions.add(raceConfig.race);
+              }
+            });
+          }
+        });
+      }
+
+      // Products
+      if (order.product?.toLowerCase().includes(queryLower)) {
+        suggestions.add(order.product);
+      }
+
+      // Selected products
+      if (order.selectedProducts && Array.isArray(order.selectedProducts)) {
+        order.selectedProducts.forEach(product => {
+          if (product.name?.toLowerCase().includes(queryLower)) {
+            suggestions.add(product.name);
+          }
+        });
+      }
+    });
+
+    setSearchSuggestions(Array.from(suggestions).slice(0, 5));
+  };
+
+  const handleSearchChange = (text) => {
+    setSearchQuery(text);
+    generateSearchSuggestions(text);
+  };
+
+  const selectSuggestion = (suggestion) => {
+    setSearchQuery(suggestion);
+    setSearchSuggestions([]);
+  };
+
   // Enhanced filtering and sorting functions
   const getFilteredAndSortedOrders = () => {
     let filtered = orders;
 
-    // Apply search filter
+    // Apply order type filter
+    if (selectedOrderType !== 'Tous') {
+      filtered = filtered.filter(order => order.orderType === selectedOrderType);
+    }
+
+    // Apply search filter (includes name, location, race, animal type, product)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(order => 
-        order.customerName.toLowerCase().includes(query) ||
-        order.customerPhone?.includes(query) ||
-        order.customerEmail?.toLowerCase().includes(query) ||
-        order.orderType.toLowerCase().includes(query) ||
-        order.animalType?.toLowerCase().includes(query) ||
-        order.race?.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter(order => {
+        // Search in customer info (name, phone, email, location)
+        if (order.customerName?.toLowerCase().includes(query) ||
+            order.customerPhone?.includes(query) ||
+            order.customerEmail?.toLowerCase().includes(query) ||
+            order.customerLocation?.toLowerCase().includes(query)) {
+          return true;
+        }
+        
+        // Search in order type
+        if (order.orderType?.toLowerCase().includes(query)) {
+          return true;
+        }
+        
+        // Search in animal details (races and animal types)
+        if (order.animalDetails) {
+          // Search by animal type (e.g., "poussins", "lapin", "canards")
+          const animalTypes = Object.keys(order.animalDetails);
+          if (animalTypes.some(animalType => animalType.toLowerCase().includes(query))) {
+            return true;
+          }
+          
+          // Search by race (e.g., "Araucana", "Coureur indien")
+          const hasMatchingRace = Object.values(order.animalDetails).some(animalDetail => {
+            if (animalDetail.races && Array.isArray(animalDetail.races)) {
+              return animalDetail.races.some(raceConfig => 
+                raceConfig.race?.toLowerCase().includes(query)
+              );
+            }
+            return false;
+          });
+          if (hasMatchingRace) return true;
+        }
+        
+        // Search in product name (e.g., "visite ferme", "fromage", "œufs")
+        if (order.product?.toLowerCase().includes(query)) {
+          return true;
+        }
+        
+        // Search in selected products (for new order structure)
+        if (order.selectedProducts && Array.isArray(order.selectedProducts)) {
+          const hasMatchingProduct = order.selectedProducts.some(product =>
+            product.name?.toLowerCase().includes(query) ||
+            product.category?.toLowerCase().includes(query)
+          );
+          if (hasMatchingProduct) return true;
+        }
+        
+        return false;
+      });
     }
 
     // Apply status filters
@@ -449,12 +535,6 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           const statusA = getStatusDefinition(a.status);
           const statusB = getStatusDefinition(b.status);
           comparison = statusA.priority - statusB.priority;
-          break;
-        case 'customer':
-          comparison = a.customerName.localeCompare(b.customerName);
-          break;
-        case 'price':
-          comparison = a.totalPrice - b.totalPrice;
           break;
         default:
           comparison = new Date(b.orderDate) - new Date(a.orderDate);
@@ -531,271 +611,97 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             <Text style={styles.orderCount}>({filteredOrders.length})</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity 
-              style={styles.headerActionBtn} 
-              onPress={() => setShowStatusDefinitions(!showStatusDefinitions)}
-            >
-              <Text style={styles.headerActionText}>ℹ️</Text>
-            </TouchableOpacity>
-          <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+            <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
               <Text style={styles.addButtonText}>+ Nouvelle</Text>
-          </TouchableOpacity>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
 
-      {/* Compact Controls */}
-      <View style={styles.controlsContainer}>
-        <View style={styles.compactControlsRow}>
-          {/* Search Icon */}
-          <TouchableOpacity 
-            style={[styles.controlIcon, showSearchBar && styles.controlIconActive]}
-            onPress={() => setShowSearchBar(!showSearchBar)}
-          >
-            <Text style={styles.controlIconText}>🔍</Text>
-          </TouchableOpacity>
-          
-          {/* Sort Dropdown */}
-          <TouchableOpacity 
-            style={styles.sortDropdown}
-            onPress={() => setShowSortModal(true)}
-          >
-            <Text style={styles.sortDropdownText}>
-              {sortBy === 'date' ? '📅' : sortBy === 'status' ? '🏷️' : sortBy === 'customer' ? '👤' : '💰'}
-            </Text>
-            <Text style={styles.sortDropdownArrow}>▼</Text>
-          </TouchableOpacity>
-          
-          {/* Sort Order Toggle */}
-          <TouchableOpacity 
-            style={styles.sortOrderToggle}
-            onPress={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-          >
-            <Text style={styles.sortOrderText}>{sortOrder === 'asc' ? '↑' : '↓'}</Text>
-          </TouchableOpacity>
-          
-          {/* Filter Toggle */}
-          <TouchableOpacity 
-            style={[styles.controlIcon, activeFilters.length > 0 && styles.controlIconActive]}
-            onPress={() => {
-              if (activeFilters.length > 0) {
-                setActiveFilters([]);
-              } else {
-                setShowFilterModal(true);
-              }
-            }}
-          >
-            <Text style={styles.controlIconText}>
-              {activeFilters.length > 0 ? '🔽' : '🔽'}
-            </Text>
-            {activeFilters.length > 0 && (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>{activeFilters.length}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-        
-        {/* Collapsible Search Bar */}
-        {showSearchBar && (
+      {/* Simplified Controls */}
+      <View style={styles.simplifiedControlsContainer}>
+        {/* Search bar with date/sort on the right */}
+        <View style={styles.searchRowContainer}>
+          {/* Always visible search bar with autocomplete */}
           <View style={styles.searchBarContainer}>
+            <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder="Rechercher par nom, téléphone, email..."
+              placeholder="Rechercher par nom, lieu, race, animal, produit..."
               value={searchQuery}
-              onChangeText={setSearchQuery}
+              onChangeText={handleSearchChange}
               placeholderTextColor="#999"
-              autoFocus={true}
             />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity 
+                style={styles.clearSearchBtn}
+                onPress={() => {
+                  setSearchQuery('');
+                  setSearchSuggestions([]);
+                }}
+              >
+                <Text style={styles.clearSearchText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {/* Date/Sort controls on the right */}
+          <View style={styles.sortContainerInline}>
             <TouchableOpacity 
-              style={styles.clearSearchBtn}
-              onPress={() => {
-                setSearchQuery('');
-                setShowSearchBar(false);
-              }}
+              style={styles.sortToggleInline}
+              onPress={() => setSortBy(sortBy === 'date' ? 'status' : 'date')}
             >
-              <Text style={styles.clearSearchText}>✕</Text>
+              <Text style={styles.sortToggleTextInline}>
+                {sortBy === 'date' ? '📅' : '🏷️'}
+              </Text>
             </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.sortOrderToggleInline}
+              onPress={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            >
+              <Text style={styles.sortOrderTextInline}>{sortOrder === 'asc' ? '↑' : '↓'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        {/* Search Suggestions */}
+        {searchSuggestions.length > 0 && (
+          <View style={styles.suggestionsContainer}>
+            {searchSuggestions.map((suggestion, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.suggestionItem}
+                onPress={() => selectSuggestion(suggestion)}
+              >
+                <Text style={styles.suggestionText}>{suggestion}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
+        
+        {/* Order Type Filter Chips - Smaller */}
+        <View style={styles.orderTypeFilterContainer}>
+          {['Tous', 'Adoption', 'Autres produits', 'Mixte'].map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[
+                styles.orderTypeChip,
+                selectedOrderType === type && styles.orderTypeChipActive
+              ]}
+              onPress={() => setSelectedOrderType(type)}
+            >
+              <Text style={[
+                styles.orderTypeChipText,
+                selectedOrderType === type && styles.orderTypeChipTextActive
+              ]}>
+                {type === 'Tous' ? '📋' : type === 'Adoption' ? '🦆' : type === 'Autres produits' ? '📦' : '🔄'} {type === 'Autres produits' ? 'Produits' : type}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
-      {/* Status Definitions Modal */}
-      {showStatusDefinitions && (
-        <Modal
-          animationType="fade"
-          transparent={true}
-          visible={showStatusDefinitions}
-          onRequestClose={() => setShowStatusDefinitions(false)}
-        >
-          <TouchableOpacity 
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowStatusDefinitions(false)}
-          >
-            <View style={styles.statusDefinitionsModal}>
-              <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Définitions des Statuts</Text>
-                <TouchableOpacity 
-                  style={styles.closeModalBtn}
-                  onPress={() => setShowStatusDefinitions(false)}
-                >
-                  <Text style={styles.closeModalText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.statusDefinitionsList}>
-                {getStatusesByPriority().map((status) => {
-                  const def = getStatusDefinition(status);
-                  return (
-                    <View key={status} style={styles.statusDefinitionItem}>
-                      <View style={styles.statusDefinitionHeader}>
-                        <View style={[styles.statusDefinitionBadge, { backgroundColor: def.color }]}>
-                          <Text style={styles.statusDefinitionIcon}>{def.icon}</Text>
-                          <Text style={styles.statusDefinitionName}>{status}</Text>
-                        </View>
-                        <View style={styles.statusDefinitionFlags}>
-                          {def.requiresAction && (
-                            <Text style={styles.statusFlag}>⚠️ Action requise</Text>
-                          )}
-                          {def.affectsInventory && (
-                            <Text style={styles.statusFlag}>📦 Affecte stock</Text>
-                          )}
-                        </View>
-                      </View>
-                      <Text style={styles.statusDefinitionDescription}>{def.description}</Text>
-                    </View>
-                  );
-                })}
-              </ScrollView>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
-
-      {/* Sort Options Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={showSortModal}
-        onRequestClose={() => setShowSortModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowSortModal(false)}
-        >
-          <View style={styles.modalContent}>
-            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Trier par</Text>
-                <TouchableOpacity 
-                  style={styles.closeModalBtn}
-                  onPress={() => setShowSortModal(false)}
-                >
-                  <Text style={styles.closeModalText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.modalSubtitle}>Sélectionnez le critère de tri:</Text>
-                <View style={styles.modalOptions}>
-                  <TouchableOpacity 
-                    style={[styles.modalOption, sortBy === 'date' && styles.modalOptionSelected]}
-                    onPress={() => {
-                      setSortBy('date');
-                      setShowSortModal(false);
-                    }}
-                  >
-                    <Text style={styles.modalOptionIcon}>📅</Text>
-                    <Text style={styles.modalOptionText}>Date</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.modalOption, sortBy === 'status' && styles.modalOptionSelected]}
-                    onPress={() => {
-                      setSortBy('status');
-                      setShowSortModal(false);
-                    }}
-                  >
-                    <Text style={styles.modalOptionIcon}>🏷️</Text>
-                    <Text style={styles.modalOptionText}>Statut</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.modalOption, sortBy === 'customer' && styles.modalOptionSelected]}
-                    onPress={() => {
-                      setSortBy('customer');
-                      setShowSortModal(false);
-                    }}
-                  >
-                    <Text style={styles.modalOptionIcon}>👤</Text>
-                    <Text style={styles.modalOptionText}>Client</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.modalOption, sortBy === 'price' && styles.modalOptionSelected]}
-                    onPress={() => {
-                      setSortBy('price');
-                      setShowSortModal(false);
-                    }}
-                  >
-                    <Text style={styles.modalOptionIcon}>💰</Text>
-                    <Text style={styles.modalOptionText}>Prix</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Filter Options Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={showFilterModal}
-        onRequestClose={() => setShowFilterModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowFilterModal(false)}
-        >
-          <View style={styles.modalContent}>
-            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Filtrer par statut</Text>
-                <TouchableOpacity 
-                  style={styles.closeModalBtn}
-                  onPress={() => setShowFilterModal(false)}
-                >
-                  <Text style={styles.closeModalText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.modalSubtitle}>Sélectionnez les statuts à afficher:</Text>
-                <View style={styles.modalOptions}>
-                  {orderStatuses.map(status => {
-                    const statusDef = getStatusDefinition(status);
-                    return (
-                      <TouchableOpacity 
-                        key={status}
-                        style={[styles.modalOption, { borderLeftColor: statusDef.color }]}
-                        onPress={() => {
-                          setActiveFilters([status]);
-                          setShowFilterModal(false);
-                        }}
-                      >
-                        <Text style={styles.modalOptionIcon}>{statusDef.icon}</Text>
-                        <Text style={styles.modalOptionText}>{status}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* Status Change Modal */}
       <Modal
@@ -864,143 +770,46 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         </TouchableOpacity>
       </Modal>
 
-      {/* Bulk Status Change Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={showBulkStatusModal}
-        onRequestClose={() => setShowBulkStatusModal(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowBulkStatusModal(false)}
-        >
-          <View style={styles.modalContent}>
-            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Changer le statut</Text>
-                <TouchableOpacity 
-                  style={styles.closeModalBtn}
-                  onPress={() => setShowBulkStatusModal(false)}
-                >
-                  <Text style={styles.closeModalText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <View style={styles.statusChangeInfo}>
-                  <Text style={styles.statusChangeLabel}>Commandes sélectionnées:</Text>
-                  <Text style={styles.statusChangeValue}>{selectedOrders.length} commande{selectedOrders.length !== 1 ? 's' : ''}</Text>
-                </View>
-                <Text style={styles.modalSubtitle}>Sélectionnez le nouveau statut:</Text>
-                <View style={styles.modalOptions}>
-                  {orderStatuses.map(status => {
-                    const statusDef = getStatusDefinition(status);
-                    return (
-                      <TouchableOpacity 
-                        key={status}
-                        style={[styles.modalOption, { borderLeftColor: statusDef.color }]}
-                        onPress={() => {
-                          bulkUpdateStatus(status);
-                          setShowBulkStatusModal(false);
-                        }}
-                      >
-                        <Text style={styles.modalOptionIcon}>{statusDef.icon}</Text>
-                        <Text style={styles.modalOptionText}>{status}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
-      {/* Compact Status Overview */}
-      <View style={styles.statusOverviewContainer}>
-        <View style={styles.statusOverviewRow}>
-            {getStatusesByPriority().map((status) => {
+      {/* Simplified Status Overview - Scrollable horizontally */}
+      <View style={styles.simplifiedStatusContainer}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.simplifiedStatusRow}
+        >
+          {['En attente', 'Confirmée', 'Livrée'].map((status) => {
             const statusCount = stats[status] || 0;
-              const statusDef = getStatusDefinition(status);
-              const isActive = activeFilters.includes(status);
-              
+            const statusDef = getStatusDefinition(status);
+            const isActive = activeFilters.includes(status);
+            
             return (
               <TouchableOpacity
                 key={status}
                 style={[
-                    styles.statusOverviewChip,
-                    { backgroundColor: '#f5f5f5', borderColor: statusDef.color },
-                    isActive && styles.statusOverviewChipActive
+                  styles.simplifiedStatusChip,
+                  { borderColor: statusDef.color },
+                  isActive && { backgroundColor: statusDef.color }
                 ]}
-                onPress={() => toggleStatusFilter(status)}
+                onPress={() => {
+                  if (isActive) {
+                    setActiveFilters([]);
+                  } else {
+                    setActiveFilters([status]);
+                  }
+                }}
               >
-                  <Text style={styles.statusOverviewIcon}>{statusDef.icon}</Text>
-                  <Text style={styles.statusOverviewCount}>{statusCount}</Text>
-                  {statusDef.requiresAction && statusCount > 0 && (
-                    <View style={styles.statusOverviewActionDot} />
-                  )}
+                <Text style={[
+                  styles.simplifiedStatusText,
+                  isActive && { color: 'white' }
+                ]}>
+                  {statusDef.icon} {statusCount}
+                </Text>
               </TouchableOpacity>
             );
           })}
-          </View>
-        </View>
-
-      {/* Active filters indicator */}
-      {activeFilters.length > 0 && (
-        <View style={styles.activeFiltersContainer}>
-          <View style={styles.activeFiltersTextContainer}>
-            <Text style={styles.activeFiltersText} numberOfLines={1}>
-              Filtres actifs: {activeFilters.join(', ')} ({filteredOrders.length} commande{filteredOrders.length !== 1 ? 's' : ''})
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.clearFiltersButton}
-            onPress={() => setActiveFilters([])}
-          >
-            <Text style={styles.clearFiltersText}>Tout afficher</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Bulk Action Controls */}
-      {bulkActionMode && (
-        <View style={styles.bulkActionContainer}>
-          <View style={styles.bulkActionInfo}>
-            <Text style={styles.bulkActionText}>
-              {selectedOrders.length} commande{selectedOrders.length !== 1 ? 's' : ''} sélectionnée{selectedOrders.length !== 1 ? 's' : ''}
-            </Text>
-            <TouchableOpacity 
-              style={styles.selectAllBtn}
-              onPress={selectedOrders.length === filteredOrders.length ? clearSelection : selectAllOrders}
-            >
-              <Text style={styles.selectAllText}>
-                {selectedOrders.length === filteredOrders.length ? 'Tout désélectionner' : 'Tout sélectionner'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.bulkActionButtons}>
-            <TouchableOpacity 
-              style={styles.bulkActionBtn}
-              onPress={() => setBulkActionMode(false)}
-            >
-              <Text style={styles.bulkActionBtnText}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.bulkActionBtn, styles.bulkDeleteBtn]}
-              onPress={bulkDeleteOrders}
-            >
-              <Text style={styles.bulkActionBtnText}>🗑️ Supprimer</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.bulkActionBtn, styles.bulkStatusBtn]}
-              onPress={() => setShowBulkStatusModal(true)}
-            >
-              <Text style={styles.bulkActionBtnText}>🏷️ Statut</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+        </ScrollView>
+      </View>
 
       <FlatList
         ref={flatListRef}
@@ -1217,13 +1026,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
+  searchRowContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   searchBarContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
     borderRadius: 8,
     paddingHorizontal: 12,
-    marginTop: 8,
+  },
+  searchIcon: {
+    fontSize: 18,
+    marginRight: 8,
+    color: '#666',
   },
   searchInput: {
     flex: 1,
@@ -1238,6 +1058,138 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Simplified controls styles
+  simplifiedControlsContainer: {
+    backgroundColor: 'white',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  orderTypeFilterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  orderTypeChip: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  orderTypeChipActive: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  orderTypeChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#666',
+  },
+  orderTypeChipTextActive: {
+    color: 'white',
+  },
+  sortContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sortContainerInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sortToggle: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  sortToggleInline: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    minWidth: 40,
+  },
+  sortToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  sortToggleTextInline: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  sortOrderToggleInline: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#005F6B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sortOrderTextInline: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  simplifiedStatusContainer: {
+    backgroundColor: 'white',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  simplifiedStatusRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 15,
+  },
+  simplifiedStatusChip: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    borderWidth: 2,
+    minWidth: 80,
+  },
+  simplifiedStatusText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#333',
+  },
+  suggestionsContainer: {
+    marginTop: 5,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    maxHeight: 150,
+    marginBottom: 8,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#005F6B',
   },
   // Compact status overview styles
   statusOverviewContainer: {

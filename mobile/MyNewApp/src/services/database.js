@@ -482,7 +482,38 @@ class SimpleTestDatabaseService {
         milkRecordingMethod: 'individual', // 'individual' or 'group'
         groupMilkProduction: [] // For group recording: [{ date, total, notes }]
       },
-      caprin_animals: [
+      // Unified herd management - supports multiple herd types
+      herd_types: ['caprin', 'ovin', 'bovin', 'équin', 'porcin'], // Available herd types
+      herd_settings: {
+        caprin: {
+          groups: [],
+          milkRecordingMethod: 'group',
+          groupMilkProduction: []
+        },
+        ovin: {
+          groups: [],
+          milkRecordingMethod: 'group',
+          groupMilkProduction: []
+        },
+        bovin: {
+          groups: [],
+          milkRecordingMethod: 'group',
+          groupMilkProduction: []
+        },
+        équin: {
+          groups: [],
+          milkRecordingMethod: 'group',
+          groupMilkProduction: []
+        },
+        porcin: {
+          groups: [],
+          milkRecordingMethod: 'group',
+          groupMilkProduction: []
+        }
+      },
+      herd_animals: {
+        // Caprin (goats/sheep) - existing data
+        caprin: [
         {
           id: 1,
           name: 'Canelle',
@@ -1369,6 +1400,291 @@ class SimpleTestDatabaseService {
           parents: { mother: 'Anis', father: '' }
         }
       ],
+      // Ovin (sheep) - 3 examples
+      ovin: [
+        {
+          id: 1001,
+          name: 'Bélier',
+          species: 'brebis',
+          breed: 'Mérinos',
+          birthDate: '2021-05-15',
+          entryDate: '2021-05-15',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'OV001',
+          earTagNumber: '01001',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'mâle',
+          status: 'vivant',
+          notes: 'Bélier reproducteur principal',
+          milkProduction: [],
+          offspring: ['Laine', 'Touffe'],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 1002,
+          name: 'Laine',
+          species: 'brebis',
+          breed: 'Mérinos',
+          birthDate: '2023-03-20',
+          entryDate: '2023-03-20',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'OV002',
+          earTagNumber: '01002',
+          buyerSellerName: '',
+          mother: 'Bélier',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Bélier - Excellente productrice de laine',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.2, evening: 1.3, total: 2.5, notes: '' },
+            { date: '2025-01-14', morning: 1.1, evening: 1.2, total: 2.3, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: 'Bélier', father: '' }
+        },
+        {
+          id: 1003,
+          name: 'Touffe',
+          species: 'brebis',
+          breed: 'Texel',
+          birthDate: '2023-04-10',
+          entryDate: '2023-04-10',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'OV003',
+          earTagNumber: '01003',
+          buyerSellerName: '',
+          mother: 'Bélier',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Bélier - Race Texel',
+          milkProduction: [
+            { date: '2025-01-15', morning: 1.0, evening: 1.1, total: 2.1, notes: '' }
+          ],
+          offspring: [],
+          parents: { mother: 'Bélier', father: '' }
+        }
+      ],
+      // Bovin (cattle) - 3 examples
+      bovin: [
+        {
+          id: 2001,
+          name: 'Belle',
+          species: 'vache',
+          breed: 'Holstein',
+          birthDate: '2019-08-12',
+          entryDate: '2019-08-12',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'BO001',
+          earTagNumber: '02001',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Vache laitière principale',
+          milkProduction: [
+            { date: '2025-01-15', morning: 12.5, evening: 13.2, total: 25.7, notes: 'Excellente production' },
+            { date: '2025-01-14', morning: 12.0, evening: 12.8, total: 24.8, notes: '' }
+          ],
+          offspring: ['Veau', 'Tache'],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 2002,
+          name: 'Veau',
+          species: 'taureau',
+          breed: 'Charolais',
+          birthDate: '2024-02-15',
+          entryDate: '2024-02-15',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'BO002',
+          earTagNumber: '02002',
+          buyerSellerName: '',
+          mother: 'Belle',
+          father: '',
+          gender: 'mâle',
+          status: 'vivant',
+          notes: 'Fils de Belle - Taureau reproducteur',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Belle', father: '' }
+        },
+        {
+          id: 2003,
+          name: 'Tache',
+          species: 'vache',
+          breed: 'Holstein',
+          birthDate: '2024-03-20',
+          entryDate: '2024-03-20',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'BO003',
+          earTagNumber: '02003',
+          buyerSellerName: '',
+          mother: 'Belle',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Belle - Jeune vache',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Belle', father: '' }
+        }
+      ],
+      // Équin (horses) - 3 examples
+      équin: [
+        {
+          id: 3001,
+          name: 'Étoile',
+          species: 'jument',
+          breed: 'Pur-sang arabe',
+          birthDate: '2018-06-10',
+          entryDate: '2018-06-10',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'EQ001',
+          earTagNumber: '03001',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Jument de race arabe',
+          milkProduction: [],
+          offspring: ['Galop', 'Crinière'],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 3002,
+          name: 'Galop',
+          species: 'étalon',
+          breed: 'Pur-sang arabe',
+          birthDate: '2022-05-15',
+          entryDate: '2022-05-15',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'EQ002',
+          earTagNumber: '03002',
+          buyerSellerName: '',
+          mother: 'Étoile',
+          father: '',
+          gender: 'mâle',
+          status: 'vivant',
+          notes: 'Fils d\'Étoile - Étalon prometteur',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Étoile', father: '' }
+        },
+        {
+          id: 3003,
+          name: 'Crinière',
+          species: 'jument',
+          breed: 'Selle français',
+          birthDate: '2022-07-20',
+          entryDate: '2022-07-20',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'EQ003',
+          earTagNumber: '03003',
+          buyerSellerName: '',
+          mother: 'Étoile',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille d\'Étoile - Jument de selle',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Étoile', father: '' }
+        }
+      ],
+      // Porcin (pigs) - 3 examples
+      porcin: [
+        {
+          id: 4001,
+          name: 'Groin',
+          species: 'truie',
+          breed: 'Large White',
+          birthDate: '2020-09-10',
+          entryDate: '2020-09-10',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'PO001',
+          earTagNumber: '04001',
+          buyerSellerName: '',
+          mother: '',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Truie reproductrice principale',
+          milkProduction: [],
+          offspring: ['Cochonnet', 'Rosette'],
+          parents: { mother: '', father: '' }
+        },
+        {
+          id: 4002,
+          name: 'Cochonnet',
+          species: 'porc',
+          breed: 'Large White',
+          birthDate: '2024-01-15',
+          entryDate: '2024-01-15',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'PO002',
+          earTagNumber: '04002',
+          buyerSellerName: '',
+          mother: 'Groin',
+          father: '',
+          gender: 'mâle',
+          status: 'vivant',
+          notes: 'Fils de Groin - Porc en croissance',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Groin', father: '' }
+        },
+        {
+          id: 4003,
+          name: 'Rosette',
+          species: 'truie',
+          breed: 'Pietrain',
+          birthDate: '2024-02-20',
+          entryDate: '2024-02-20',
+          exitDate: null,
+          entryCause: 'naissance',
+          exitCause: null,
+          herdNumber: 'PO003',
+          earTagNumber: '04003',
+          buyerSellerName: '',
+          mother: 'Groin',
+          father: '',
+          gender: 'femelle',
+          status: 'vivant',
+          notes: 'Fille de Groin - Race Pietrain',
+          milkProduction: [],
+          offspring: [],
+          parents: { mother: 'Groin', father: '' }
+        }
+      ]
+    },
       template_messages: [
         {
           id: 1,
@@ -1434,6 +1750,9 @@ class SimpleTestDatabaseService {
           lot_notes: parsedData.lot_notes !== undefined ? parsedData.lot_notes : this.storage.lot_notes,
           caprin_animals: parsedData.caprin_animals !== undefined ? parsedData.caprin_animals : this.storage.caprin_animals,
           caprin_settings: parsedData.caprin_settings !== undefined ? parsedData.caprin_settings : this.storage.caprin_settings,
+          herd_types: parsedData.herd_types !== undefined ? parsedData.herd_types : this.storage.herd_types,
+          herd_animals: parsedData.herd_animals !== undefined ? parsedData.herd_animals : this.storage.herd_animals,
+          herd_settings: parsedData.herd_settings !== undefined ? parsedData.herd_settings : this.storage.herd_settings,
           saved_formulas: parsedData.saved_formulas !== undefined ? parsedData.saved_formulas : this.storage.saved_formulas,
           order_pricing: parsedData.order_pricing !== undefined ? parsedData.order_pricing : this.storage.order_pricing,
           template_messages: parsedData.template_messages !== undefined ? parsedData.template_messages : this.storage.template_messages,
@@ -1442,6 +1761,33 @@ class SimpleTestDatabaseService {
           cheese_recipes: parsedData.cheese_recipes !== undefined ? parsedData.cheese_recipes : (this.storage.cheese_recipes || []),
           cheese_settings: parsedData.cheese_settings !== undefined ? parsedData.cheese_settings : (this.storage.cheese_settings || {})
         };
+        
+        // Migrate old caprin_animals to herd_animals.caprin if needed
+        if (this.storage.caprin_animals && this.storage.caprin_animals.length > 0) {
+          if (!this.storage.herd_animals) {
+            this.storage.herd_animals = {};
+          }
+          if (!this.storage.herd_animals.caprin || this.storage.herd_animals.caprin.length === 0) {
+            console.log('🔄 Migrating caprin_animals to herd_animals.caprin');
+            this.storage.herd_animals.caprin = [...this.storage.caprin_animals];
+          }
+        }
+        
+        // Initialize herd_settings if missing
+        if (!this.storage.herd_settings) {
+          this.storage.herd_settings = {};
+        }
+        // Ensure each herd type has settings initialized
+        const herdTypes = this.storage.herd_types || ['caprin', 'ovin', 'bovin', 'équin', 'porcin'];
+        herdTypes.forEach(herdType => {
+          if (!this.storage.herd_settings[herdType]) {
+            this.storage.herd_settings[herdType] = {
+              groups: [],
+              milkRecordingMethod: 'group',
+              groupMilkProduction: []
+            };
+          }
+        });
         
         console.log(`✅ Data loaded from persistent storage - ${this.storage.orders.length} orders loaded`);
       } else {
@@ -1883,6 +2229,9 @@ class SimpleTestDatabaseService {
       if (backupData.lot_notes) this.storage.lot_notes = backupData.lot_notes;
       if (backupData.caprin_animals) this.storage.caprin_animals = backupData.caprin_animals;
       if (backupData.caprin_settings) this.storage.caprin_settings = backupData.caprin_settings;
+      if (backupData.herd_types) this.storage.herd_types = backupData.herd_types;
+      if (backupData.herd_animals) this.storage.herd_animals = backupData.herd_animals;
+      if (backupData.herd_settings) this.storage.herd_settings = backupData.herd_settings;
       if (backupData.saved_formulas) this.storage.saved_formulas = backupData.saved_formulas;
       if (backupData.order_pricing) this.storage.order_pricing = backupData.order_pricing;
       if (backupData.template_messages) this.storage.template_messages = backupData.template_messages;
@@ -1920,6 +2269,9 @@ class SimpleTestDatabaseService {
       lot_notes: this.storage.lot_notes,
       caprin_animals: this.storage.caprin_animals,
       caprin_settings: this.storage.caprin_settings,
+      herd_types: this.storage.herd_types,
+      herd_animals: this.storage.herd_animals,
+      herd_settings: this.storage.herd_settings,
       saved_formulas: this.storage.saved_formulas,
       order_pricing: this.storage.order_pricing,
       template_messages: this.storage.template_messages,
@@ -2689,6 +3041,166 @@ class SimpleTestDatabaseService {
     return Object.keys(grids);
   }
 
+  // ========== HERD-SPECIFIC CONFIGURATIONS ==========
+  getHerdConfig(herdType) {
+    const configs = {
+      caprin: {
+        name: 'Caprin',
+        icon: '🐐',
+        color: '#8B4513',
+        species: ['chèvre', 'brebis'],
+        defaultSpecies: 'chèvre',
+        emoji: { 'chèvre': '🐐', 'brebis': '🐑' },
+        description: 'Gestion des chèvres et brebis'
+      },
+      ovin: {
+        name: 'Ovin',
+        icon: '🐑',
+        color: '#6B8E23',
+        species: ['brebis', 'bélier'],
+        defaultSpecies: 'brebis',
+        emoji: { 'brebis': '🐑', 'bélier': '🐑' },
+        description: 'Gestion des brebis et béliers'
+      },
+      bovin: {
+        name: 'Bovin',
+        icon: '🐄',
+        color: '#654321',
+        species: ['vache', 'taureau'],
+        defaultSpecies: 'vache',
+        emoji: { 'vache': '🐄', 'taureau': '🐄' },
+        description: 'Gestion des vaches et taureaux'
+      },
+      équin: {
+        name: 'Équin',
+        icon: '🐴',
+        color: '#8B4513',
+        species: ['jument', 'étalon'],
+        defaultSpecies: 'jument',
+        emoji: { 'jument': '🐴', 'étalon': '🐴' },
+        description: 'Gestion des juments et étalons'
+      },
+      porcin: {
+        name: 'Porcin',
+        icon: '🐷',
+        color: '#FFB6C1',
+        species: ['truie', 'porc'],
+        defaultSpecies: 'truie',
+        emoji: { 'truie': '🐷', 'porc': '🐷' },
+        description: 'Gestion des truies et porcs'
+      }
+    };
+    return configs[herdType] || {
+      name: herdType.charAt(0).toUpperCase() + herdType.slice(1),
+      icon: '🐾',
+      color: '#8B4513',
+      species: ['animal'],
+      defaultSpecies: 'animal',
+      emoji: { 'animal': '🐾' },
+      description: `Gestion du troupeau ${herdType}`
+    };
+  }
+
+  // ========== HERD GROUPS MANAGEMENT ==========
+  async getHerdGroups(herdType) {
+    console.log(`📋 getHerdGroups called for ${herdType}`);
+    if (!this.storage.herd_settings || !this.storage.herd_settings[herdType]) {
+      return [];
+    }
+    return this.storage.herd_settings[herdType].groups || [];
+  }
+
+  async addHerdGroup(herdType, group) {
+    console.log(`➕ addHerdGroup called for ${herdType}`);
+    if (!this.storage.herd_settings) {
+      this.storage.herd_settings = {};
+    }
+    if (!this.storage.herd_settings[herdType]) {
+      this.storage.herd_settings[herdType] = {
+        groups: [],
+        milkRecordingMethod: 'group',
+        groupMilkProduction: []
+      };
+    }
+    if (!this.storage.herd_settings[herdType].groups) {
+      this.storage.herd_settings[herdType].groups = [];
+    }
+    const newGroup = {
+      id: Date.now(),
+      name: group.name,
+      animalIds: group.animalIds || [],
+      description: group.description || '',
+      createdAt: new Date().toISOString()
+    };
+    this.storage.herd_settings[herdType].groups.push(newGroup);
+    await this.saveToStorage();
+    return { insertId: newGroup.id };
+  }
+
+  async updateHerdGroup(herdType, groupId, group) {
+    console.log(`✏️ updateHerdGroup called for ${herdType}`);
+    if (!this.storage.herd_settings || !this.storage.herd_settings[herdType] || !this.storage.herd_settings[herdType].groups) {
+      return { rowsAffected: 0 };
+    }
+    const index = this.storage.herd_settings[herdType].groups.findIndex(g => g.id == groupId);
+    if (index !== -1) {
+      this.storage.herd_settings[herdType].groups[index] = {
+        ...this.storage.herd_settings[herdType].groups[index],
+        ...group,
+        updatedAt: new Date().toISOString()
+      };
+      await this.saveToStorage();
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async deleteHerdGroup(herdType, groupId) {
+    console.log(`🗑️ deleteHerdGroup called for ${herdType}`);
+    if (!this.storage.herd_settings || !this.storage.herd_settings[herdType] || !this.storage.herd_settings[herdType].groups) {
+      return { rowsAffected: 0 };
+    }
+    const index = this.storage.herd_settings[herdType].groups.findIndex(g => g.id == groupId);
+    if (index !== -1) {
+      this.storage.herd_settings[herdType].groups.splice(index, 1);
+      await this.saveToStorage();
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async addAnimalsToGroup(herdType, groupId, animalIds) {
+    console.log(`➕ addAnimalsToGroup called for ${herdType}`);
+    if (!this.storage.herd_settings || !this.storage.herd_settings[herdType] || !this.storage.herd_settings[herdType].groups) {
+      return { rowsAffected: 0 };
+    }
+    const group = this.storage.herd_settings[herdType].groups.find(g => g.id == groupId);
+    if (group) {
+      // Add only unique IDs
+      const existingIds = new Set(group.animalIds || []);
+      animalIds.forEach(id => existingIds.add(id));
+      group.animalIds = Array.from(existingIds);
+      await this.saveToStorage();
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
+  async removeAnimalsFromGroup(herdType, groupId, animalIds) {
+    console.log(`➖ removeAnimalsFromGroup called for ${herdType}`);
+    if (!this.storage.herd_settings || !this.storage.herd_settings[herdType] || !this.storage.herd_settings[herdType].groups) {
+      return { rowsAffected: 0 };
+    }
+    const group = this.storage.herd_settings[herdType].groups.find(g => g.id == groupId);
+    if (group) {
+      const idsToRemove = new Set(animalIds);
+      group.animalIds = (group.animalIds || []).filter(id => !idsToRemove.has(id));
+      await this.saveToStorage();
+      return { rowsAffected: 1 };
+    }
+    return { rowsAffected: 0 };
+  }
+
   // Find matching price from pricing grid for specific animal type
   findMatchingPrice(animalType, ageMonths, ageWeeks, sexPreference) {
     const pricingGrids = this.storage.pricing_grids || {};
@@ -2883,9 +3395,16 @@ class SimpleTestDatabaseService {
     return 1;
   }
 
-  // ========== CAPRIN ANIMALS CRUD ==========
-  async addCaprinAnimal(animal) {
-    console.log('➕ addCaprinAnimal called');
+  // ========== UNIFIED HERD ANIMALS CRUD ==========
+  // Generic methods for all herd types
+  async addHerdAnimal(herdType, animal) {
+    console.log(`➕ addHerdAnimal called for ${herdType}`);
+    if (!this.storage.herd_animals) {
+      this.storage.herd_animals = {};
+    }
+    if (!this.storage.herd_animals[herdType]) {
+      this.storage.herd_animals[herdType] = [];
+    }
     const newAnimal = { 
       id: Date.now(), 
       ...animal,
@@ -2893,26 +3412,34 @@ class SimpleTestDatabaseService {
       offspring: animal.offspring || [],
       parents: animal.parents || { mother: animal.mother || '', father: animal.father || '' }
     };
-    this.storage.caprin_animals.push(newAnimal);
+    this.storage.herd_animals[herdType].push(newAnimal);
     await this.saveToStorage();
     return { insertId: newAnimal.id };
   }
 
-  async getCaprinAnimals() {
+  async getHerdAnimals(herdType) {
     await this.waitForInitialization();
-    console.log('📋 getCaprinAnimals called');
-    return this.storage.caprin_animals;
+    console.log(`📋 getHerdAnimals called for ${herdType}`);
+    if (!this.storage.herd_animals || !this.storage.herd_animals[herdType]) {
+      return [];
+    }
+    return this.storage.herd_animals[herdType];
   }
 
-  async updateCaprinAnimal(id, animal) {
-    console.log('✏️ updateCaprinAnimal called');
-    const index = this.storage.caprin_animals.findIndex(a => a.id == id);
+  async updateHerdAnimal(herdType, id, animal) {
+    console.log(`✏️ updateHerdAnimal called for ${herdType}`);
+    if (!this.storage.herd_animals || !this.storage.herd_animals[herdType]) {
+      return { rowsAffected: 0 };
+    }
+    const index = this.storage.herd_animals[herdType].findIndex(a => a.id == id);
     if (index !== -1) {
-      this.storage.caprin_animals[index] = { 
-        ...this.storage.caprin_animals[index], 
+      this.storage.herd_animals[herdType][index] = { 
+        ...this.storage.herd_animals[herdType][index], 
         ...animal,
-        parents: { mother: animal.mother || this.storage.caprin_animals[index].parents.mother, 
-                  father: animal.father || this.storage.caprin_animals[index].parents.father }
+        parents: { 
+          mother: animal.mother || this.storage.herd_animals[herdType][index].parents?.mother || '', 
+          father: animal.father || this.storage.herd_animals[herdType][index].parents?.father || '' 
+        }
       };
       await this.saveToStorage();
       return { rowsAffected: 1 };
@@ -2920,20 +3447,106 @@ class SimpleTestDatabaseService {
     return { rowsAffected: 0 };
   }
 
-  async deleteCaprinAnimal(id) {
-    console.log('🗑️ deleteCaprinAnimal called');
-    const index = this.storage.caprin_animals.findIndex(a => a.id == id);
+  async deleteHerdAnimal(herdType, id) {
+    console.log(`🗑️ deleteHerdAnimal called for ${herdType}`);
+    if (!this.storage.herd_animals || !this.storage.herd_animals[herdType]) {
+      return { rowsAffected: 0 };
+    }
+    const index = this.storage.herd_animals[herdType].findIndex(a => a.id == id);
     if (index !== -1) {
-      this.storage.caprin_animals.splice(index, 1);
+      this.storage.herd_animals[herdType].splice(index, 1);
       await this.saveToStorage();
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
   }
 
+  async getHerdTypes() {
+    await this.waitForInitialization();
+    console.log('📋 getHerdTypes called');
+    return this.storage.herd_types || [];
+  }
+
+  async addHerdType(herdType) {
+    console.log(`➕ addHerdType called: ${herdType}`);
+    if (!this.storage.herd_types) {
+      this.storage.herd_types = [];
+    }
+    // Check for duplicates (normalize for comparison to handle accents)
+    const normalizedExisting = this.storage.herd_types.map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const normalizedNew = herdType.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    
+    if (!normalizedExisting.includes(normalizedNew)) {
+      this.storage.herd_types.push(herdType);
+      if (!this.storage.herd_animals) {
+        this.storage.herd_animals = {};
+      }
+      if (!this.storage.herd_animals[herdType]) {
+        this.storage.herd_animals[herdType] = [];
+      }
+      // Initialize herd-specific settings
+      if (!this.storage.herd_settings) {
+        this.storage.herd_settings = {};
+      }
+      if (!this.storage.herd_settings[herdType]) {
+        this.storage.herd_settings[herdType] = {
+          groups: [],
+          milkRecordingMethod: 'group',
+          groupMilkProduction: []
+        };
+      }
+      await this.saveToStorage();
+    } else {
+      console.log(`⚠️ Herd type ${herdType} already exists (normalized check)`);
+    }
+    return { success: true };
+  }
+
+  // ========== CAPRIN ANIMALS CRUD (Backward compatibility) ==========
+  async addCaprinAnimal(animal) {
+    console.log('➕ addCaprinAnimal called (backward compatibility)');
+    // Use unified method
+    return await this.addHerdAnimal('caprin', animal);
+  }
+
+  async getCaprinAnimals() {
+    await this.waitForInitialization();
+    console.log('📋 getCaprinAnimals called');
+    // Try to get from unified structure first, fallback to old structure
+    if (this.storage.herd_animals && this.storage.herd_animals.caprin) {
+      return this.storage.herd_animals.caprin;
+    }
+    return this.storage.caprin_animals || [];
+  }
+
+  async updateCaprinAnimal(id, animal) {
+    console.log('✏️ updateCaprinAnimal called (backward compatibility)');
+    // Use unified method
+    return await this.updateHerdAnimal('caprin', id, animal);
+  }
+
+  async deleteCaprinAnimal(id) {
+    console.log('🗑️ deleteCaprinAnimal called (backward compatibility)');
+    // Use unified method
+    return await this.deleteHerdAnimal('caprin', id);
+  }
+
   async addMilkProduction(animalId, milkData) {
     console.log('🥛 addMilkProduction called');
-    const animalIndex = this.storage.caprin_animals.findIndex(a => a.id == animalId);
+    // Try unified structure first
+    if (this.storage.herd_animals && this.storage.herd_animals.caprin) {
+      const animalIndex = this.storage.herd_animals.caprin.findIndex(a => a.id == animalId);
+      if (animalIndex !== -1) {
+        if (!this.storage.herd_animals.caprin[animalIndex].milkProduction) {
+          this.storage.herd_animals.caprin[animalIndex].milkProduction = [];
+        }
+        this.storage.herd_animals.caprin[animalIndex].milkProduction.push(milkData);
+        await this.saveToStorage();
+        return { insertId: Date.now() };
+      }
+    }
+    // Fallback to old structure
+    const animalIndex = this.storage.caprin_animals?.findIndex(a => a.id == animalId);
     if (animalIndex !== -1) {
       if (!this.storage.caprin_animals[animalIndex].milkProduction) {
         this.storage.caprin_animals[animalIndex].milkProduction = [];

@@ -18,10 +18,17 @@ import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
 import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
+import { useHerdAnimals } from '../hooks/useHerdAnimals';
+import { useGroups } from '../hooks/useGroups';
+import { useHerdConfig } from '../hooks/useHerdConfig';
+import AnimalItem from '../components/etable/AnimalItem';
+import ViewModeToggle from '../components/etable/ViewModeToggle';
+import GroupCard from '../components/etable/GroupCard';
+import QuickStats from '../components/etable/QuickStats';
+import { getAnimalAge, getAnimalAgeForGenealogy, getTotalMilkProduction, getAverageMilkProduction, getBabyMales, getBabyFemales, getGrownMales, getDeceasedAnimals } from '../utils/animalUtils';
 
 export default function EtableScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const [animals, setAnimals] = useState([]);
   const [activeTab, setActiveTab] = useState('animals');
   
   // Get route parameters for highlighting specific animals and herd type
@@ -43,14 +50,19 @@ export default function EtableScreen({ navigation, route }) {
   const [highlightedAnimalId, setHighlightedAnimalId] = useState(null);
   const [highlightedAnimalName, setHighlightedAnimalName] = useState(null);
   
+  // Use custom hooks
+  const { animals, loadAnimals, saveAnimal, deleteAnimal } = useHerdAnimals(currentHerdType);
+  const { groups, loadGroups, addGroup, updateGroup, deleteGroup } = useGroups(currentHerdType);
+  const { getHerdConfig, getDefaultSpecies, getAvailableSpecies } = useHerdConfig(currentHerdType);
+  
   const [animalForm, setAnimalForm] = useState({
     name: '',
-    species: 'chèvre', // 'chèvre' or 'brebis'
+    species: getDefaultSpecies(),
     breed: '',
     birthDate: '',
     entryDate: '',
     exitDate: '',
-    entryCause: 'naissance', // 'naissance', 'décès', 'don', 'troc', 'acheté', 'vendu'
+    entryCause: 'naissance',
     exitCause: '',
     herdNumber: '',
     earTagNumber: '',
@@ -72,7 +84,7 @@ export default function EtableScreen({ navigation, route }) {
 
   const [genealogyForm, setGenealogyForm] = useState({
     animalId: '',
-    relationship: 'parent', // 'parent', 'enfant', 'frère/soeur'
+    relationship: 'parent',
     relatedAnimalId: '',
     notes: ''
   });
@@ -83,8 +95,18 @@ export default function EtableScreen({ navigation, route }) {
     notes: ''
   });
 
+  // Groups state
+  const [viewMode, setViewMode] = useState('all'); // 'all' or 'groups'
+  const [groupModal, setGroupModal] = useState(false);
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [groupForm, setGroupForm] = useState({
+    name: '',
+    description: '',
+    animalIds: []
+  });
+  const [selectedAnimalsForGroup, setSelectedAnimalsForGroup] = useState({});
+
   useEffect(() => {
-    loadAnimals();
     loadCaprinSettings();
     loadConfigs();
   }, [currentHerdType]);
@@ -118,29 +140,6 @@ export default function EtableScreen({ navigation, route }) {
     console.log('🎯 Highlighting state changed - ID:', highlightedAnimalId, 'Name:', highlightedAnimalName);
   }, [highlightedAnimalId, highlightedAnimalName]);
 
-  // Helper function to get default species for herd type
-  const getDefaultSpecies = (herdType) => {
-    const defaults = {
-      'caprin': 'chèvre',
-      'ovin': 'brebis',
-      'bovin': 'vache',
-      'équin': 'jument',
-      'porcin': 'truie'
-    };
-    return defaults[herdType] || 'animal';
-  };
-
-  // Helper function to get available species for herd type
-  const getAvailableSpecies = (herdType) => {
-    const speciesMap = {
-      'caprin': ['chèvre', 'brebis'],
-      'ovin': ['brebis', 'bélier'],
-      'bovin': ['vache', 'taureau'],
-      'équin': ['jument', 'étalon'],
-      'porcin': ['truie', 'porc']
-    };
-    return speciesMap[herdType] || ['animal'];
-  };
 
   const loadConfigs = async () => {
     try {
@@ -157,16 +156,6 @@ export default function EtableScreen({ navigation, route }) {
     }
   };
 
-  const loadAnimals = async () => {
-    try {
-      // Use unified method for all herd types
-      const animalsData = await database.getHerdAnimals(currentHerdType);
-      setAnimals(animalsData);
-    } catch (error) {
-      console.error(`Erreur lors du chargement des animaux ${currentHerdType}:`, error);
-      Alert.alert('Erreur', `Impossible de charger les données ${currentHerdType}`);
-    }
-  };
 
   const loadCaprinSettings = async () => {
     try {
@@ -182,7 +171,7 @@ export default function EtableScreen({ navigation, route }) {
     setModalType('animal');
     setAnimalForm({
       name: '',
-      species: getDefaultSpecies(currentHerdType),
+      species: getDefaultSpecies(),
       breed: '',
       birthDate: '',
       entryDate: '',
@@ -287,33 +276,22 @@ export default function EtableScreen({ navigation, route }) {
     setCalendarModal(false);
   };
 
-  const saveAnimal = async () => {
+  const handleSaveAnimal = async () => {
     if (!animalForm.name || !animalForm.species || !animalForm.birthDate || !animalForm.entryDate) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires (nom, espèce, date de naissance, date d\'entrée)');
       return;
     }
 
-    try {
-      const animalData = {
-        ...animalForm,
-        milkProduction: editingItem ? editingItem.milkProduction || [] : [],
-        offspring: editingItem ? editingItem.offspring || [] : [],
-        parents: { mother: animalForm.mother, father: animalForm.father }
-      };
+    const animalData = {
+      ...animalForm,
+      milkProduction: editingItem ? editingItem.milkProduction || [] : [],
+      offspring: editingItem ? editingItem.offspring || [] : [],
+      parents: { mother: animalForm.mother, father: animalForm.father }
+    };
 
-      if (editingItem) {
-        await database.updateHerdAnimal(currentHerdType, editingItem.id, animalData);
-      } else {
-        await database.addHerdAnimal(currentHerdType, animalData);
-      }
-
-      // Reload animals from database and sync with calendar
-      await loadAnimals();
-      await database.syncCaprinWithCalendar();
+    const result = await saveAnimal(animalData, editingItem);
+    if (result.success) {
       setModalVisible(false);
-    } catch (error) {
-      console.error('Erreur lors de la sauvegarde:', error);
-      Alert.alert('Erreur', 'Impossible de sauvegarder l\'animal');
     }
   };
 
@@ -381,22 +359,14 @@ export default function EtableScreen({ navigation, route }) {
     }
   };
 
-  const deleteAnimal = (id) => {
+  const handleDeleteAnimal = (id) => {
     Alert.alert(
       'Supprimer l\'animal',
       'Êtes-vous sûr de vouloir supprimer cet animal ? Cette action est irréversible.',
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
-          try {
-            await database.deleteHerdAnimal(currentHerdType, id);
-            // Reload animals from database and sync with calendar
-            await loadAnimals();
-            await database.syncCaprinWithCalendar();
-          } catch (error) {
-            console.error('Erreur lors de la suppression:', error);
-            Alert.alert('Erreur', 'Impossible de supprimer l\'animal');
-          }
+          await deleteAnimal(id);
         }}
       ]
     );
@@ -409,51 +379,6 @@ export default function EtableScreen({ navigation, route }) {
     }));
   };
 
-  const getAnimalAge = (birthDate) => {
-    const birth = new Date(birthDate);
-    const today = new Date();
-    const diffTime = Math.abs(today - birth);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const years = Math.floor(diffDays / 365);
-    const months = Math.floor((diffDays % 365) / 30);
-    const days = diffDays % 30;
-    
-    if (years > 0) {
-      return `${years} an${years > 1 ? 's' : ''} ${months} mois`;
-    } else if (months > 0) {
-      return `${months} mois ${days} jour${days > 1 ? 's' : ''}`;
-    } else {
-      return `${days} jour${days > 1 ? 's' : ''}`;
-    }
-  };
-
-  const getAnimalAgeForGenealogy = (birthDate) => {
-    const birth = new Date(birthDate);
-    const today = new Date();
-    const diffTime = Math.abs(today - birth);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const years = Math.floor(diffDays / 365);
-    const months = Math.floor((diffDays % 365) / 30);
-    
-    if (years > 0) {
-      return `${years}a ${months}m`;
-    } else if (months > 0) {
-      return `${months}m`;
-    } else {
-      return '0m';
-    }
-  };
-
-  const getTotalMilkProduction = (animal) => {
-    if (!animal.milkProduction || animal.milkProduction.length === 0) return 0;
-    return animal.milkProduction.reduce((total, day) => total + day.total, 0);
-  };
-
-  const getAverageMilkProduction = (animal) => {
-    if (!animal.milkProduction || animal.milkProduction.length === 0) return 0;
-    const total = getTotalMilkProduction(animal);
-    return (total / animal.milkProduction.length).toFixed(1);
-  };
 
   const getTotalGroupMilkProduction = () => {
     if (!caprinSettings.groupMilkProduction || caprinSettings.groupMilkProduction.length === 0) return 0;
@@ -644,11 +569,7 @@ export default function EtableScreen({ navigation, route }) {
               {isCollapsed ? '▶' : '▼'}
             </Text>
             <Text style={styles.animalIcon}>
-              {item.species === 'chèvre' ? '🐐' : 
-               item.species === 'brebis' || item.species === 'bélier' ? '🐑' :
-               item.species === 'vache' || item.species === 'taureau' ? '🐄' :
-               item.species === 'jument' || item.species === 'étalon' ? '🐴' :
-               item.species === 'truie' || item.species === 'porc' ? '🐷' : '🐾'}
+              {getHerdConfig().emoji[item.species] || '🐾'}
             </Text>
             <Text style={styles.cardTitle}>{item.name}</Text>
           </View>
@@ -719,31 +640,6 @@ export default function EtableScreen({ navigation, route }) {
     );
   };
 
-  const getBabyMales = () => {
-    return animals.filter(animal => {
-      if (animal.gender !== 'mâle') return false;
-      const birthDate = new Date(animal.birthDate);
-      const today = new Date();
-      const diffTime = Math.abs(today - birthDate);
-      const diffMonths = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
-      return diffMonths < 7; // Baby males are 0-6 months old
-    });
-  };
-
-  const getBabyFemales = () => {
-    return animals.filter(animal => {
-      if (animal.gender !== 'femelle') return false;
-      const birthDate = new Date(animal.birthDate);
-      const today = new Date();
-      const diffTime = Math.abs(today - birthDate);
-      const diffMonths = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
-      return diffMonths < 7; // Baby females are 0-6 months old
-    });
-  };
-
-  const getDeceasedAnimals = () => {
-    return animals.filter(animal => animal.exitCause === 'décès');
-  };
 
   const sortedAnimals = useMemo(() => {
     if (!animals || animals.length === 0) return [];
@@ -831,61 +727,81 @@ export default function EtableScreen({ navigation, route }) {
       showsVerticalScrollIndicator={false}
       onTouchStart={() => setShowSortDropdown(false)}
     >
-      <View style={styles.quickStats}>
-        <Text style={styles.quickStatsTitle}>Statistiques Rapides</Text>
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{animals.length}</Text>
-            <Text style={styles.statLabel}>Total Animaux</Text>
+      <QuickStats animals={animals} getHerdConfig={getHerdConfig} />
+      
+      <ViewModeToggle 
+        viewMode={viewMode} 
+        onModeChange={setViewMode} 
+        groupsCount={groups.length} 
+      />
+
+      {viewMode === 'groups' && (
+        <View style={styles.groupsSection}>
+          <View style={styles.groupsHeader}>
+            <Text style={styles.groupsTitle}>👥 Groupes</Text>
+            <TouchableOpacity 
+              style={styles.addButton} 
+              onPress={() => {
+                setEditingGroup(null);
+                setGroupForm({ name: '', description: '', animalIds: [] });
+                setSelectedAnimalsForGroup({});
+                setGroupModal(true);
+              }}
+            >
+              <Text style={styles.addButtonText}>+ Nouveau Groupe</Text>
+            </TouchableOpacity>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {animals.filter(a => a.species === getDefaultSpecies(currentHerdType)).length}
-            </Text>
-            <Text style={styles.statLabel}>Chèvres</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {animals.filter(a => a.species !== getDefaultSpecies(currentHerdType)).length}
-            </Text>
-            <Text style={styles.statLabel}>Brebis</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {animals.filter(a => a.gender === 'femelle').length}
-            </Text>
-            <Text style={styles.statLabel}>Femelles</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {getBabyMales().length}
-            </Text>
-            <Text style={styles.statLabel}>Mâles Bébés</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {getBabyFemales().length}
-            </Text>
-            <Text style={styles.statLabel}>Femelles Bébés</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {getGrownMales().length}
-            </Text>
-            <Text style={styles.statLabel}>Mâles Adultes</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
-              {getDeceasedAnimals().length}
-            </Text>
-            <Text style={styles.statLabel}>Décédés</Text>
-          </View>
+          
+          {groups.map((group) => {
+            const groupAnimals = animals.filter(a => (group.animalIds || []).includes(a.id));
+            return (
+              <GroupCard
+                key={group.id}
+                group={group}
+                groupAnimals={groupAnimals}
+                onEdit={(group) => {
+                  setEditingGroup(group);
+                  setGroupForm({
+                    name: group.name,
+                    description: group.description || '',
+                    animalIds: group.animalIds || []
+                  });
+                  const selected = {};
+                  (group.animalIds || []).forEach(id => selected[id] = true);
+                  setSelectedAnimalsForGroup(selected);
+                  setGroupModal(true);
+                }}
+                onDelete={(group) => {
+                  Alert.alert(
+                    'Supprimer le groupe',
+                    `Êtes-vous sûr de vouloir supprimer le groupe "${group.name}"?`,
+                    [
+                      { text: 'Annuler', style: 'cancel' },
+                      { text: 'Supprimer', style: 'destructive', onPress: async () => {
+                        await deleteGroup(group.id);
+                      }}
+                    ]
+                  );
+                }}
+                getHerdConfig={getHerdConfig}
+              />
+            );
+          })}
+          
+          {groups.length === 0 && (
+            <View style={styles.noGroupsCard}>
+              <Text style={styles.noGroupsText}>Aucun groupe créé</Text>
+              <Text style={styles.noGroupsSubtext}>
+                Créez des groupes pour mieux organiser vos animaux
+              </Text>
+            </View>
+          )}
         </View>
-      </View>
+      )}
       
       <View style={styles.animalsSection}>
         <View style={styles.animalsHeader}>
-          <Text style={styles.animalsTitle}>🐐 Animaux</Text>
+          <Text style={styles.animalsTitle}>{getHerdConfig().icon} Animaux</Text>
           <TouchableOpacity style={styles.addButton} onPress={openAddAnimalModal}>
             <Text style={styles.addButtonText}>+ Nouvel Animal</Text>
           </TouchableOpacity>
@@ -940,9 +856,42 @@ export default function EtableScreen({ navigation, route }) {
             </View>
           )}
         </View>
-        {sortedAnimals.map((animal, index) => (
-          <AnimalItem key={`${animal.id}-${animalSortOrder}-${index}`} item={animal} />
+        {viewMode === 'all' && sortedAnimals.map((animal, index) => (
+          <AnimalItem 
+            key={`${animal.id}-${animalSortOrder}-${index}`} 
+            item={animal}
+            isCollapsed={collapsedAnimals[animal.id]}
+            isHighlighted={(highlightedAnimalId === animal.id || highlightedAnimalId == animal.id) || 
+                          (highlightedAnimalName === animal.name)}
+            onToggleCollapse={toggleAnimalCollapse}
+            onEdit={openEditAnimalModal}
+            onDelete={handleDeleteAnimal}
+            onViewGenealogy={openGenealogyModal}
+            getHerdConfig={getHerdConfig}
+          />
         ))}
+        
+        {viewMode === 'groups' && sortedAnimals.map((animal, index) => {
+          // Show animals that are not in any group, or show all if no groups exist
+          const isInGroup = groups.some(group => (group.animalIds || []).includes(animal.id));
+          if (groups.length > 0 && isInGroup) {
+            return null; // Don't show in "all" view if in a group
+          }
+          return (
+            <AnimalItem 
+              key={`${animal.id}-${animalSortOrder}-${index}`} 
+              item={animal}
+              isCollapsed={collapsedAnimals[animal.id]}
+              isHighlighted={(highlightedAnimalId === animal.id || highlightedAnimalId == animal.id) || 
+                            (highlightedAnimalName === animal.name)}
+              onToggleCollapse={toggleAnimalCollapse}
+              onEdit={openEditAnimalModal}
+              onDelete={handleDeleteAnimal}
+              onViewGenealogy={openGenealogyModal}
+              getHerdConfig={getHerdConfig}
+            />
+          );
+        })}
       </View>
     </ScrollView>
   );
@@ -1108,11 +1057,7 @@ export default function EtableScreen({ navigation, route }) {
                 styles.treeAnimalIcon,
                 isDeceased && styles.treeAnimalIconDeceased
               ]}>
-                {node.species === 'chèvre' ? '🐐' : 
-                 node.species === 'brebis' ? '🐑' :
-                 node.species === 'vache' ? '🐄' :
-                 node.species === 'jument' ? '🐴' :
-                 node.species === 'truie' ? '🐷' : '🐾'}
+                {getHerdConfig().emoji[node.species] || '🐾'}
               </Text>
               <View style={styles.treeAnimalInfo}>
                 <Text style={[
@@ -1189,7 +1134,7 @@ export default function EtableScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: getHerdConfig().color }]}>
         <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
           <TouchableOpacity 
@@ -1199,11 +1144,7 @@ export default function EtableScreen({ navigation, route }) {
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            {currentHerdType === 'caprin' ? '🐐🐑' : 
-             currentHerdType === 'ovin' ? '🐑' :
-             currentHerdType === 'bovin' ? '🐄' :
-             currentHerdType === 'équin' ? '🐴' :
-             currentHerdType === 'porcin' ? '🐷' : '🐾'} Élevage {currentHerdType.charAt(0).toUpperCase() + currentHerdType.slice(1)}
+            {getHerdConfig().icon} Élevage {getHerdConfig().name}
           </Text>
           <View style={styles.headerStats}>
             <Text style={styles.headerStatsText}>{animals.length} animaux</Text>
@@ -1213,26 +1154,26 @@ export default function EtableScreen({ navigation, route }) {
 
       <View style={styles.tabContainer}>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'animals' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'animals' && { borderBottomColor: getHerdConfig().color }]}
           onPress={() => setActiveTab('animals')}
         >
-          <Text style={[styles.tabText, activeTab === 'animals' && styles.activeTabText]}>
-            🐐 Animaux
+          <Text style={[styles.tabText, activeTab === 'animals' && { color: getHerdConfig().color }]}>
+            {getHerdConfig().icon} Animaux
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'milk' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'milk' && { borderBottomColor: getHerdConfig().color }]}
           onPress={() => setActiveTab('milk')}
         >
-          <Text style={[styles.tabText, activeTab === 'milk' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'milk' && { color: getHerdConfig().color }]}>
             🥛 Lait
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'genealogy' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'genealogy' && { borderBottomColor: getHerdConfig().color }]}
           onPress={() => setActiveTab('genealogy')}
         >
-          <Text style={[styles.tabText, activeTab === 'genealogy' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'genealogy' && { color: getHerdConfig().color }]}>
             🌳 Généalogie
           </Text>
         </TouchableOpacity>
@@ -1278,7 +1219,7 @@ export default function EtableScreen({ navigation, route }) {
                 <View style={styles.speciesSelector}>
                   <Text style={styles.inputLabel}>Espèce:</Text>
                   <View style={styles.speciesOptions}>
-                    {getAvailableSpecies(currentHerdType).map((species) => (
+                    {getAvailableSpecies().map((species) => (
                       <TouchableOpacity
                         key={species}
                         style={[
@@ -1490,7 +1431,7 @@ export default function EtableScreen({ navigation, route }) {
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
-                    onPress={saveAnimal}
+                    onPress={handleSaveAnimal}
                   >
                     <Text style={[styles.modalBtnText, { color: 'white' }]}>
                       {editingItem ? 'Modifier' : 'Ajouter'}
@@ -1790,6 +1731,126 @@ export default function EtableScreen({ navigation, route }) {
             </View>
           </View>
         </Modal>
+
+        {/* Group Management Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={groupModal}
+          onRequestClose={() => setGroupModal(false)}
+        >
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>
+                  {editingGroup ? 'Modifier le Groupe' : 'Nouveau Groupe'}
+                </Text>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nom du groupe *"
+                  placeholderTextColor="#999"
+                  value={groupForm.name}
+                  onChangeText={(text) => setGroupForm({...groupForm, name: text})}
+                />
+
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Description (optionnel)"
+                  placeholderTextColor="#999"
+                  value={groupForm.description}
+                  onChangeText={(text) => setGroupForm({...groupForm, description: text})}
+                  multiline={true}
+                  numberOfLines={3}
+                />
+
+                <Text style={styles.inputLabel}>Sélectionner les animaux :</Text>
+                <View style={styles.animalsCheckboxList}>
+                  {sortedAnimals.map((animal) => {
+                    const isSelected = selectedAnimalsForGroup[animal.id] || false;
+                    return (
+                      <TouchableOpacity
+                        key={animal.id}
+                        style={styles.animalCheckboxItem}
+                        onPress={() => {
+                          setSelectedAnimalsForGroup(prev => ({
+                            ...prev,
+                            [animal.id]: !prev[animal.id]
+                          }));
+                        }}
+                      >
+                        <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                          {isSelected && <Text style={styles.checkboxCheck}>✓</Text>}
+                        </View>
+                        <Text style={styles.animalCheckboxName}>
+                          {getHerdConfig().emoji[animal.species] || '🐾'} {animal.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.cancelBtn]}
+                    onPress={() => {
+                      setGroupModal(false);
+                      setSelectedAnimalsForGroup({});
+                    }}
+                  >
+                    <Text style={styles.modalBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.saveBtn]}
+                    onPress={async () => {
+                      if (!groupForm.name.trim()) {
+                        Alert.alert('Erreur', 'Veuillez entrer un nom pour le groupe');
+                        return;
+                      }
+                      const selectedIds = Object.keys(selectedAnimalsForGroup).filter(id => selectedAnimalsForGroup[id]);
+                      
+                      try {
+                        const groupData = {
+                          name: groupForm.name,
+                          description: groupForm.description,
+                          animalIds: selectedIds.map(id => parseInt(id))
+                        };
+                        
+                        let result;
+                        if (editingGroup) {
+                          result = await updateGroup(editingGroup.id, groupData);
+                        } else {
+                          result = await addGroup(groupData);
+                        }
+                        
+                        if (result.success) {
+                          setGroupModal(false);
+                          setSelectedAnimalsForGroup({});
+                          Alert.alert('Succès', `Groupe ${editingGroup ? 'modifié' : 'créé'} avec succès!`);
+                        }
+                      } catch (error) {
+                        console.error('Error saving group:', error);
+                        Alert.alert('Erreur', 'Impossible de sauvegarder le groupe');
+                      }
+                    }}
+                  >
+                    <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                      {editingGroup ? 'Modifier' : 'Créer'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -1813,7 +1874,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    backgroundColor: '#8B4513', // Brown color for caprine theme
+    backgroundColor: '#8B4513', // Default brown, will be overridden by herd config
     paddingTop: 35,
   },
   headerContent: {
@@ -1864,7 +1925,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#8B4513',
+    borderBottomColor: '#8B4513', // Will be dynamic based on herd config
   },
   tabText: {
     fontSize: 12,
@@ -1872,7 +1933,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   activeTabText: {
-    color: '#8B4513',
+    color: '#8B4513', // Will be dynamic based on herd config
   },
   mainContent: {
     flex: 1,
@@ -1894,7 +1955,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#8B4513',
+    color: '#8B4513', // Will be dynamic based on herd config
     marginBottom: 6,
   },
   sectionDescription: {
@@ -1904,7 +1965,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   addButton: {
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1949,7 +2010,7 @@ const styles = StyleSheet.create({
   statNumber: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#8B4513',
+    color: '#8B4513', // Will be dynamic based on herd config
   },
   statLabel: {
     fontSize: 11,
@@ -1976,7 +2037,7 @@ const styles = StyleSheet.create({
   animalsTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#8B4513',
+    color: '#8B4513', // Will be dynamic based on herd config
     flex: 1,
   },
   sortFilterContainer: {
@@ -2110,7 +2171,7 @@ const styles = StyleSheet.create({
   },
   collapseIndicator: {
     fontSize: 16,
-    color: '#8B4513',
+    color: '#8B4513', // Will be dynamic based on herd config
     fontWeight: 'bold',
     marginRight: 10,
   },
@@ -2328,7 +2389,7 @@ const styles = StyleSheet.create({
   genealogySectionTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#8B4513',
+    color: '#8B4513', // Will be dynamic based on herd config
     marginBottom: 4,
   },
   genealogyParent: {
@@ -2401,7 +2462,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   speciesOptionSelected: {
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
     borderColor: '#8B4513',
   },
   speciesOptionText: {
@@ -2430,7 +2491,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   genderOptionSelected: {
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
     borderColor: '#8B4513',
   },
   genderOptionText: {
@@ -2507,7 +2568,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
   },
   saveBtn: {
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
   },
   modalBtnText: {
     fontWeight: '600',
@@ -2807,7 +2868,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 2,
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
   },
   treeLineLast: {
     bottom: '50%',
@@ -2818,10 +2879,10 @@ const styles = StyleSheet.create({
     top: 20,
     width: 8,
     height: 2,
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
   },
   treeLineHorizontalWithSiblings: {
-    backgroundColor: '#8B4513',
+    backgroundColor: '#8B4513', // Will be dynamic based on herd config
   },
   treeAnimalCard: {
     backgroundColor: '#f8f9fa',
@@ -2896,5 +2957,194 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
   },
-  
+  // Group management styles
+  viewModeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  viewModeButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  viewModeButtonActive: {
+    backgroundColor: '#8B4513',
+  },
+  viewModeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  viewModeButtonTextActive: {
+    color: 'white',
+  },
+  groupsSection: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  groupsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  groupsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#8B4513',
+  },
+  groupCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  groupName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  groupActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  groupEditButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 4,
+    padding: 6,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupEditButtonText: {
+    color: 'white',
+    fontSize: 14,
+  },
+  groupDeleteButton: {
+    backgroundColor: '#F44336',
+    borderRadius: 4,
+    padding: 6,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupDeleteButtonText: {
+    color: 'white',
+    fontSize: 14,
+  },
+  groupDescription: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 6,
+    fontStyle: 'italic',
+  },
+  groupCount: {
+    fontSize: 12,
+    color: '#8B4513',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  groupAnimalsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  groupAnimalName: {
+    fontSize: 12,
+    color: '#666',
+    backgroundColor: '#e9ecef',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  groupMoreText: {
+    fontSize: 12,
+    color: '#8B4513',
+    fontStyle: 'italic',
+  },
+  noGroupsCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 30,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  noGroupsText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 5,
+  },
+  noGroupsSubtext: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+  animalsCheckboxList: {
+    maxHeight: 300,
+    marginBottom: 15,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 10,
+  },
+  animalCheckboxItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderWidth: 2,
+    borderColor: '#8B4513',
+    borderRadius: 4,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#8B4513',
+  },
+  checkboxCheck: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  animalCheckboxName: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+  },
 });

@@ -706,35 +706,124 @@ export default function ProductManagementScreen({ navigation }) {
     </View>
   );
 
+  const [herdTypes, setHerdTypes] = useState([]);
+  const [addHerdTypeModal, setAddHerdTypeModal] = useState(false);
+  const [newHerdTypeName, setNewHerdTypeName] = useState('');
+
+  useEffect(() => {
+    loadHerdTypes();
+  }, []);
+
+  const loadHerdTypes = async () => {
+    try {
+      const types = await database.getHerdTypes();
+      setHerdTypes(types);
+    } catch (error) {
+      console.error('Error loading herd types:', error);
+    }
+  };
+
+  const addHerdType = async () => {
+    if (!newHerdTypeName.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer un nom pour le type de troupeau');
+      return;
+    }
+    
+    // Map display names to database keys (preserve accents)
+    const herdTypeMap = {
+      'Caprin': 'caprin',
+      'Ovin': 'ovin',
+      'Bovin': 'bovin',
+      'Équin': 'équin',
+      'Porcin': 'porcin'
+    };
+    
+    const herdTypeKey = herdTypeMap[newHerdTypeName] || newHerdTypeName.toLowerCase().replace(/\s+/g, '_');
+    
+    // Check if already exists (case-insensitive and accent-insensitive)
+    const normalizedExisting = herdTypes.map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const normalizedNew = herdTypeKey.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    
+    if (normalizedExisting.includes(normalizedNew)) {
+      Alert.alert('Erreur', 'Ce type de troupeau existe déjà');
+      return;
+    }
+    
+    try {
+      await database.addHerdType(herdTypeKey);
+      setHerdTypes(prev => [...prev, herdTypeKey]);
+      setAddHerdTypeModal(false);
+      setNewHerdTypeName('');
+      Alert.alert('Succès', `Type de troupeau "${newHerdTypeName}" ajouté avec succès!`);
+    } catch (error) {
+      console.error('Error adding herd type:', error);
+      Alert.alert('Erreur', 'Impossible d\'ajouter le type de troupeau');
+    }
+  };
+
+  const getHerdTypeIcon = (herdType) => {
+    const icons = {
+      'caprin': '🐐',
+      'ovin': '🐑',
+      'bovin': '🐄',
+      'équin': '🐴',
+      'porcin': '🐷'
+    };
+    return icons[herdType] || '🐾';
+  };
+
+  const getHerdTypeName = (herdType) => {
+    const names = {
+      'caprin': 'Caprin',
+      'ovin': 'Ovin',
+      'bovin': 'Bovin',
+      'équin': 'Équin',
+      'porcin': 'Porcin'
+    };
+    return names[herdType] || herdType.charAt(0).toUpperCase() + herdType.slice(1);
+  };
+
   const renderElevageCaprin = () => (
     <View style={styles.tabContent}>
-      <TouchableOpacity 
-        style={styles.sectionCard}
-        onPress={() => navigation.navigate('CaprinScreen')}
-        activeOpacity={0.7}
-      >
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleContainer}>
-            <Text style={styles.sectionTitle}>🐐 Élevage Caprin</Text>
-            <Text style={styles.sectionDescription}>
-              Gestion des chèvres et brebis : naissances, production laitière, généalogie
-            </Text>
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>🏠 Étable - Gestion des Troupeaux</Text>
+        <Text style={styles.sectionDescription}>
+          Gestion complète de tous vos troupeaux : naissances, production, généalogie
+        </Text>
+      </View>
+
+      {herdTypes.map((herdType) => (
+        <TouchableOpacity 
+          key={herdType}
+          style={styles.sectionCard}
+          onPress={() => navigation.navigate('EtableScreen', { herdType })}
+          activeOpacity={0.7}
+        >
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleContainer}>
+              <Text style={styles.sectionTitle}>
+                {getHerdTypeIcon(herdType)} {getHerdTypeName(herdType)}
+              </Text>
+              <Text style={styles.sectionDescription}>
+                Gestion du troupeau {getHerdTypeName(herdType).toLowerCase()} : naissances, production, généalogie
+              </Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.infoButton}
+              onPress={(e) => {
+                e.stopPropagation();
+                Alert.alert(
+                  `Fonctionnalités ${getHerdTypeName(herdType)}`,
+                  '• 👶 Gestion des naissances et nommage\n• 🥛 Suivi de production laitière\n• 📊 Statistiques par groupe\n• 📜 Historique de vie complet\n• 🌳 Arbre généalogique',
+                  [{ text: 'OK' }]
+                );
+              }}
+            >
+              <Text style={styles.infoButtonText}>ℹ️</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity 
-            style={styles.infoButton}
-            onPress={(e) => {
-              e.stopPropagation();
-              Alert.alert(
-                'Fonctionnalités Élevage Caprin',
-                '• 👶 Gestion des naissances et nommage\n• 🥛 Suivi de production laitière\n• 📊 Statistiques par groupe\n• 📜 Historique de vie complet\n• 🌳 Arbre généalogique',
-                [{ text: 'OK' }]
-              );
-            }}
-          >
-            <Text style={styles.infoButtonText}>ℹ️</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      ))}
       
       <TouchableOpacity 
         style={styles.sectionCard}
@@ -1135,6 +1224,114 @@ export default function ProductManagementScreen({ navigation }) {
           {activeTab === 'traitements' && renderTraitements()}
           {activeTab === 'client' && renderClient()}
         </ScrollView>
+
+        {/* Floating Add Button for Herd Types */}
+        {activeTab === 'caprin' && (
+          <TouchableOpacity
+            style={styles.floatingAddButton}
+            onPress={() => setAddHerdTypeModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.floatingAddButtonText}>+</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Add Herd Type Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={addHerdTypeModal}
+          onRequestClose={() => setAddHerdTypeModal(false)}
+        >
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>🆕 Nouveau Type de Troupeau</Text>
+                
+                <Text style={styles.templateDescription}>
+                  Ajoutez un nouveau type de troupeau à gérer :
+                </Text>
+                
+                <Text style={styles.inputLabel}>Types disponibles :</Text>
+                <View style={styles.herdTypeOptions}>
+                  {['Caprin', 'Ovin', 'Bovin', 'Équin', 'Porcin'].map((type) => {
+                    // Map display names to database keys (preserve accents)
+                    const herdTypeMap = {
+                      'Caprin': 'caprin',
+                      'Ovin': 'ovin',
+                      'Bovin': 'bovin',
+                      'Équin': 'équin',
+                      'Porcin': 'porcin'
+                    };
+                    const typeKey = herdTypeMap[type] || type.toLowerCase().replace(/\s+/g, '_');
+                    const isSelected = newHerdTypeName.toLowerCase() === type.toLowerCase();
+                    // Check if exists (normalize for comparison)
+                    const normalizedExisting = herdTypes.map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+                    const normalizedNew = typeKey.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                    const alreadyExists = normalizedExisting.includes(normalizedNew);
+                    
+                    return (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.herdTypeOption,
+                          isSelected && styles.herdTypeOptionSelected,
+                          alreadyExists && styles.herdTypeOptionDisabled
+                        ]}
+                        onPress={() => !alreadyExists && setNewHerdTypeName(type)}
+                        disabled={alreadyExists}
+                      >
+                        <Text style={[
+                          styles.herdTypeOptionText,
+                          isSelected && styles.herdTypeOptionTextSelected,
+                          alreadyExists && styles.herdTypeOptionTextDisabled
+                        ]}>
+                          {type} {alreadyExists && '(déjà ajouté)'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ou entrez un nom personnalisé"
+                  placeholderTextColor="#999"
+                  value={newHerdTypeName}
+                  onChangeText={setNewHerdTypeName}
+                />
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.cancelBtn]}
+                    onPress={() => {
+                      setAddHerdTypeModal(false);
+                      setNewHerdTypeName('');
+                    }}
+                  >
+                    <Text style={styles.modalBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.saveBtn]}
+                    onPress={addHerdType}
+                  >
+                    <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                      Ajouter
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
 
         <Modal
           animationType="slide"
@@ -2926,5 +3123,70 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontFamily: 'monospace',
+  },
+  floatingAddButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 1000,
+  },
+  floatingAddButtonText: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: 'bold',
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+    marginTop: 10,
+  },
+  herdTypeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 15,
+  },
+  herdTypeOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 2,
+    borderColor: '#ddd',
+    minWidth: '45%',
+  },
+  herdTypeOptionSelected: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  herdTypeOptionDisabled: {
+    backgroundColor: '#e0e0e0',
+    borderColor: '#ccc',
+    opacity: 0.6,
+  },
+  herdTypeOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+  },
+  herdTypeOptionTextSelected: {
+    color: 'white',
+  },
+  herdTypeOptionTextDisabled: {
+    color: '#999',
   },
 }); 

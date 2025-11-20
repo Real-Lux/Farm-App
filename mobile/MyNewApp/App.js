@@ -9,7 +9,7 @@ import CalendarScreen from './src/screens/CalendarScreen';
 import BookingSystemScreen from './src/screens/BookingSystemScreen';
 import AddOrderScreen from './src/screens/AddOrderScreen';
 import ElevageScreen from './src/screens/ElevageScreen';
-import CaprinScreen from './src/screens/CaprinScreen';
+import EtableScreen from './src/screens/EtableScreen';
 import CheeseScreen from './src/screens/CheeseScreen';
 
 const Tab = createBottomTabNavigator();
@@ -99,7 +99,7 @@ function GestionNavigator({ route }) {
   React.useEffect(() => {
     if (route?.params?.highlightAnimalId) {
       console.log('🐐 GestionNavigator: Received highlightAnimalId:', route.params.highlightAnimalId);
-      setCurrentScreen('Caprin');
+      setCurrentScreen('Etable');
     }
   }, [route?.params]);
 
@@ -107,8 +107,8 @@ function GestionNavigator({ route }) {
     setCurrentScreen('Elevage');
   };
 
-  const navigateToCaprin = () => {
-    setCurrentScreen('Caprin');
+  const navigateToEtable = () => {
+    setCurrentScreen('Etable');
   };
 
   const navigateToProductManagement = () => {
@@ -123,8 +123,8 @@ function GestionNavigator({ route }) {
     navigate: (screenName, params) => {
       if (screenName === 'ElevageScreen') {
         navigateToElevage();
-      } else if (screenName === 'CaprinScreen') {
-        navigateToCaprin();
+      } else if (screenName === 'EtableScreen' || screenName === 'CaprinScreen') {
+        navigateToEtable();
       } else if (screenName === 'CheeseScreen') {
         navigateToCheese();
       } else {
@@ -142,9 +142,9 @@ function GestionNavigator({ route }) {
     );
   }
 
-  if (currentScreen === 'Caprin') {
+  if (currentScreen === 'Etable' || currentScreen === 'Caprin') {
     return (
-      <CaprinScreen 
+      <EtableScreen 
         navigation={mockNavigation}
         route={route}
       />
