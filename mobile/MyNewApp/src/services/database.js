@@ -484,6 +484,7 @@ class SimpleTestDatabaseService {
       },
       // Unified herd management - supports multiple herd types
       herd_types: ['caprin', 'ovin', 'bovin', 'équin', 'porcin'], // Available herd types
+      elevage_animal_types: ['poussins', 'cailles', 'canards', 'oies', 'paons', 'dindes', 'lapins'], // Available animal types for elevage
       herd_settings: {
         caprin: {
           groups: [],
@@ -1775,6 +1776,7 @@ class SimpleTestDatabaseService {
           caprin_animals: parsedData.caprin_animals !== undefined ? parsedData.caprin_animals : this.storage.caprin_animals,
           caprin_settings: parsedData.caprin_settings !== undefined ? parsedData.caprin_settings : this.storage.caprin_settings,
           herd_types: parsedData.herd_types !== undefined ? parsedData.herd_types : this.storage.herd_types,
+          elevage_animal_types: parsedData.elevage_animal_types !== undefined ? parsedData.elevage_animal_types : this.storage.elevage_animal_types,
           herd_animals: parsedData.herd_animals !== undefined ? parsedData.herd_animals : this.storage.herd_animals,
           herd_settings: parsedData.herd_settings !== undefined ? parsedData.herd_settings : this.storage.herd_settings,
           saved_formulas: parsedData.saved_formulas !== undefined ? parsedData.saved_formulas : this.storage.saved_formulas,
@@ -2254,6 +2256,7 @@ class SimpleTestDatabaseService {
       if (backupData.caprin_animals) this.storage.caprin_animals = backupData.caprin_animals;
       if (backupData.caprin_settings) this.storage.caprin_settings = backupData.caprin_settings;
       if (backupData.herd_types) this.storage.herd_types = backupData.herd_types;
+      if (backupData.elevage_animal_types) this.storage.elevage_animal_types = backupData.elevage_animal_types;
       if (backupData.herd_animals) this.storage.herd_animals = backupData.herd_animals;
       if (backupData.herd_settings) this.storage.herd_settings = backupData.herd_settings;
       if (backupData.saved_formulas) this.storage.saved_formulas = backupData.saved_formulas;
@@ -2294,6 +2297,7 @@ class SimpleTestDatabaseService {
       caprin_animals: this.storage.caprin_animals,
       caprin_settings: this.storage.caprin_settings,
       herd_types: this.storage.herd_types,
+      elevage_animal_types: this.storage.elevage_animal_types,
       herd_animals: this.storage.herd_animals,
       herd_settings: this.storage.herd_settings,
       saved_formulas: this.storage.saved_formulas,
@@ -2845,10 +2849,17 @@ class SimpleTestDatabaseService {
     return { insertId: newLot.id };
   }
 
-  async getLots() {
+  async getLots(animalType = null) {
     await this.waitForInitialization();
-    console.log('📋 getLots called');
-    return this.storage.elevage_lots;
+    console.log('📋 getLots called', animalType ? `for ${animalType}` : '');
+    let lots = this.storage.elevage_lots;
+    
+    // Filter by animal type if provided
+    if (animalType) {
+      lots = lots.filter(lot => lot.species === animalType);
+    }
+    
+    return lots;
   }
 
   async updateLot(id, lot) {
@@ -2890,12 +2901,12 @@ class SimpleTestDatabaseService {
     return { insertId: newRace.id };
   }
 
-  async getRaces() {
+  async getRaces(animalType = null) {
     await this.waitForInitialization();
-    console.log('📋 getRaces called');
+    console.log('📋 getRaces called', animalType ? `for ${animalType}` : '');
     // Migrate old "poules" to "poussins" for backward compatibility
     // Also ensure all races have an order field
-    const races = this.storage.elevage_races.map((race, index) => {
+    let races = this.storage.elevage_races.map((race, index) => {
       const migratedRace = {
         ...race,
         order: race.order !== undefined ? race.order : index
@@ -2905,6 +2916,16 @@ class SimpleTestDatabaseService {
       }
       return migratedRace;
     });
+    
+    // Filter by animal type if provided
+    if (animalType) {
+      const config = this.getElevageConfig(animalType);
+      const raceTypes = config.raceTypes || [];
+      races = races.filter(race => {
+        // Check if race type matches any of the config race types
+        return raceTypes.some(rt => race.type === rt || race.type === animalType);
+      });
+    }
     
     // Sort by order
     return races.sort((a, b) => {
@@ -2966,13 +2987,24 @@ class SimpleTestDatabaseService {
     return { insertId: newEntry.id };
   }
 
-  async getHistorique(lotId = null) {
+  async getHistorique(lotId = null, animalType = null) {
     await this.waitForInitialization();
-    console.log('📋 getHistorique called');
+    console.log('📋 getHistorique called', animalType ? `for ${animalType}` : '');
+    let historique = this.storage.elevage_historique;
+    
+    // Filter by lot ID if provided
     if (lotId) {
-      return this.storage.elevage_historique.filter(h => h.lot_id == lotId);
+      historique = historique.filter(h => h.lot_id == lotId);
     }
-    return this.storage.elevage_historique;
+    
+    // Filter by animal type if provided (need to check lot species)
+    if (animalType && !lotId) {
+      const lots = await this.getLots(animalType);
+      const lotIds = new Set(lots.map(l => l.id));
+      historique = historique.filter(h => lotIds.has(h.lot_id));
+    }
+    
+    return historique;
   }
 
   // ========== PRICING SYSTEM ==========
@@ -3128,6 +3160,100 @@ class SimpleTestDatabaseService {
       animalLabel: 'Animaux',
       emoji: { 'animal': '🐾' },
       description: `Gestion du troupeau ${herdType}`
+    };
+  }
+
+  // ========== ELEVAGE-SPECIFIC CONFIGURATIONS ==========
+  getElevageConfig(animalType) {
+    const configs = {
+      'poussins': {
+        name: 'Poussins/Poules',
+        icon: '🐓',
+        color: '#FF9800',
+        species: ['poussins'],
+        defaultSpecies: 'poussins',
+        animalLabel: 'Poussins',
+        emoji: { 'poussins': '🐓' },
+        description: 'Gestion des poussins et poules',
+        raceTypes: ['poules']
+      },
+      'cailles': {
+        name: 'Cailles',
+        icon: '🐦',
+        color: '#9C27B0',
+        species: ['cailles'],
+        defaultSpecies: 'cailles',
+        animalLabel: 'Cailles',
+        emoji: { 'cailles': '🐦' },
+        description: 'Gestion des cailles',
+        raceTypes: ['cailles']
+      },
+      'canards': {
+        name: 'Canards',
+        icon: '🦆',
+        color: '#2196F3',
+        species: ['canards'],
+        defaultSpecies: 'canards',
+        animalLabel: 'Canards',
+        emoji: { 'canards': '🦆' },
+        description: 'Gestion des canards',
+        raceTypes: ['canards']
+      },
+      'oies': {
+        name: 'Oies',
+        icon: '🪿',
+        color: '#4CAF50',
+        species: ['oies'],
+        defaultSpecies: 'oies',
+        animalLabel: 'Oies',
+        emoji: { 'oies': '🪿' },
+        description: 'Gestion des oies',
+        raceTypes: ['oie']
+      },
+      'paons': {
+        name: 'Paons',
+        icon: '🦚',
+        color: '#00BCD4',
+        species: ['paons'],
+        defaultSpecies: 'paons',
+        animalLabel: 'Paons',
+        emoji: { 'paons': '🦚' },
+        description: 'Gestion des paons',
+        raceTypes: ['paons']
+      },
+      'dindes': {
+        name: 'Dindes',
+        icon: '🦃',
+        color: '#FF5722',
+        species: ['dindes'],
+        defaultSpecies: 'dindes',
+        animalLabel: 'Dindes',
+        emoji: { 'dindes': '🦃' },
+        description: 'Gestion des dindes',
+        raceTypes: ['dindes']
+      },
+      'lapins': {
+        name: 'Lapins',
+        icon: '🐰',
+        color: '#795548',
+        species: ['lapins'],
+        defaultSpecies: 'lapins',
+        animalLabel: 'Lapins',
+        emoji: { 'lapins': '🐰' },
+        description: 'Gestion des lapins',
+        raceTypes: ['lapin']
+      }
+    };
+    return configs[animalType] || {
+      name: animalType.charAt(0).toUpperCase() + animalType.slice(1),
+      icon: '🐾',
+      color: '#005F6B',
+      species: [animalType],
+      defaultSpecies: animalType,
+      animalLabel: animalType,
+      emoji: { [animalType]: '🐾' },
+      description: `Gestion des ${animalType}`,
+      raceTypes: [animalType]
     };
   }
 
@@ -3529,6 +3655,47 @@ class SimpleTestDatabaseService {
     } else {
       console.log(`⚠️ Herd type ${herdType} already exists (normalized check)`);
     }
+    return { success: true };
+  }
+
+  // ========== ELEVAGE ANIMAL TYPES MANAGEMENT ==========
+  async getAnimalTypes() {
+    await this.waitForInitialization();
+    console.log('📋 getAnimalTypes called');
+    return this.storage.elevage_animal_types || [];
+  }
+
+  async addAnimalType(animalType) {
+    console.log(`➕ addAnimalType called: ${animalType}`);
+    if (!this.storage.elevage_animal_types) {
+      this.storage.elevage_animal_types = [];
+    }
+    // Check for duplicates (normalize for comparison to handle accents)
+    const normalizedExisting = this.storage.elevage_animal_types.map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const normalizedNew = animalType.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    
+    if (!normalizedExisting.includes(normalizedNew)) {
+      this.storage.elevage_animal_types.push(animalType);
+      await this.saveToStorage();
+    } else {
+      console.log(`⚠️ Animal type ${animalType} already exists (normalized check)`);
+    }
+    return { success: true };
+  }
+
+  async deleteAnimalType(animalType) {
+    console.log(`🗑️ deleteAnimalType called: ${animalType}`);
+    if (!this.storage.elevage_animal_types) {
+      return { success: false };
+    }
+    
+    // Remove from list
+    this.storage.elevage_animal_types = this.storage.elevage_animal_types.filter(t => t !== animalType);
+    
+    // Note: We don't delete the actual lots/races data, just remove from active types list
+    // This allows users to re-add the type later if needed
+    
+    await this.saveToStorage();
     return { success: true };
   }
 

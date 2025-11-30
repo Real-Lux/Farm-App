@@ -22,11 +22,11 @@ import { toFrenchDate } from '../utils/dateUtils';
 
 export default function ProductManagementScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  // Get initialTab from route params if provided
-  const { initialTab } = route?.params || {};
+  // Get initialTab and selectedAnimalType from route params if provided
+  const { initialTab, selectedAnimalType: routeSelectedAnimalType } = route?.params || {};
   const [activeTab, setActiveTab] = useState(initialTab || 'elevage');
   const [templateSettingsModal, setTemplateSettingsModal] = useState(false);
-  const [selectedAnimalType, setSelectedAnimalType] = useState('poussins');
+  const [selectedAnimalType, setSelectedAnimalType] = useState(routeSelectedAnimalType || 'poussins');
   const [pricingGrids, setPricingGrids] = useState({});
   const [newAnimalTypeModal, setNewAnimalTypeModal] = useState(false);
   const [newAnimalTypeName, setNewAnimalTypeName] = useState('');
@@ -125,7 +125,7 @@ export default function ProductManagementScreen({ navigation, route }) {
     }
   }, [activeTab]);
 
-  // Reload statistics when screen comes into focus and check for initialTab
+  // Reload statistics when screen comes into focus and check for initialTab and selectedAnimalType
   useFocusEffect(
     React.useCallback(() => {
       loadElevageStatistics();
@@ -135,13 +135,20 @@ export default function ProductManagementScreen({ navigation, route }) {
         console.log('📦 ProductManagement: Setting activeTab from route params on focus:', routeInitialTab);
         setActiveTab(routeInitialTab);
       }
-    }, [route?.params?.initialTab])
+      // Check for selectedAnimalType in route params
+      const routeSelectedAnimalType = route?.params?.selectedAnimalType;
+      if (routeSelectedAnimalType) {
+        console.log('📦 ProductManagement: Setting selectedAnimalType from route params on focus:', routeSelectedAnimalType);
+        setSelectedAnimalType(routeSelectedAnimalType);
+        configService.saveProductManagementSelectedAnimalType(routeSelectedAnimalType);
+      }
+    }, [route?.params?.initialTab, route?.params?.selectedAnimalType])
   );
 
   const loadConfigs = async () => {
     try {
       const savedActiveTab = await configService.loadProductManagementActiveTab();
-      const selectedAnimalType = await configService.loadProductManagementSelectedAnimalType();
+      const savedSelectedAnimalType = await configService.loadProductManagementSelectedAnimalType();
       
       // Only set activeTab from saved config if no initialTab was provided via route params
       // initialTab takes precedence over saved config - check route params directly
@@ -149,7 +156,16 @@ export default function ProductManagementScreen({ navigation, route }) {
       if (!routeInitialTab && savedActiveTab) {
         setActiveTab(savedActiveTab);
       }
-      setSelectedAnimalType(selectedAnimalType);
+      
+      // selectedAnimalType from route params takes precedence over saved config
+      const routeSelectedAnimalType = route?.params?.selectedAnimalType;
+      if (routeSelectedAnimalType) {
+        setSelectedAnimalType(routeSelectedAnimalType);
+        // Also save it for future use
+        await configService.saveProductManagementSelectedAnimalType(routeSelectedAnimalType);
+      } else if (savedSelectedAnimalType) {
+        setSelectedAnimalType(savedSelectedAnimalType);
+      }
     } catch (error) {
       console.error('Error loading configs:', error);
     }
@@ -160,11 +176,27 @@ export default function ProductManagementScreen({ navigation, route }) {
       const savedGrids = await database.getAllPricingGrids();
       if (savedGrids && Object.keys(savedGrids).length > 0) {
         setPricingGrids(savedGrids);
+      } else {
+        setPricingGrids({});
       }
     } catch (error) {
       console.error('Error loading pricing grids:', error);
+      setPricingGrids({});
     }
   };
+
+  // Initialize pricing grid for selectedAnimalType if it doesn't exist (only when coming from route params)
+  useEffect(() => {
+    const routeSelectedAnimalType = route?.params?.selectedAnimalType;
+    if (activeTab === 'productions' && routeSelectedAnimalType && !pricingGrids[routeSelectedAnimalType]) {
+      // Initialize empty pricing grid for this animal type if it came from route params
+      const newGrids = { ...pricingGrids };
+      newGrids[routeSelectedAnimalType] = [];
+      setPricingGrids(newGrids);
+      // Optionally auto-open the template settings modal to help user create pricing grid
+      // setTemplateSettingsModal(true);
+    }
+  }, [activeTab, route?.params?.selectedAnimalType]);
 
   const loadTemplateMessages = async () => {
     try {
@@ -806,21 +838,183 @@ export default function ProductManagementScreen({ navigation, route }) {
     );
   };
 
+  const [animalTypes, setAnimalTypes] = useState([]);
+  const [addAnimalTypeModal, setAddAnimalTypeModal] = useState(false);
+  const [newElevageAnimalTypeName, setNewElevageAnimalTypeName] = useState('');
+  const [animalTypeStats, setAnimalTypeStats] = useState({});
+
+  useEffect(() => {
+    loadAnimalTypes();
+  }, []);
+
+  useEffect(() => {
+    loadAnimalTypeStats();
+  }, [animalTypes]);
+
+  const loadAnimalTypes = async () => {
+    try {
+      const types = await database.getAnimalTypes();
+      setAnimalTypes(types);
+    } catch (error) {
+      console.error('Error loading animal types:', error);
+    }
+  };
+
+  const loadAnimalTypeStats = async () => {
+    try {
+      const stats = {};
+      for (const animalType of animalTypes) {
+        const lots = await database.getLots(animalType);
+        const races = await database.getRaces(animalType);
+        
+        const activeLots = lots.filter(lot => lot.status === 'Actif');
+        const totalLivingAnimals = lots.reduce((total, lot) => {
+          return total + Object.values(lot.races || {}).reduce((lotTotal, race) => lotTotal + (race.current || 0), 0);
+        }, 0);
+        
+        stats[animalType] = {
+          activeLots: activeLots.length,
+          totalLivingAnimals,
+          uniqueRaces: races.length
+        };
+      }
+      
+      setAnimalTypeStats(stats);
+    } catch (error) {
+      console.error('Error loading animal type stats:', error);
+    }
+  };
+
+  const deleteAnimalType = async (animalType) => {
+    Alert.alert(
+      'Supprimer le type d\'animal',
+      `Êtes-vous sûr de vouloir supprimer le type "${getElevageTypeName(animalType)}"? Cette action ne supprime pas les données, mais masque simplement ce type de la liste.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Supprimer', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              await database.deleteAnimalType(animalType);
+              setAnimalTypes(prev => prev.filter(t => t !== animalType));
+              await loadAnimalTypeStats();
+            } catch (error) {
+              console.error('Error deleting animal type:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer le type d\'animal');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const addElevageAnimalType = async () => {
+    if (!newElevageAnimalTypeName.trim()) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un type d\'animal');
+      return;
+    }
+    
+    // Available animal types with their keys
+    const availableAnimalTypes = {
+      'Poussins/Poules': 'poussins',
+      'Cailles': 'cailles',
+      'Canards': 'canards',
+      'Oies': 'oies',
+      'Paons': 'paons',
+      'Dindes': 'dindes',
+      'Lapins': 'lapins'
+    };
+    
+    const animalTypeKey = availableAnimalTypes[newElevageAnimalTypeName] || newElevageAnimalTypeName.toLowerCase();
+    
+    // Check if already exists
+    if (animalTypes.includes(animalTypeKey)) {
+      Alert.alert('Erreur', 'Ce type d\'animal est déjà configuré');
+      return;
+    }
+    
+    try {
+      await database.addAnimalType(animalTypeKey);
+      setAnimalTypes(prev => [...prev, animalTypeKey]);
+      setAddAnimalTypeModal(false);
+      setNewElevageAnimalTypeName('');
+      await loadAnimalTypeStats();
+      Alert.alert('Succès', `Type d'animal "${newElevageAnimalTypeName}" ajouté avec succès!`);
+    } catch (error) {
+      console.error('Error adding animal type:', error);
+      Alert.alert('Erreur', 'Impossible d\'ajouter le type d\'animal');
+    }
+  };
+
+  const getElevageTypeIcon = (animalType) => {
+    const config = database.getElevageConfig(animalType);
+    return config.icon || '🐾';
+  };
+
+  const getElevageTypeName = (animalType) => {
+    const config = database.getElevageConfig(animalType);
+    return config.name || animalType;
+  };
+
   const renderElevageAvicole = () => (
     <View style={styles.tabContent}>
-      <TouchableOpacity 
-        style={styles.sectionCard}
-        onPress={() => navigation.navigate('ElevageScreen')}
-        activeOpacity={0.7}
-      >
+      <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>🐓 Élevage Avicole</Text>
         <Text style={styles.sectionDescription}>
-          Gestion complète de vos volailles : poules, canards, oies, lapins
+          Gestion complète de vos volailles et lapins par type
         </Text>
-      </TouchableOpacity>
+        
+        {/* Animal Types List */}
+        <View style={styles.animalTypesContainer}>
+          {animalTypes.length > 0 ? (
+            animalTypes.map((animalType) => {
+              const stats = animalTypeStats[animalType] || { activeLots: 0, totalLivingAnimals: 0, uniqueRaces: 0 };
+              const config = database.getElevageConfig(animalType);
+              
+              return (
+                <TouchableOpacity 
+                  key={animalType}
+                  style={styles.animalTypeCard}
+                  onPress={() => navigation.navigate('ElevageScreen', { animalType })}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.animalTypeCardContent}>
+                    <View style={styles.animalTypeCardLeft}>
+                      <Text style={styles.animalTypeIcon}>{config.icon}</Text>
+                      <View style={styles.animalTypeInfo}>
+                        <Text style={styles.animalTypeName}>{config.name}</Text>
+                        <Text style={styles.animalTypeCount}>
+                          {stats.activeLots} lots • {stats.totalLivingAnimals} animaux • {stats.uniqueRaces} races
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity 
+                      style={styles.deleteAnimalTypeButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        deleteAnimalType(animalType);
+                      }}
+                    >
+                      <Text style={styles.deleteAnimalTypeButtonText}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <View style={styles.noAnimalTypesCard}>
+              <Text style={styles.noAnimalTypesText}>Aucun type d'animal configuré</Text>
+              <Text style={styles.noAnimalTypesSubtext}>
+                Appuyez sur le bouton + pour ajouter un type d'animal
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
       
       <View style={styles.quickStats}>
-        <Text style={styles.quickStatsTitle}>Statistiques Rapides</Text>
+        <Text style={styles.quickStatsTitle}>Statistiques Globales</Text>
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{elevageStats.activeLots}</Text>
@@ -840,6 +1034,80 @@ export default function ProductManagementScreen({ navigation, route }) {
           </View>
         </View>
       </View>
+      
+      {/* Add Animal Type Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={addAnimalTypeModal}
+        onRequestClose={() => setAddAnimalTypeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Ajouter un type d'animal</Text>
+            <Text style={styles.modalSubtitle}>
+              Sélectionnez le type d'animal à ajouter à votre élevage
+            </Text>
+            
+            <View style={styles.animalTypeOptions}>
+              {[
+                { key: 'poussins', label: 'Poussins/Poules', icon: '🐓' },
+                { key: 'cailles', label: 'Cailles', icon: '🐦' },
+                { key: 'canards', label: 'Canards', icon: '🦆' },
+                { key: 'oies', label: 'Oies', icon: '🪿' },
+                { key: 'paons', label: 'Paons', icon: '🦚' },
+                { key: 'dindes', label: 'Dindes', icon: '🦃' },
+                { key: 'lapins', label: 'Lapins', icon: '🐰' }
+              ].filter(option => !animalTypes.includes(option.key)).map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[
+                    styles.animalTypeOption,
+                    newElevageAnimalTypeName === option.label && styles.animalTypeOptionSelected
+                  ]}
+                  onPress={() => setNewElevageAnimalTypeName(option.label)}
+                >
+                  <Text style={styles.animalTypeOptionIcon}>{option.icon}</Text>
+                  <Text style={[
+                    styles.animalTypeOptionText,
+                    newElevageAnimalTypeName === option.label && styles.animalTypeOptionTextSelected
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            {animalTypes.length >= 7 && (
+              <View style={styles.noMoreTypesContainer}>
+                <Text style={styles.noMoreTypesText}>
+                  Tous les types d'animaux disponibles sont déjà configurés
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.cancelBtn]}
+                onPress={() => {
+                  setAddAnimalTypeModal(false);
+                  setNewElevageAnimalTypeName('');
+                }}
+              >
+                <Text style={styles.modalBtnText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.saveBtn]}
+                onPress={addElevageAnimalType}
+              >
+                <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                  Ajouter
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 
@@ -1519,6 +1787,17 @@ export default function ProductManagementScreen({ navigation, route }) {
           <TouchableOpacity
             style={styles.floatingAddButton}
             onPress={() => setAddHerdTypeModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.floatingAddButtonText}>+</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Floating Add Button for Animal Types */}
+        {activeTab === 'elevage' && (
+          <TouchableOpacity
+            style={styles.floatingAddButton}
+            onPress={() => setAddAnimalTypeModal(true)}
             activeOpacity={0.8}
           >
             <Text style={styles.floatingAddButtonText}>+</Text>
@@ -2806,7 +3085,7 @@ const styles = StyleSheet.create({
   },
   messageActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   copyBtn: {
     backgroundColor: '#9C27B0',
@@ -2983,8 +3262,8 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    padding: 10,
-    borderRadius: 8,
+    padding: 6,
+    borderRadius: 6,
     alignItems: 'center',
   },
   editBtn: {
@@ -2996,7 +3275,7 @@ const styles = StyleSheet.create({
   actionBtnText: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 10,
   },
   cheeseProductNote: {
     backgroundColor: '#f0f8ff',
@@ -3661,6 +3940,150 @@ const styles = StyleSheet.create({
   herdTypeCount: {
     fontSize: 13,
     color: '#666',
+  },
+  deleteHerdTypeButton: {
+    padding: 8,
+  },
+  deleteHerdTypeButtonText: {
+    fontSize: 18,
+    color: '#F44336',
+  },
+  // Animal Type styles (for elevage avicole)
+  animalTypesContainer: {
+    marginTop: 15,
+    gap: 10,
+  },
+  animalTypeCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  animalTypeCardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  animalTypeCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  animalTypeIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  animalTypeInfo: {
+    flex: 1,
+  },
+  animalTypeName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  animalTypeCount: {
+    fontSize: 13,
+    color: '#666',
+  },
+  animalTypeArrow: {
+    fontSize: 20,
+    color: '#666',
+    marginLeft: 10,
+  },
+  deleteAnimalTypeButton: {
+    backgroundColor: '#F44336',
+    borderRadius: 6,
+    padding: 8,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteAnimalTypeButtonText: {
+    fontSize: 16,
+  },
+  addAnimalTypeButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  addAnimalTypeButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  noAnimalTypesCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 30,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  noAnimalTypesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 5,
+  },
+  noAnimalTypesSubtext: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+  animalTypeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  animalTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 2,
+    borderColor: '#ddd',
+    minWidth: '45%',
+  },
+  animalTypeOptionSelected: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  animalTypeOptionIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  animalTypeOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  animalTypeOptionTextSelected: {
+    color: 'white',
+  },
+  noMoreTypesContainer: {
+    backgroundColor: '#fff3cd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+  },
+  noMoreTypesText: {
+    fontSize: 13,
+    color: '#856404',
+    textAlign: 'center',
   },
   deleteHerdTypeButton: {
     backgroundColor: '#F44336',

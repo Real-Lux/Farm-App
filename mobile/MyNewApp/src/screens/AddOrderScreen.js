@@ -101,18 +101,12 @@ export default function AddOrderScreen({ navigation, route }) {
 
   const orderTypes = ['Adoption', 'Autres produits'];
   const [activeOrderSection, setActiveOrderSection] = useState('Adoption'); // Track which section is visible
-  const animalTypes = ['poussins', 'canards', 'oie', 'lapin', 'chèvre', 'cailles'];
-  const racesByAnimal = {
-    poussins: ['Araucana', 'Cream Legbar', 'Leghorn', 'Marans', 'Vorwerk', 'Orpington', 'Brahma', 'Pékin', 'Soie'],
-    canards: ['Coureur indien', 'Cayuga', 'Barbarie'],
-    oie: ['Guinée', 'Toulouse'],
-    lapin: ['Fermier'],
-    chèvre: ['Alpine', 'Saanen', 'Poitevine', 'Angora'],
-    cailles: ['Japonaise']
-  };
+  const [animalTypes, setAnimalTypes] = useState([]);
+  const [racesByAnimal, setRacesByAnimal] = useState({});
 
   useEffect(() => {
     // Load both adoption stock and products since we can combine them
+    loadAnimalTypes();
     loadAvailableStock();
     loadProducts();
     loadConfigs();
@@ -146,6 +140,26 @@ export default function AddOrderScreen({ navigation, route }) {
       }
     }
   }, []);
+
+  const loadAnimalTypes = async () => {
+    try {
+      // Get active animal types from database
+      const activeTypes = await database.getAnimalTypes();
+      setAnimalTypes(activeTypes.length > 0 ? activeTypes : ['poussins', 'canards', 'oies', 'lapins', 'cailles']);
+      
+      // Load races for each animal type
+      const racesMap = {};
+      for (const animalType of activeTypes.length > 0 ? activeTypes : ['poussins', 'canards', 'oies', 'lapins', 'cailles']) {
+        const races = await database.getRaces(animalType);
+        racesMap[animalType] = races.map(r => r.name);
+      }
+      setRacesByAnimal(racesMap);
+    } catch (error) {
+      console.error('Error loading animal types:', error);
+      // Fallback to default
+      setAnimalTypes(['poussins', 'canards', 'oies', 'lapins', 'cailles']);
+    }
+  };
 
   const loadConfigs = async () => {
     try {
@@ -385,13 +399,11 @@ export default function AddOrderScreen({ navigation, route }) {
 
   const loadAvailableStock = async () => {
     try {
-      const [lotsData] = await Promise.all([
-        database.getLots()
-      ]);
+      // Load lots for all animal types
+      const allLots = await database.getLots();
+      setLots(allLots);
       
-      setLots(lotsData);
-      
-      // Calculate available stock for each race
+      // Calculate available stock for each race from racesByAnimal
       const stockData = {};
       for (const animal in racesByAnimal) {
         for (const race of racesByAnimal[animal]) {
@@ -404,6 +416,13 @@ export default function AddOrderScreen({ navigation, route }) {
       console.error('Erreur lors du chargement du stock:', error);
     }
   };
+
+  // Reload stock when racesByAnimal changes
+  useEffect(() => {
+    if (Object.keys(racesByAnimal).length > 0) {
+      loadAvailableStock();
+    }
+  }, [racesByAnimal]);
 
   const orderStatuses = ORDER_STATUSES;
 
@@ -1014,28 +1033,36 @@ export default function AddOrderScreen({ navigation, route }) {
             <View style={styles.dropdownContainer}>
               <Text style={styles.dropdownLabel}>Types d'animaux (sélection multiple)</Text>
               <View style={styles.multiSelectContainer}>
-                {animalTypes.map((animal) => (
-                  <TouchableOpacity
-                    key={animal}
-                    style={[
-                      styles.characteristicOption,
-                      orderForm.selectedAnimals.includes(animal) && styles.characteristicOptionSelected
-                    ]}
-                    onPress={() => toggleAnimalSelection(animal)}
-                  >
-                    <Text style={[
-                      styles.characteristicOptionText,
-                      orderForm.selectedAnimals.includes(animal) && styles.characteristicOptionTextSelected
-                    ]}>
-                      {orderForm.selectedAnimals.includes(animal) ? '✓ ' : ''}{animal}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {animalTypes.map((animal) => {
+                  const config = database.getElevageConfig(animal);
+                  const animalIcon = config ? config.icon : '🐾';
+                  return (
+                    <TouchableOpacity
+                      key={animal}
+                      style={[
+                        styles.characteristicOption,
+                        orderForm.selectedAnimals.includes(animal) && styles.characteristicOptionSelected
+                      ]}
+                      onPress={() => toggleAnimalSelection(animal)}
+                    >
+                      <Text style={[
+                        styles.characteristicOptionText,
+                        orderForm.selectedAnimals.includes(animal) && styles.characteristicOptionTextSelected
+                      ]}>
+                        {orderForm.selectedAnimals.includes(animal) ? '✓ ' : ''}{animalIcon} {animal}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
             {/* Animal Quantities */}
-            {orderForm.selectedAnimals.map((animal) => (
+            {orderForm.selectedAnimals.map((animal) => {
+              const config = database.getElevageConfig(animal);
+              const animalIcon = config ? config.icon : '🐾';
+              const animalName = config ? config.name : animal.charAt(0).toUpperCase() + animal.slice(1);
+              return (
               <View key={animal} style={styles.animalSection}>
                 <View style={styles.animalSectionHeader}>
                   <TouchableOpacity 
@@ -1047,7 +1074,7 @@ export default function AddOrderScreen({ navigation, route }) {
                     </Text>
                   </TouchableOpacity>
                   <Text style={styles.animalSectionTitle}>
-                    🐓 {animal.charAt(0).toUpperCase() + animal.slice(1)} ({getAnimalTotalQuantity(animal)})
+                    {animalIcon} {animalName} ({getAnimalTotalQuantity(animal)})
                   </Text>
                 </View>
                 
@@ -1161,10 +1188,20 @@ export default function AddOrderScreen({ navigation, route }) {
                             </Text>
                             <TouchableOpacity
                               style={styles.goToPricingButton}
-                              onPress={() => navigation.navigate('Gestion', { 
-                                screen: 'ProductManagement', 
-                                params: { initialTab: 'productions' } 
-                              })}
+                              onPress={() => {
+                                // Close the modal and navigate
+                                if (navigation.navigate) {
+                                  navigation.navigate('Gestion', { initialTab: 'productions', selectedAnimalType: animal });
+                                } else {
+                                  // Fallback: try to get parent navigation
+                                  const parentNav = navigation.getParent ? navigation.getParent() : null;
+                                  if (parentNav && parentNav.navigate) {
+                                    parentNav.navigate('Gestion', { initialTab: 'productions', selectedAnimalType: animal });
+                                  } else {
+                                    Alert.alert('Navigation', 'Impossible de naviguer. Veuillez fermer cette fenêtre et aller manuellement dans "Gestion" > "Productions".');
+                                  }
+                                }
+                              }}
                             >
                               <Text style={styles.goToPricingButtonText}>
                                 📊 Configurer la grille tarifaire
@@ -1186,7 +1223,8 @@ export default function AddOrderScreen({ navigation, route }) {
                   </>
                 )}
               </View>
-            ))}
+              );
+            })}
           </>
         )}
 
@@ -1318,10 +1356,20 @@ export default function AddOrderScreen({ navigation, route }) {
                   </Text>
                   <TouchableOpacity 
                     style={styles.goToPricingButton}
-                    onPress={() => navigation.navigate('Gestion', { 
-                      screen: 'ProductManagement', 
-                      params: { initialTab: 'productions' } 
-                    })}
+                    onPress={() => {
+                      // Close the modal and navigate
+                      if (navigation.navigate) {
+                        navigation.navigate('Gestion', { initialTab: 'productions' });
+                      } else {
+                        // Fallback: try to get parent navigation
+                        const parentNav = navigation.getParent ? navigation.getParent() : null;
+                        if (parentNav && parentNav.navigate) {
+                          parentNav.navigate('Gestion', { initialTab: 'productions' });
+                        } else {
+                          Alert.alert('Navigation', 'Impossible de naviguer. Veuillez fermer cette fenêtre et aller manuellement dans "Gestion" > "Productions".');
+                        }
+                      }
+                    }}
                   >
                     <Text style={styles.goToPricingButtonText}>
                       📦 Ajouter des produits
@@ -1521,10 +1569,20 @@ export default function AddOrderScreen({ navigation, route }) {
               </Text>
               <TouchableOpacity 
                 style={styles.goToPricingButton}
-                onPress={() => navigation.navigate('Gestion', { 
-                  screen: 'ProductManagement', 
-                  params: { initialTab: 'productions' } 
-                })}
+                onPress={() => {
+                  // Close the modal and navigate
+                  if (navigation.navigate) {
+                    navigation.navigate('Gestion', { initialTab: 'productions' });
+                  } else {
+                    // Fallback: try to get parent navigation
+                    const parentNav = navigation.getParent ? navigation.getParent() : null;
+                    if (parentNav && parentNav.navigate) {
+                      parentNav.navigate('Gestion', { initialTab: 'productions' });
+                    } else {
+                      Alert.alert('Navigation', 'Impossible de naviguer. Veuillez fermer cette fenêtre et aller manuellement dans "Gestion" > "Productions".');
+                    }
+                  }
+                }}
               >
                 <Text style={styles.goToPricingButtonText}>
                   📊 Configurer les grilles tarifaires

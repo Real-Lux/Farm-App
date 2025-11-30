@@ -244,12 +244,15 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                   if (!animalDetail || !animalDetail.races) return null;
                   
                   return animalDetail.races.map((raceConfig, raceIndex) => {
-                    const animalEmoji = animalType === 'poussins' ? '🐓' : 
-                                      animalType === 'canards' ? '🦆' : 
-                                      animalType === 'oie' ? '🦢' : 
-                                      animalType === 'lapin' ? '🐰' : 
-                                      animalType === 'chèvre' ? '🐐' : 
-                                      animalType === 'cailles' ? '🐦' : '🐓';
+                    // Use database config for animal type icon
+                    const animalConfig = database.getElevageConfig(animalType);
+                    const animalEmoji = animalConfig ? animalConfig.icon : 
+                                      (animalType === 'poussins' ? '🐓' : 
+                                       animalType === 'canards' ? '🦆' : 
+                                       animalType === 'oie' || animalType === 'oies' ? '🪿' : 
+                                       animalType === 'lapin' || animalType === 'lapins' ? '🐰' : 
+                                       animalType === 'chèvre' ? '🐐' : 
+                                       animalType === 'cailles' ? '🐦' : '🐓');
                     
                     const sexEmoji = raceConfig.sexPreference === 'male' ? '♂️' : 
                                    raceConfig.sexPreference === 'female' ? '♀️' : '❓';
@@ -844,14 +847,19 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         <AddOrderScreen
           navigation={{
             goBack: () => setAddOrderModalVisible(false),
-            navigate: (screenName) => {
+            navigate: (screenName, params) => {
               setAddOrderModalVisible(false);
               // Navigate to the main tab navigator
               if (screenName === 'Gestion') {
-                // Switch to the Gestion tab
-                navigation.navigate('Gestion');
+                // Use a small delay to ensure modal closes before navigation
+                setTimeout(() => {
+                  if (navigation && navigation.navigate) {
+                    navigation.navigate('Gestion', params || {});
+                  }
+                }, 100);
               }
-            }
+            },
+            getParent: () => navigation
           }}
           route={{
             params: {

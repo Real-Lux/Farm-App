@@ -22,15 +22,22 @@ import { Calendar } from 'react-native-calendars';
 import database from '../services/database';
 import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar, calculateEstimatedHatchingDate, addDays, getSuggestedFertilizationCheckDate } from '../utils/dateUtils';
+import { useElevageConfig } from '../hooks/useElevageConfig';
+import { useElevageLots } from '../hooks/useElevageLots';
+import { useElevageRaces } from '../hooks/useElevageRaces';
 
 export default function ElevageScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  // Get route parameters for highlighting specific lots and initial tab
-  const { highlightLotId, highlightLotName, initialTab } = route?.params || {};
-  const [lots, setLots] = useState([]);
-  const [races, setRaces] = useState([]);
+  // Get route parameters for highlighting specific lots, initial tab, and animal type
+  const { highlightLotId, highlightLotName, initialTab, animalType = 'poussins' } = route?.params || {};
+  const [currentAnimalType, setCurrentAnimalType] = useState(animalType);
   const [historique, setHistorique] = useState([]);
   const [incubationStats, setIncubationStats] = useState(null);
+  
+  // Use custom hooks
+  const { getElevageConfig, getDefaultSpecies, getAvailableSpecies, getRaceTypes } = useElevageConfig(currentAnimalType);
+  const { lots, loadLots, saveLot: saveLotHook, deleteLot: deleteLotHook } = useElevageLots(currentAnimalType);
+  const { races, loadRaces, saveRace: saveRaceHook, deleteRace: deleteRaceHook, reorderRaces } = useElevageRaces(currentAnimalType);
   const [activeTab, setActiveTab] = useState(initialTab || 'lots');
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState('lot'); // 'lot', 'race', 'update', 'incubationUpdate'
@@ -92,10 +99,18 @@ export default function ElevageScreen({ navigation, route }) {
     notes: ''
   });
 
+  // Update currentAnimalType when route params change
+  useEffect(() => {
+    if (route?.params?.animalType && route.params.animalType !== currentAnimalType) {
+      console.log('🔄 Updating animal type from', currentAnimalType, 'to', route.params.animalType);
+      setCurrentAnimalType(route.params.animalType);
+    }
+  }, [route?.params?.animalType]);
+
   useEffect(() => {
     loadData();
     loadConfigs();
-  }, []);
+  }, [currentAnimalType]);
 
   // Handle initial tab from route params
   useEffect(() => {
@@ -147,23 +162,23 @@ export default function ElevageScreen({ navigation, route }) {
 
   const loadData = async () => {
     try {
-      const [lotsData, racesData, historiqueData] = await Promise.all([
-        database.getLots(),
-        database.getRaces(),
-        database.getHistorique()
-      ]);
-      setLots(lotsData);
-      setRaces(racesData);
+      // Lots and races are loaded by hooks, just load historique
+      const historiqueData = await database.getHistorique(null, currentAnimalType);
       setHistorique(historiqueData);
       
-      // Calculate incubation statistics from lots
-      const statsData = calculateIncubationStatsFromLots(lotsData);
+      // Calculate incubation statistics from lots (already filtered by hook)
+      const statsData = calculateIncubationStatsFromLots(lots);
       setIncubationStats(statsData);
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);
       Alert.alert('Erreur', 'Impossible de charger les données d\'élevage');
     }
   };
+
+  // Reload data when lots or races change
+  useEffect(() => {
+    loadData();
+  }, [lots, races]);
 
   // Calculate incubation statistics from lots (instead of separate incubation records)
   const calculateIncubationStatsFromLots = (lotsData) => {
@@ -296,16 +311,41 @@ export default function ElevageScreen({ navigation, route }) {
   const openAddLotModal = () => {
     setEditingItem(null);
     setModalType('lot');
+    // Use currentAnimalType as the default species since each screen is for a specific animal type
+    const defaultSpecies = currentAnimalType || getDefaultSpecies();
+    const todayISO = getTodayISO();
+    
+    // Calculate estimated dates if we have a species and incubation date
+    let estimatedDates = { estimatedDate: '', minDate: '', maxDate: '' };
+    if (defaultSpecies && todayISO) {
+      // Try to get first race for this species to calculate dates
+      const availableRaces = getRacesForSpecies(defaultSpecies);
+      if (availableRaces.length > 0) {
+        estimatedDates = calculateEstimatedHatchingDate(
+          defaultSpecies,
+          availableRaces[0].name,
+          todayISO
+        );
+      } else {
+        // Calculate without race if no races available yet
+        estimatedDates = calculateEstimatedHatchingDate(
+          defaultSpecies,
+          '',
+          todayISO
+        );
+      }
+    }
+    
     setLotForm({
       name: '',
-      species: '',
-      date_creation: getTodayISO(),
-      incubation_start_date: getTodayISO(),
+      species: defaultSpecies,
+      date_creation: todayISO,
+      incubation_start_date: todayISO,
       fertilization_check_date: '',
-      date_eclosion: '',
-      estimated_hatching_date: '',
-      estimated_min_date: '',
-      estimated_max_date: '',
+      date_eclosion: estimatedDates.estimatedDate || '',
+      estimated_hatching_date: estimatedDates.estimatedDate || '',
+      estimated_min_date: estimatedDates.minDate || '',
+      estimated_max_date: estimatedDates.maxDate || '',
       eggs_count: '',
       eggs_by_race: {},
       fertilized_count: '',
@@ -404,9 +444,13 @@ export default function ElevageScreen({ navigation, route }) {
       ? Math.max(...races.map(r => r.order !== undefined ? r.order : 0), -1) + 1
       : 0;
     
+    // Get default race type from config
+    const raceTypes = getRaceTypes();
+    const defaultRaceType = raceTypes[0] || 'poules';
+    
     setRaceForm({
       name: '',
-      type: 'poules',
+      type: defaultRaceType,
       description: '',
       order: maxOrder
     });
@@ -712,17 +756,10 @@ export default function ElevageScreen({ navigation, route }) {
         }
       }
 
-      if (editingItem) {
-        await database.updateLot(editingItem.id, finalLotForm);
-      } else {
-        await database.addLot(finalLotForm);
-      }
-      
-      // Sync with calendar after saving lot (including estimated hatching dates)
-      await database.syncElevageWithCalendar();
+      // Use hook to save lot
+      await saveLotHook(finalLotForm, editingItem);
       
       setModalVisible(false);
-      loadData();
     } catch (error) {
       console.error('Erreur lors de la sauvegarde du lot:', error);
       Alert.alert('Erreur', 'Impossible de sauvegarder le lot');
@@ -750,7 +787,8 @@ export default function ElevageScreen({ navigation, route }) {
       }
       
       if (hatched > fertilized && fertilized > 0) {
-        Alert.alert('Erreur', `Le nombre d'éclos (${hatched}) ne peut pas dépasser le nombre de fécondés (${fertilized}).`);
+        const hatchingTerm = getHatchingTerm(editingItem?.species || lotForm.species);
+        Alert.alert('Erreur', `Le nombre de ${hatchingTerm}s (${hatched}) ne peut pas dépasser le nombre de fécondés (${fertilized}).`);
         return;
       }
 
@@ -833,11 +871,10 @@ export default function ElevageScreen({ navigation, route }) {
         });
       }
 
-      await database.updateLot(editingItem.id, updatedLot);
-      await database.syncElevageWithCalendar();
+      // Use hook to save lot
+      await saveLotHook(updatedLot, editingItem);
       
       setModalVisible(false);
-      loadData();
     } catch (error) {
       console.error('Erreur lors de la mise à jour:', error);
       Alert.alert('Erreur', 'Impossible de mettre à jour l\'incubation');
@@ -857,13 +894,12 @@ export default function ElevageScreen({ navigation, route }) {
           ...raceForm,
           order: editingItem.order !== undefined ? editingItem.order : 999
         };
-        await database.updateRace(editingItem.id, raceToSave);
+        await saveRaceHook(raceToSave, editingItem);
       } else {
         // Use the order from form (set in openAddRaceModal)
-        await database.addRace(raceForm);
+        await saveRaceHook(raceForm, null);
       }
       setModalVisible(false);
-      loadData();
     } catch (error) {
       console.error('Erreur lors de la sauvegarde de la race:', error);
       Alert.alert('Erreur', 'Impossible de sauvegarder la race');
@@ -922,15 +958,7 @@ export default function ElevageScreen({ navigation, route }) {
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
-          try {
-            await database.deleteLot(id);
-            // Sync with calendar after deletion
-            await database.syncElevageWithCalendar();
-            loadData();
-          } catch (error) {
-            console.error('Erreur lors de la suppression:', error);
-            Alert.alert('Erreur', 'Impossible de supprimer le lot');
-          }
+          await deleteLotHook(id);
         }}
       ]
     );
@@ -1059,7 +1087,7 @@ export default function ElevageScreen({ navigation, route }) {
     if (numericText && fertilizedForRace > 0 && hatchedNum > fertilizedForRace) {
       Alert.alert(
         'Valeur invalide',
-        `Impossible: ${hatchedNum} éclos dépasse le nombre de ${fertilizedForRace} fécondés pour ${raceName}. La valeur sera limitée à ${fertilizedForRace}.`,
+        `Impossible: ${hatchedNum} ${getHatchingTerm(editingItem?.species || lotForm.species)}s dépasse le nombre de ${fertilizedForRace} fécondés pour ${raceName}. La valeur sera limitée à ${fertilizedForRace}.`,
         [{ text: 'OK' }]
       );
       finalValue = fertilizedForRace.toString();
@@ -1083,6 +1111,23 @@ export default function ElevageScreen({ navigation, route }) {
       hatched_by_race: newHatchedByRace,
       hatched_count: totalHatched > 0 ? totalHatched.toString() : ''
     });
+  };
+
+  // Helper functions for terminology based on species
+  const isLapins = (species) => {
+    return species === 'lapins';
+  };
+
+  const isVolailles = (species) => {
+    return ['poussins', 'cailles', 'canards', 'oies', 'paons', 'dindes'].includes(species);
+  };
+
+  const getIncubationTerm = (species) => {
+    return isLapins(species) ? 'gestation' : 'incubation';
+  };
+
+  const getHatchingTerm = (species) => {
+    return isLapins(species) ? 'naissance' : 'éclosion';
   };
 
   const handleSpeciesChange = (species) => {
@@ -1115,24 +1160,15 @@ export default function ElevageScreen({ navigation, route }) {
   };
 
   // Get available races filtered by species (for poultry) and sorted by order
+  // Races are already filtered by animal type from the hook, so just filter by species
   const getRacesForSpecies = (species) => {
     if (!species) return [];
-    // For poultry species, filter races by matching type
-    const speciesToTypeMap = {
-      'poussins': 'poules',
-      'cailles': 'cailles',
-      'canards': 'canards',
-      'oies': 'oie',
-      'dindes': 'dindes'
-    };
-    const typeToMatch = speciesToTypeMap[species];
-    let filteredRaces = [];
-    
-    if (!typeToMatch) {
-      filteredRaces = races; // For non-poultry, return all races
-    } else {
-      filteredRaces = races.filter(race => race.type === typeToMatch || race.type === species);
-    }
+    // Races are already filtered by animal type, just filter by matching type
+    const raceTypes = getRaceTypes();
+    let filteredRaces = races.filter(race => {
+      // Check if race type matches any of the config race types or the species
+      return raceTypes.some(rt => race.type === rt) || race.type === species;
+    });
     
     // Sort by order (lower order number = higher priority)
     return filteredRaces.sort((a, b) => {
@@ -1253,10 +1289,11 @@ export default function ElevageScreen({ navigation, route }) {
     
     if (isIncubating) {
       // Check if fertilization check has been done
-      if (lot.fertilization_check_date) {
-        return { status: 'En incubation (fécondés)', color: '#2196F3' };
+      const incubationTerm = getIncubationTerm(lot.species);
+      if (lot.fertilization_check_date && isVolailles(lot.species)) {
+        return { status: `En ${incubationTerm} (fécondés)`, color: '#2196F3' };
       }
-      return { status: 'En incubation', color: '#2196F3' };
+      return { status: `En ${incubationTerm}`, color: '#2196F3' };
     }
     
     const totalAlive = Object.values(lot.races).reduce((total, race) => total + (race.current || 0), 0);
@@ -1380,28 +1417,32 @@ export default function ElevageScreen({ navigation, route }) {
               )}
               <Text style={styles.cardInfo}>📅 Créé le: {item.date_creation}</Text>
               
-              {/* Incubation dates */}
+              {/* Incubation/Gestation dates */}
               {item.incubation_start_date && (
                 <View style={styles.incubationDatesRow}>
-                  <Text style={styles.incubationDateItem}>📅 Début: {item.incubation_start_date}</Text>
-                  {item.fertilization_check_date && (
+                  <Text style={styles.incubationDateItem}>
+                    📅 Début {getIncubationTerm(item.species)}: {item.incubation_start_date}
+                  </Text>
+                  {isVolailles(item.species) && item.fertilization_check_date && (
                     <Text style={styles.incubationDateItem}>🔍 Contrôle: {item.fertilization_check_date}</Text>
                   )}
                   {item.date_eclosion && (
-                    <Text style={styles.incubationDateItem}>🐣 Éclosion: {item.date_eclosion}</Text>
+                    <Text style={styles.incubationDateItem}>
+                      🐣 {getHatchingTerm(item.species).charAt(0).toUpperCase() + getHatchingTerm(item.species).slice(1)}: {item.date_eclosion}
+                    </Text>
                   )}
                   {item.estimated_hatching_date && !item.date_eclosion && (
                     <Text style={[styles.incubationDateItem, { color: '#2196F3', fontWeight: '600' }]}>
-                      📅 Éclosion estimée: {item.estimated_hatching_date}
+                      📅 {getHatchingTerm(item.species).charAt(0).toUpperCase() + getHatchingTerm(item.species).slice(1)} estimée: {item.estimated_hatching_date}
                     </Text>
                   )}
                 </View>
               )}
               
-              {/* Incubation statistics - clickable to update */}
-              {item.eggs_count > 0 && (
+              {/* Incubation statistics - clickable to update - Only for volailles */}
+              {isVolailles(item.species) && item.eggs_count > 0 && (
                 <>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.lotIncubationStats}
                     onPress={() => openIncubationUpdateModal(item)}
                     activeOpacity={0.7}
@@ -1421,7 +1462,9 @@ export default function ElevageScreen({ navigation, route }) {
                       </View>
                     )}
                     <View style={styles.lotIncubationStatRow}>
-                      <Text style={styles.lotIncubationStatLabel}>🐣 Éclos:</Text>
+                      <Text style={styles.lotIncubationStatLabel}>
+                        🐣 {getHatchingTerm(item.species).charAt(0).toUpperCase() + getHatchingTerm(item.species).slice(1)}s:
+                      </Text>
                       <Text style={styles.lotIncubationStatValue}>{item.hatched_count || 0}</Text>
                     </View>
                     <View style={styles.tapToUpdateHint}>
@@ -1511,7 +1554,9 @@ export default function ElevageScreen({ navigation, route }) {
                   onPress={() => openIncubationUpdateModal(item)}
                 >
                   <Text style={styles.actionBtnText}>
-                    {item.hatched_count ? '📋 Mettre à jour incubation' : '📋 Mettre à jour'}
+                    {item.hatched_count 
+                      ? `📋 Mettre à jour ${getIncubationTerm(item.species)}` 
+                      : '📋 Mettre à jour'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1573,13 +1618,7 @@ export default function ElevageScreen({ navigation, route }) {
         [
           { text: 'Annuler', style: 'cancel' },
           { text: 'Supprimer', style: 'destructive', onPress: async () => {
-            try {
-              await database.deleteRace(item.id);
-              loadData();
-            } catch (error) {
-              console.error('Erreur lors de la suppression:', error);
-              Alert.alert('Erreur', 'Impossible de supprimer la race');
-            }
+            await deleteRaceHook(item.id);
           }}
         ]
       );
@@ -1749,8 +1788,7 @@ export default function ElevageScreen({ navigation, route }) {
           if (dragOverIndex !== null && dragOverIndex !== index && sortedRaces && dragOverIndex >= 0 && dragOverIndex < totalRaces) {
             try {
               const targetRace = sortedRaces[dragOverIndex];
-              await database.reorderRaces(item.id, targetRace.id);
-              loadData();
+              await reorderRaces(item.id, targetRace.id);
             } catch (error) {
               console.error('Erreur lors du déplacement:', error);
               Alert.alert('Erreur', 'Impossible de déplacer la race');
@@ -1919,7 +1957,7 @@ export default function ElevageScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: getElevageConfig().color }]}>
         <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
           <TouchableOpacity 
@@ -1928,7 +1966,9 @@ export default function ElevageScreen({ navigation, route }) {
           >
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>🐓 Gestion d'Élevage</Text>
+          <Text style={styles.headerTitle}>
+            {getElevageConfig().icon} {getElevageConfig().name}
+          </Text>
           <View style={styles.headerStats}>
             <Text style={styles.headerStatsText}>{getTotalAnimals()} animaux</Text>
           </View>
@@ -1937,34 +1977,34 @@ export default function ElevageScreen({ navigation, route }) {
 
       <View style={styles.tabContainer}>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'lots' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'lots' && { borderBottomColor: getElevageConfig().color }]}
           onPress={() => setActiveTab('lots')}
         >
-          <Text style={[styles.tabText, activeTab === 'lots' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'lots' && { color: getElevageConfig().color }]}>
             Lots ({lots.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'races' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'races' && { borderBottomColor: getElevageConfig().color }]}
           onPress={() => setActiveTab('races')}
         >
-          <Text style={[styles.tabText, activeTab === 'races' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'races' && { color: getElevageConfig().color }]}>
             Races ({races.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'historique' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'historique' && { borderBottomColor: getElevageConfig().color }]}
           onPress={() => setActiveTab('historique')}
         >
-          <Text style={[styles.tabText, activeTab === 'historique' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'historique' && { color: getElevageConfig().color }]}>
             Historique
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.tab, activeTab === 'statistiques' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'statistiques' && { borderBottomColor: getElevageConfig().color }]}
           onPress={() => setActiveTab('statistiques')}
         >
-          <Text style={[styles.tabText, activeTab === 'statistiques' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'statistiques' && { color: getElevageConfig().color }]}>
             Statistiques
           </Text>
         </TouchableOpacity>
@@ -2083,7 +2123,9 @@ export default function ElevageScreen({ navigation, route }) {
                   </View>
                   <View style={styles.globalStatCard}>
                     <Text style={styles.globalStatNumber}>{incubationStats.total_hatched}</Text>
-                    <Text style={styles.globalStatLabel}>Éclos</Text>
+                    <Text style={styles.globalStatLabel}>
+                      {getHatchingTerm(currentAnimalType).charAt(0).toUpperCase() + getHatchingTerm(currentAnimalType).slice(1)}s
+                    </Text>
                   </View>
                   <View style={styles.globalStatCard}>
                     <Text style={[styles.globalStatNumber, { color: incubationStats.fertility_rate >= 70 ? '#4CAF50' : incubationStats.fertility_rate >= 50 ? '#FF9800' : '#F44336' }]}>
@@ -2368,125 +2410,165 @@ export default function ElevageScreen({ navigation, route }) {
               {modalType === 'lot' && (
                 <>
                   <Text style={styles.modalTitle}>
-                    {editingItem ? 'Modifier le Lot' : 'Nouveau Lot'}
+                    {editingItem 
+                      ? `Modifier le Lot${lotForm.species ? ` - ${getElevageConfig(lotForm.species).name}` : ''}` 
+                      : `Nouveau Lot${lotForm.species ? ` - ${getElevageConfig(lotForm.species).name}` : ''}`}
                   </Text>
 
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Nom du lot *"
-                    placeholderTextColor="#999"
-                    value={lotForm.name}
-                    onChangeText={(text) => setLotForm({...lotForm, name: text})}
-                  />
-
-                  <View style={styles.dateFieldContainer}>
-                    <Text style={styles.dateFieldLabel}>Date de création *</Text>
-                    <TouchableOpacity 
-                      style={styles.datePickerButton}
-                      onPress={() => openCalendarModal('date_creation')}
-                    >
-                      <Text style={styles.datePickerText}>
-                        {lotForm.date_creation ? 
-                          formatForCalendar(lotForm.date_creation) : 
-                          '📅 Sélectionner une date'
-                        }
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Species Selection */}
-                  <View style={styles.inputWithLabel}>
-                    <Text style={styles.inputLabel}>Espèce *</Text>
-                    <View style={styles.typeSelector}>
-                      {['poussins', 'cailles', 'canards', 'oies', 'dindes', 'lapins', 'chèvres', 'brebis'].map((species) => (
-                        <TouchableOpacity
-                          key={species}
-                          style={[
-                            styles.typeSelectorItem,
-                            lotForm.species === species && styles.typeSelectorItemSelected
-                          ]}
-                          onPress={() => handleSpeciesChange(species)}
-                        >
-                          <Text style={[
-                            styles.typeSelectorText,
-                            lotForm.species === species && styles.typeSelectorTextSelected
-                          ]}>
-                            {species}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                  {/* Lot Name Section */}
+                  <View style={styles.formSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionIcon}>📝</Text>
+                      <Text style={styles.sectionLabel}>Informations de base</Text>
                     </View>
+                    <View style={styles.sectionDivider} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Nom du lot *"
+                      placeholderTextColor="#999"
+                      value={lotForm.name}
+                      onChangeText={(text) => setLotForm({...lotForm, name: text})}
+                    />
                   </View>
 
-                  {/* Incubation Start Date */}
-                  {lotForm.species && (
-                    <>
-                      <View style={styles.dateFieldContainer}>
-                        <Text style={styles.dateFieldLabel}>Date de mise en incubation/gestation *</Text>
-                        <TouchableOpacity 
-                          style={styles.datePickerButton}
-                          onPress={() => openCalendarModal('incubation_start_date')}
-                        >
-                          <Text style={styles.datePickerText}>
-                            {lotForm.incubation_start_date ? 
-                              formatForCalendar(lotForm.incubation_start_date) : 
-                              '📅 Sélectionner une date'
-                            }
-                          </Text>
-                        </TouchableOpacity>
+                  {/* Dates Section */}
+                  <View style={styles.formSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionIcon}>📅</Text>
+                      <Text style={styles.sectionLabel}>Dates importantes</Text>
+                    </View>
+                    <View style={styles.sectionDivider} />
+                    
+                    <View style={styles.dateFieldContainer}>
+                      <View style={styles.dateFieldHeader}>
+                        <Text style={styles.dateFieldIcon}>📆</Text>
+                        <Text style={styles.dateFieldLabel}>Date de création *</Text>
                       </View>
+                      <TouchableOpacity 
+                        style={styles.datePickerButton}
+                        onPress={() => openCalendarModal('date_creation')}
+                      >
+                        <Text style={styles.datePickerText}>
+                          {lotForm.date_creation ? 
+                            formatForCalendar(lotForm.date_creation) : 
+                            '📅 Sélectionner une date'
+                          }
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
 
-                      {/* Estimated Hatching Date Display */}
-                      {lotForm.estimated_hatching_date && (
-                        <View style={styles.estimatedDateContainer}>
-                          <Text style={styles.estimatedDateTitle}>📅 Date estimée d'éclosion/naissance:</Text>
-                          <Text style={styles.estimatedDateValue}>
-                            {formatForCalendar(lotForm.estimated_hatching_date)}
-                          </Text>
-                          {lotForm.estimated_min_date && lotForm.estimated_max_date && (
-                            <Text style={styles.estimatedDateRange}>
-                              (Entre {formatForCalendar(lotForm.estimated_min_date)} et {formatForCalendar(lotForm.estimated_max_date)})
+                    {/* Incubation Start Date */}
+                    {lotForm.species && (
+                      <>
+                        <View style={styles.dateFieldContainer}>
+                          <View style={styles.dateFieldHeader}>
+                            <Text style={styles.dateFieldIcon}>🥚</Text>
+                            <Text style={styles.dateFieldLabel}>
+                              Date de mise en {getIncubationTerm(lotForm.species)} *
                             </Text>
-                          )}
-                        </View>
-                      )}
-
-                      {/* Actual Hatching/Birth Date */}
-                      <View style={styles.dateFieldContainer}>
-                        <Text style={styles.dateFieldLabel}>Date d'éclosion/naissance (réelle ou estimée)</Text>
-                        <TouchableOpacity 
-                          style={styles.datePickerButton}
-                          onPress={() => openCalendarModal('date_eclosion')}
-                        >
-                          <Text style={styles.datePickerText}>
-                            {lotForm.date_eclosion ? 
-                              formatForCalendar(lotForm.date_eclosion) : 
-                              lotForm.estimated_hatching_date ?
-                                `📅 ${formatForCalendar(lotForm.estimated_hatching_date)} (estimée)` :
+                          </View>
+                          <TouchableOpacity 
+                            style={styles.datePickerButton}
+                            onPress={() => openCalendarModal('incubation_start_date')}
+                          >
+                            <Text style={styles.datePickerText}>
+                              {lotForm.incubation_start_date ? 
+                                formatForCalendar(lotForm.incubation_start_date) : 
                                 '📅 Sélectionner une date'
-                            }
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
+                              }
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
 
-                      {/* Fertilization Check Date */}
-                      <View style={styles.dateFieldContainer}>
-                        <Text style={styles.dateFieldLabel}>Date de contrôle de fécondité</Text>
-                        <TouchableOpacity 
-                          style={styles.datePickerButton}
-                          onPress={() => openCalendarModal('fertilization_check_date')}
-                        >
-                          <Text style={styles.datePickerText}>
-                            {lotForm.fertilization_check_date ? 
-                              formatForCalendar(lotForm.fertilization_check_date) : 
-                              '📅 Sélectionner une date'
-                            }
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
+                        {/* Estimated Dates Display - Always show if incubation date is set */}
+                        {lotForm.incubation_start_date && (
+                          <View style={styles.estimatedDateCard}>
+                            <View style={styles.estimatedDateHeader}>
+                              <Text style={styles.estimatedDateIcon}>✨</Text>
+                              <Text style={styles.estimatedDateTitle}>
+                                Dates estimées de {getHatchingTerm(lotForm.species)}
+                              </Text>
+                            </View>
+                            {lotForm.estimated_hatching_date ? (
+                              <>
+                                <View style={styles.estimatedDateMain}>
+                                  <Text style={styles.estimatedDateValue}>
+                                    {formatForCalendar(lotForm.estimated_hatching_date)}
+                                  </Text>
+                                  <Text style={styles.estimatedDateLabel}>Date principale</Text>
+                                </View>
+                                {lotForm.estimated_min_date && lotForm.estimated_max_date && (
+                                  <View style={styles.estimatedDateRangeContainer}>
+                                    <Text style={styles.estimatedDateRangeLabel}>Plage estimée:</Text>
+                                    <Text style={styles.estimatedDateRangeText}>
+                                      {formatForCalendar(lotForm.estimated_min_date)} - {formatForCalendar(lotForm.estimated_max_date)}
+                                    </Text>
+                                  </View>
+                                )}
+                              </>
+                            ) : (
+                              <Text style={styles.estimatedDatePlaceholder}>
+                                Sélectionnez une race pour calculer les dates estimées
+                              </Text>
+                            )}
+                          </View>
+                        )}
 
-                      {/* Incubation Statistics - Initial Setup */}
-                      <Text style={styles.sectionTitle}>🥚 Données d'incubation:</Text>
+                        {/* Actual Hatching/Birth Date */}
+                        <View style={styles.dateFieldContainer}>
+                          <View style={styles.dateFieldHeader}>
+                            <Text style={styles.dateFieldIcon}>🐣</Text>
+                            <Text style={styles.dateFieldLabel}>
+                              Date de {getHatchingTerm(lotForm.species)} (réelle ou estimée)
+                            </Text>
+                          </View>
+                          <TouchableOpacity 
+                            style={styles.datePickerButton}
+                            onPress={() => openCalendarModal('date_eclosion')}
+                          >
+                            <Text style={styles.datePickerText}>
+                              {lotForm.date_eclosion ? 
+                                formatForCalendar(lotForm.date_eclosion) : 
+                                lotForm.estimated_hatching_date ?
+                                  `📅 ${formatForCalendar(lotForm.estimated_hatching_date)} (estimée)` :
+                                  '📅 Sélectionner une date'
+                              }
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Fertilization Check Date - Only for volailles */}
+                        {isVolailles(lotForm.species) && (
+                          <View style={styles.dateFieldContainer}>
+                            <View style={styles.dateFieldHeader}>
+                              <Text style={styles.dateFieldIcon}>🔍</Text>
+                              <Text style={styles.dateFieldLabel}>Date de contrôle de fécondité</Text>
+                            </View>
+                            <TouchableOpacity 
+                              style={styles.datePickerButton}
+                              onPress={() => openCalendarModal('fertilization_check_date')}
+                            >
+                              <Text style={styles.datePickerText}>
+                                {lotForm.fertilization_check_date ? 
+                                  formatForCalendar(lotForm.fertilization_check_date) : 
+                                  '📅 Sélectionner une date'
+                                }
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </View>
+
+                  {/* Incubation Statistics Section - Only for volailles */}
+                  {lotForm.species && isVolailles(lotForm.species) && (
+                    <View style={styles.formSection}>
+                      <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionIcon}>🥚</Text>
+                        <Text style={styles.sectionLabel}>Données d'incubation</Text>
+                      </View>
+                      <View style={styles.sectionDivider} />
                       
                       {/* Race Selection (for poultry) - integrated into incubation section */}
                       {['poussins', 'cailles', 'canards', 'oies', 'dindes'].includes(lotForm.species) && (
@@ -2609,23 +2691,30 @@ export default function ElevageScreen({ navigation, route }) {
                       )}
 
                       <Text style={styles.infoText}>
-                        💡 Vous pourrez mettre à jour les données de fécondation et d'éclosion plus tard via le bouton "Mettre à jour" sur le lot.
+                        💡 Vous pourrez mettre à jour les données de fécondation et de {getHatchingTerm(lotForm.species)} plus tard via le bouton "Mettre à jour" sur le lot.
                         {(!lotForm.hatched_count || lotForm.hatched_count === '' || parseInt(lotForm.hatched_count) === 0) && 
                           ' Si vous remplissez le taux de réussite estimé, les quantités initiales seront calculées automatiquement.'}
                       </Text>
-                    </>
+                    </View>
                   )}
 
-
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="Notes"
-                    placeholderTextColor="#999"
-                    value={lotForm.notes}
-                    onChangeText={(text) => setLotForm({...lotForm, notes: text})}
-                    multiline={true}
-                    numberOfLines={3}
-                  />
+                  {/* Notes Section */}
+                  <View style={styles.formSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionIcon}>📝</Text>
+                      <Text style={styles.sectionLabel}>Notes</Text>
+                    </View>
+                    <View style={styles.sectionDivider} />
+                    <TextInput
+                      style={[styles.input, styles.textArea]}
+                      placeholder="Ajouter des notes..."
+                      placeholderTextColor="#999"
+                      value={lotForm.notes}
+                      onChangeText={(text) => setLotForm({...lotForm, notes: text})}
+                      multiline={true}
+                      numberOfLines={3}
+                    />
+                  </View>
                 </>
               )}
 
@@ -2644,7 +2733,7 @@ export default function ElevageScreen({ navigation, route }) {
                   />
 
                   <View style={styles.typeSelector}>
-                    {['poules', 'canards', 'oie', 'lapin', 'chèvre'].map((type) => (
+                    {getRaceTypes().map((type) => (
                       <TouchableOpacity
                         key={type}
                         style={[
@@ -2678,12 +2767,14 @@ export default function ElevageScreen({ navigation, route }) {
               {modalType === 'incubationUpdate' && (
                 <>
                   <Text style={styles.modalTitle}>
-                    Mise à jour d'incubation: {editingItem?.name}
+                    Mise à jour de {getIncubationTerm(editingItem?.species || lotForm.species)}: {editingItem?.name}
                   </Text>
 
                   {/* Incubation Timeline */}
                   <View style={styles.timelineContainer}>
-                    <Text style={styles.timelineTitle}>📋 Chronologie d'incubation</Text>
+                    <Text style={styles.timelineTitle}>
+                      📋 Chronologie de {getIncubationTerm(editingItem?.species || lotForm.species)}
+                    </Text>
                     
                     {/* Stage 1: Incubation Start */}
                     <View style={styles.timelineStep}>
@@ -2691,28 +2782,31 @@ export default function ElevageScreen({ navigation, route }) {
                         <Text style={styles.timelineDotText}>1</Text>
                       </View>
                       <View style={styles.timelineContent}>
-                        <Text style={styles.timelineStepTitle}>Début d'incubation</Text>
+                        <Text style={styles.timelineStepTitle}>
+                          Début de {getIncubationTerm(editingItem?.species || lotForm.species)}
+                        </Text>
                         <Text style={styles.timelineStepDate}>
                           {formatForCalendar(editingItem?.incubation_start_date || lotForm.incubation_start_date)}
                         </Text>
                         <Text style={styles.timelineStepDetail}>
-                          {editingItem?.eggs_count || lotForm.eggs_count} œufs mis en incubation
+                          {editingItem?.eggs_count || lotForm.eggs_count} {isLapins(editingItem?.species || lotForm.species) ? 'portées' : 'œufs'} mis en {getIncubationTerm(editingItem?.species || lotForm.species)}
                         </Text>
                       </View>
                     </View>
 
-                    {/* Stage 2: Fertilization Check */}
-                    <View style={styles.timelineStep}>
-                      <View style={[
-                        styles.timelineDot, 
-                        (lotForm.fertilization_check_date || editingItem?.fertilization_check_date) ? styles.timelineDotCompleted : styles.timelineDotPending
-                      ]}>
-                        <Text style={styles.timelineDotText}>2</Text>
-                      </View>
-                      <View style={styles.timelineContent}>
-                        <Text style={styles.timelineStepTitle}>
-                          Contrôle de fécondité {(lotForm.fertilization_check_date || editingItem?.fertilization_check_date) ? '(Terminé)' : '(En attente)'}
-                        </Text>
+                    {/* Stage 2: Fertilization Check - Only for volailles */}
+                    {isVolailles(editingItem?.species || lotForm.species) && (
+                      <View style={styles.timelineStep}>
+                        <View style={[
+                          styles.timelineDot, 
+                          (lotForm.fertilization_check_date || editingItem?.fertilization_check_date) ? styles.timelineDotCompleted : styles.timelineDotPending
+                        ]}>
+                          <Text style={styles.timelineDotText}>2</Text>
+                        </View>
+                        <View style={styles.timelineContent}>
+                          <Text style={styles.timelineStepTitle}>
+                            Contrôle de fécondité {(lotForm.fertilization_check_date || editingItem?.fertilization_check_date) ? '(Terminé)' : '(En attente)'}
+                          </Text>
                         {lotForm.fertilization_check_date || editingItem?.fertilization_check_date ? (
                           <>
                             <Text style={styles.timelineStepDate}>
@@ -2766,7 +2860,9 @@ export default function ElevageScreen({ navigation, route }) {
                               ) : (
                                 <View style={styles.fertilizationInputRow}>
                                   <View style={styles.fertilizationInputContainer}>
-                                    <Text style={styles.inputLabel}>Nombre d'œufs fécondés:</Text>
+                                    <Text style={styles.inputLabel}>
+                                    Nombre d'œufs fécondés:
+                                  </Text>
                                     <TextInput
                                       style={[
                                         styles.numberInput,
@@ -2893,7 +2989,9 @@ export default function ElevageScreen({ navigation, route }) {
                                 ) : (
                                   <View style={styles.fertilizationInputRow}>
                                     <View style={styles.fertilizationInputContainer}>
-                                      <Text style={styles.inputLabel}>Nombre d'œufs fécondés:</Text>
+                                      <Text style={styles.inputLabel}>
+                                    Nombre d'œufs fécondés:
+                                  </Text>
                                       <TextInput
                                         style={[
                                           styles.numberInput,
@@ -2961,18 +3059,21 @@ export default function ElevageScreen({ navigation, route }) {
                         )}
                       </View>
                     </View>
+                    )}
 
-                    {/* Stage 3: Hatching */}
+                    {/* Stage 3: Hatching/Birth */}
                     <View style={styles.timelineStep}>
                       <View style={[
                         styles.timelineDot, 
                         (lotForm.hatched_count || editingItem?.hatched_count) ? styles.timelineDotCompleted : styles.timelineDotPending
                       ]}>
-                        <Text style={styles.timelineDotText}>3</Text>
+                        <Text style={styles.timelineDotText}>
+                          {isVolailles(editingItem?.species || lotForm.species) ? '3' : '2'}
+                        </Text>
                       </View>
                       <View style={styles.timelineContent}>
                         <Text style={styles.timelineStepTitle}>
-                          Éclosion {(lotForm.hatched_count || editingItem?.hatched_count) ? '(Terminé)' : '(En attente)'}
+                          {getHatchingTerm(editingItem?.species || lotForm.species).charAt(0).toUpperCase() + getHatchingTerm(editingItem?.species || lotForm.species).slice(1)} {(lotForm.hatched_count || editingItem?.hatched_count) ? '(Terminé)' : '(En attente)'}
                         </Text>
                         {lotForm.hatched_count || editingItem?.hatched_count ? (
                           <>
@@ -2983,13 +3084,17 @@ export default function ElevageScreen({ navigation, route }) {
                               style={[styles.suggestionButton, { backgroundColor: '#9E9E9E', marginBottom: 8 }]}
                               onPress={() => openCalendarModal('date_eclosion')}
                             >
-                              <Text style={styles.suggestionButtonText}>📅 Modifier la date d'éclosion</Text>
+                              <Text style={styles.suggestionButtonText}>
+                                📅 Modifier la date de {getHatchingTerm(editingItem?.species || lotForm.species)}
+                              </Text>
                             </TouchableOpacity>
                             <View style={styles.hatchingInputContainer}>
                               {/* Per-race inputs if races exist, otherwise single input */}
                               {editingItem?.races && Object.keys(editingItem.races).length > 0 ? (
                                 <>
-                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>Nombre éclos/nés par race:</Text>
+                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>
+                                    Nombre {getHatchingTerm(editingItem?.species || lotForm.species)}s par race:
+                                  </Text>
                                   {Object.keys(editingItem.races).map((raceName) => {
                                     const fertilizedForRace = parseInt(lotForm.fertilized_by_race?.[raceName] || editingItem?.fertilized_by_race?.[raceName] || 0);
                                     const isDisabled = !(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) && !(editingItem?.fertilized_count && editingItem.fertilized_count > 0);
@@ -3012,13 +3117,17 @@ export default function ElevageScreen({ navigation, route }) {
                                     );
                                   })}
                                   <View style={styles.totalEggsDisplay}>
-                                    <Text style={styles.totalEggsLabel}>Total éclos/nés:</Text>
+                                    <Text style={styles.totalEggsLabel}>
+                                      Total {getHatchingTerm(editingItem?.species || lotForm.species)}s:
+                                    </Text>
                                     <Text style={styles.totalEggsValue}>{lotForm.hatched_count || 0}</Text>
                                   </View>
                                 </>
                               ) : (
                                 <>
-                                  <Text style={styles.inputLabel}>Nombre éclos/nés:</Text>
+                                  <Text style={styles.inputLabel}>
+                                    Nombre {getHatchingTerm(editingItem?.species || lotForm.species)}s:
+                                  </Text>
                                   <TextInput
                                     style={[
                                       styles.numberInput,
@@ -3044,7 +3153,7 @@ export default function ElevageScreen({ navigation, route }) {
                                         // Show alert warning
                                         Alert.alert(
                                           'Valeur invalide',
-                                          `Impossible: ${hatchedNum} éclos dépasse le nombre de ${fertilized} fécondés. La valeur sera limitée à ${fertilized}.`,
+                                          `Impossible: ${hatchedNum} ${getHatchingTerm(editingItem?.species || lotForm.species)}s dépasse le nombre de ${fertilized} fécondés. La valeur sera limitée à ${fertilized}.`,
                                           [{ text: 'OK' }]
                                         );
                                         // Cap at maximum
@@ -3082,7 +3191,9 @@ export default function ElevageScreen({ navigation, route }) {
                               {/* Per-race inputs if races exist, otherwise single input */}
                               {editingItem?.races && Object.keys(editingItem.races).length > 0 ? (
                                 <>
-                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>Nombre éclos/nés par race:</Text>
+                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>
+                                    Nombre {getHatchingTerm(editingItem?.species || lotForm.species)}s par race:
+                                  </Text>
                                   {Object.keys(editingItem.races).map((raceName) => {
                                     const fertilizedForRace = parseInt(lotForm.fertilized_by_race?.[raceName] || editingItem?.fertilized_by_race?.[raceName] || 0);
                                     const isDisabled = !(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) && !(editingItem?.fertilized_count && editingItem.fertilized_count > 0);
@@ -3105,13 +3216,17 @@ export default function ElevageScreen({ navigation, route }) {
                                     );
                                   })}
                                   <View style={styles.totalEggsDisplay}>
-                                    <Text style={styles.totalEggsLabel}>Total éclos/nés:</Text>
+                                    <Text style={styles.totalEggsLabel}>
+                                      Total {getHatchingTerm(editingItem?.species || lotForm.species)}s:
+                                    </Text>
                                     <Text style={styles.totalEggsValue}>{lotForm.hatched_count || 0}</Text>
                                   </View>
                                 </>
                               ) : (
                                 <>
-                                  <Text style={styles.inputLabel}>Nombre éclos/nés:</Text>
+                                  <Text style={styles.inputLabel}>
+                                    Nombre {getHatchingTerm(editingItem?.species || lotForm.species)}s:
+                                  </Text>
                                   <TextInput
                                     style={[
                                       styles.numberInput,
@@ -3137,7 +3252,7 @@ export default function ElevageScreen({ navigation, route }) {
                                         // Show alert warning
                                         Alert.alert(
                                           'Valeur invalide',
-                                          `Impossible: ${hatchedNum} éclos dépasse le nombre de ${fertilized} fécondés. La valeur sera limitée à ${fertilized}.`,
+                                          `Impossible: ${hatchedNum} ${getHatchingTerm(editingItem?.species || lotForm.species)}s dépasse le nombre de ${fertilized} fécondés. La valeur sera limitée à ${fertilized}.`,
                                           [{ text: 'OK' }]
                                         );
                                         // Cap at maximum
@@ -3161,7 +3276,7 @@ export default function ElevageScreen({ navigation, route }) {
                               )}
                             </View>
                             <Text style={styles.infoText}>
-                              💡 Le nombre éclos sera utilisé comme quantité initiale pour les races.
+                              💡 Le nombre {getHatchingTerm(editingItem?.species || lotForm.species)}s sera utilisé comme quantité initiale pour les races.
                             </Text>
                           </>
                         )}
@@ -3470,8 +3585,8 @@ export default function ElevageScreen({ navigation, route }) {
               <View style={styles.calendarHeader}>
                 <Text style={styles.calendarTitle}>
                 {calendarField === 'date_creation' ? 'Date de création' : 
-                 calendarField === 'date_eclosion' ? 'Date d\'éclosion/naissance' :
-                 calendarField === 'incubation_start_date' ? 'Date de mise en incubation/gestation' :
+                 calendarField === 'date_eclosion' ? `Date de ${getHatchingTerm(lotForm.species || currentAnimalType)}` :
+                 calendarField === 'incubation_start_date' ? `Date de mise en ${getIncubationTerm(lotForm.species || currentAnimalType)}` :
                  calendarField === 'fertilization_check_date' ? 'Date de contrôle de fécondité' :
                  'Sélectionner une date'}
                 </Text>
@@ -3523,7 +3638,7 @@ export default function ElevageScreen({ navigation, route }) {
         {/* Floating Add Button */}
         {(activeTab === 'lots' || activeTab === 'races') && (
           <TouchableOpacity
-            style={styles.floatingAddButton}
+            style={[styles.floatingAddButton, { backgroundColor: getElevageConfig().color }]}
             onPress={() => {
               if (activeTab === 'lots') {
                 openAddLotModal();
@@ -3610,7 +3725,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#005F6B',
+    borderBottomColor: '#005F6B', // Will be dynamic based on config
   },
   tabText: {
     fontSize: 14,
@@ -3618,7 +3733,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   activeTabText: {
-    color: '#005F6B',
+    color: '#005F6B', // Will be dynamic based on config
   },
   content: {
     flex: 1,
@@ -4400,14 +4515,55 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
-  dateFieldContainer: {
+  formSection: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  sectionDivider: {
+    height: 2,
+    backgroundColor: '#005F6B',
+    borderRadius: 1,
     marginBottom: 15,
+    opacity: 0.3,
+  },
+  dateFieldContainer: {
+    marginBottom: 18,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8e8e8',
+  },
+  dateFieldHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  dateFieldIcon: {
+    fontSize: 18,
+    marginRight: 8,
   },
   dateFieldLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
+    flex: 1,
   },
   datePickerButton: {
     backgroundColor: '#f8f9fa',
@@ -4826,22 +4982,80 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: '#005F6B',
   },
+  estimatedDateCard: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    marginTop: 8,
+    borderWidth: 2,
+    borderColor: '#2196F3',
+    borderStyle: 'dashed',
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  estimatedDateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  estimatedDateIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
   estimatedDateTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#005F6B',
-    marginBottom: 5,
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1976D2',
+  },
+  estimatedDateMain: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#90CAF9',
   },
   estimatedDateValue: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 3,
+    color: '#1976D2',
+    marginBottom: 4,
   },
-  estimatedDateRange: {
+  estimatedDateLabel: {
     fontSize: 11,
     color: '#666',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  estimatedDateRangeContainer: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF9800',
+  },
+  estimatedDateRangeLabel: {
+    fontSize: 11,
+    color: '#666',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  estimatedDateRangeText: {
+    fontSize: 13,
+    color: '#FF9800',
+    fontWeight: '600',
+  },
+  estimatedDatePlaceholder: {
+    fontSize: 13,
+    color: '#999',
     fontStyle: 'italic',
+    textAlign: 'center',
+    padding: 8,
   },
   noRacesText: {
     fontSize: 12,

@@ -63,7 +63,7 @@ export default function DashboardScreen({ navigation }) {
         database.getProducts(),
         database.getOrders(),
         database.getEvents(),
-        database.getLots(),
+        database.getLots(), // Get all lots from all animal types (no filter)
         database.getHistorique(),
         database.getAllPricingGrids()
       ]);
@@ -72,7 +72,12 @@ export default function DashboardScreen({ navigation }) {
         products: products.length,
         orders: orders.length,
         events: events.length,
-        lots: lots.length
+        lots: lots.length,
+        lotsBySpecies: lots.reduce((acc, lot) => {
+          const species = lot.species || 'unknown';
+          acc[species] = (acc[species] || 0) + 1;
+          return acc;
+        }, {})
       });
 
       const pendingOrders = orders.filter(order => order.status === 'En attente');
@@ -106,6 +111,11 @@ export default function DashboardScreen({ navigation }) {
       setRecentActivity(activity);
 
       // Store lots and pricing grids for search
+      console.log('📦 Dashboard: Setting lots for search -', {
+        totalLots: lots.length,
+        lotsWithRaces: lots.filter(l => l.races && Object.keys(l.races).length > 0).length,
+        activeLots: lots.filter(l => l.status === 'Actif').length
+      });
       setAllLots(lots);
       setPricingGrids(pricingGrids);
     } catch (error) {
@@ -360,14 +370,36 @@ export default function DashboardScreen({ navigation }) {
   };
 
   // Handle race search input with autocomplete
-  const handleRaceSearch = (text) => {
+  const handleRaceSearch = async (text) => {
     setRaceSearch(text);
     if (text.length > 0) {
       const allRaces = getAllRaceNames(allLots);
-      const suggestions = allRaces.filter(race => 
-        race.toLowerCase().includes(text.toLowerCase())
+      const textLower = text.toLowerCase();
+      const raceSuggestions = allRaces.filter(race => 
+        race.toLowerCase().includes(textLower)
       );
-      setRaceSuggestions(suggestions.slice(0, 5));
+      
+      // Also get animal type suggestions
+      const animalTypeSuggestions = [];
+      try {
+        const animalTypes = await database.getAnimalTypes();
+        animalTypes.forEach(type => {
+          const config = database.getElevageConfig(type);
+          const typeName = config ? config.name : type;
+          const typeLabel = config ? config.animalLabel : type;
+          if (typeName.toLowerCase().includes(textLower) || 
+              typeLabel.toLowerCase().includes(textLower) ||
+              type.toLowerCase().includes(textLower)) {
+            animalTypeSuggestions.push(typeName);
+          }
+        });
+      } catch (e) {
+        console.error('Error getting animal types for suggestions:', e);
+      }
+      
+      // Combine and limit suggestions (races first, then animal types)
+      const allSuggestions = [...new Set([...raceSuggestions, ...animalTypeSuggestions])];
+      setRaceSuggestions(allSuggestions.slice(0, 5));
     } else {
       setRaceSuggestions([]);
     }
@@ -466,27 +498,58 @@ export default function DashboardScreen({ navigation }) {
 
   // Perform search
   const performSearch = (raceQuery, ageQuery) => {
-    if (!raceQuery || raceQuery.trim() === '') {
-      setSearchResults([]);
-      return;
-    }
+    try {
+      if (!raceQuery || raceQuery.trim() === '') {
+        setSearchResults([]);
+        return;
+      }
 
-    const parsedAge = parseAgeInput(ageQuery);
-    const pricingGrid = pricingGrids?.poussins || [];
-    const today = new Date();
-    const results = [];
+      const parsedAge = parseAgeInput(ageQuery);
+      const today = new Date();
+      const results = [];
 
-    allLots.forEach(lot => {
-      if (!lot.races || lot.status !== 'Actif') return;
+      console.log('🔍 Performing search for:', raceQuery, 'in', allLots.length, 'lots');
+      
+      if (allLots.length === 0) {
+        console.warn('⚠️ No lots available for search!');
+        setSearchResults([]);
+        return;
+      }
+
+      allLots.forEach(lot => {
+        try {
+          // Include all active lots, regardless of species
+          if (!lot.races || lot.status !== 'Actif') {
+            return;
+          }
 
       const referenceDate = lot.date_eclosion || lot.date_creation;
       if (!referenceDate) return;
 
+      // Get pricing grid for this lot's animal type
+      const animalType = lot.species || 'poussins';
+      const pricingGrid = pricingGrids?.[animalType] || [];
+      
+      // Get animal type config to check if animal type matches search
+      const animalConfig = database.getElevageConfig(animalType);
+      const animalTypeName = animalConfig ? animalConfig.name : animalType;
+      const animalTypeLabel = animalConfig ? animalConfig.animalLabel : animalType;
+      
+      // Check if animal type matches search query (e.g., "caill" matches "cailles")
+      const queryLower = raceQuery.toLowerCase();
+      const animalTypeMatches = 
+        animalType.toLowerCase().includes(queryLower) ||
+        animalTypeName.toLowerCase().includes(queryLower) ||
+        animalTypeLabel.toLowerCase().includes(queryLower);
+
+      // If animal type matches, include all races from this lot
+      // Otherwise, only include races that match the query
       Object.entries(lot.races).forEach(([raceName, raceInfo]) => {
         if (!raceInfo) return;
 
-        // Check if race matches search
-        if (!raceName.toLowerCase().includes(raceQuery.toLowerCase())) return;
+        // Check if race matches search OR if animal type matches search
+        const raceMatches = raceName.toLowerCase().includes(queryLower);
+        if (!raceMatches && !animalTypeMatches) return;
 
         const males = raceInfo.males || 0;
         const females = raceInfo.females || 0;
@@ -573,9 +636,16 @@ export default function DashboardScreen({ navigation }) {
           }
         }
 
+        // Note: animalConfig already retrieved above
+
         results.push({
           lotName: lot.name || `Lot ${lot.id}`,
           race: raceName,
+          animalType: animalType,
+          animalTypeName: animalTypeName,
+          animalTypeIcon: animalConfig ? animalConfig.icon : '🐾',
+          // Add match type for highlighting
+          matchType: raceMatches ? 'race' : 'animalType',
           males: males,
           females: females,
           total: total,
@@ -601,15 +671,23 @@ export default function DashboardScreen({ navigation }) {
           estimated_success_rate: lot.estimated_success_rate
         });
       });
-    });
+        } catch (lotError) {
+          console.error('Error processing lot in search:', lotError, lot);
+        }
+      });
 
-    setSearchResults(results);
+      console.log('✅ Search completed, found', results.length, 'results');
+      setSearchResults(results);
+    } catch (error) {
+      console.error('❌ Error in performSearch:', error);
+      Alert.alert('Erreur de recherche', 'Une erreur est survenue lors de la recherche. Veuillez réessayer.');
+      setSearchResults([]);
+    }
   };
 
   const calculateTopChickenRaces = (lots, pricingGrids) => {
     const lotRaceData = [];
     const today = new Date();
-    const pricingGrid = pricingGrids?.poussins || [];
 
     // Helper to calculate age in days
     const calculateAgeInDays = (dateString) => {
@@ -628,8 +706,9 @@ export default function DashboardScreen({ navigation }) {
       return diffDays / 30.44; // Average days per month
     };
 
-    // Helper to find price
-    const findPrice = (ageMonths, sex) => {
+    // Helper to find price for a specific animal type
+    const findPriceForAnimalType = (ageMonths, sex, animalType) => {
+      const pricingGrid = pricingGrids?.[animalType] || [];
       const totalAgeInMonths = ageMonths;
       let bestMatch = null;
       let bestAgeDifference = Infinity;
@@ -658,6 +737,8 @@ export default function DashboardScreen({ navigation }) {
       const referenceDate = lot.date_eclosion || lot.date_creation;
       const ageInDays = calculateAgeInDays(referenceDate);
       const ageInMonths = calculateAgeInMonths(referenceDate);
+      const animalType = lot.species || 'poussins';
+      const animalConfig = database.getElevageConfig(animalType);
 
       Object.entries(lot.races).forEach(([raceName, raceInfo]) => {
         if (!raceInfo) return;
@@ -670,12 +751,15 @@ export default function DashboardScreen({ navigation }) {
           lotRaceData.push({
             lotName: lot.name || `Lot ${lot.id}`,
             race: raceName,
+            animalType: animalType,
+            animalTypeName: animalConfig ? animalConfig.name : animalType,
+            animalTypeIcon: animalConfig ? animalConfig.icon : '🐾',
             males: males,
             females: females,
             total: total,
             ageInDays: ageInDays,
-            malePrice: findPrice(ageInMonths, 'male'),
-            femalePrice: findPrice(ageInMonths, 'female')
+            malePrice: findPriceForAnimalType(ageInMonths, 'male', animalType),
+            femalePrice: findPriceForAnimalType(ageInMonths, 'female', animalType)
           });
         }
       });
@@ -687,7 +771,7 @@ export default function DashboardScreen({ navigation }) {
       .slice(0, 4);
   };
 
-  const handleEventPress = (event) => {
+  const handleEventPress = async (event) => {
     // Check if this is an order-related event (Récupération)
     if (event.type === 'Récupération' && event.order_id) {
       // Navigate to BookingSystemScreen with order highlight
@@ -701,14 +785,129 @@ export default function DashboardScreen({ navigation }) {
     }
     
     // Check if this is a lot-related event (Éclosion, Reproduction with lot_id)
-    if ((event.type === 'Reproduction' || event.title?.includes('Éclosion')) && event.lot_id) {
-      // Find the lot to get its name
-      const lot = allLots.find(l => l.id === event.lot_id);
+    if ((event.type === 'Reproduction' || event.title?.includes('Éclosion') || event.title?.includes('Éclosion estimée') || event.title?.includes('Éclosion réelle')) && event.lot_id) {
+      console.log('🔍 Looking for lot with ID:', event.lot_id, 'in', allLots.length, 'lots');
+      console.log('📋 Event details:', { title: event.title, lot_id: event.lot_id, type: event.type });
+      
+      // Find the lot to get its name and animal type - handle both string and number IDs
+      const eventLotId = event.lot_id;
+      let lot = allLots.find(l => {
+        const lotId = l.id;
+        // Compare as both string and number to handle type mismatches
+        return lotId == eventLotId || String(lotId) === String(eventLotId) || Number(lotId) === Number(eventLotId);
+      });
+      
+      // If lot not found in current allLots, reload from database
+      if (!lot) {
+        console.log('⚠️ Lot not found in allLots, reloading from database...');
+        console.log('📊 Current allLots IDs:', allLots.map(l => ({ id: l.id, name: l.name, species: l.species })));
+        try {
+          const allLotsFromDB = await database.getLots(); // Get all lots without filter
+          console.log('📦 Loaded', allLotsFromDB.length, 'lots from database');
+          console.log('📊 Database lots IDs:', allLotsFromDB.map(l => ({ id: l.id, name: l.name, species: l.species })));
+          
+          lot = allLotsFromDB.find(l => {
+            const lotId = l.id;
+            return lotId == eventLotId || String(lotId) === String(eventLotId) || Number(lotId) === Number(eventLotId);
+          });
+          
+          // If still not found by ID, try to find by name from event title
+          // Event title format: "Éclosion: 2" or "Éclosion estimée: lot name" or "Éclosion réelle: lot name"
+          if (!lot && event.title) {
+            const titleMatch = event.title.match(/Éclosion[^:]*:\s*(.+)/);
+            if (titleMatch) {
+              const lotNameFromTitle = titleMatch[1].trim();
+              console.log('🔍 Trying to find lot by name from title:', lotNameFromTitle);
+              lot = allLotsFromDB.find(l => l.name === lotNameFromTitle || l.name === lotNameFromTitle.toString());
+              
+              if (lot) {
+                console.log('✅ Found lot by name:', lot.name, 'species:', lot.species, 'id:', lot.id);
+              } else {
+                // Try partial match
+                lot = allLotsFromDB.find(l => 
+                  l.name && (
+                    l.name.includes(lotNameFromTitle) || 
+                    lotNameFromTitle.includes(l.name) ||
+                    String(l.name) === String(lotNameFromTitle)
+                  )
+                );
+                if (lot) {
+                  console.log('✅ Found lot by partial name match:', lot.name, 'species:', lot.species, 'id:', lot.id);
+                }
+              }
+            }
+          }
+          
+          if (lot) {
+            console.log('✅ Found lot in database:', lot.name, 'species:', lot.species);
+            // Update allLots state for future searches
+            setAllLots(allLotsFromDB);
+          } else {
+            console.error('❌ Lot still not found after database reload. Event lot_id:', eventLotId);
+            console.error('📋 Available lot IDs:', allLotsFromDB.map(l => l.id));
+            console.error('📋 Available lot names:', allLotsFromDB.map(l => l.name));
+            
+            // If we can't find the lot, navigate to the appropriate animal type screen anyway
+            // Try to determine animal type from event notes or default to poussins
+            const animalType = event.notes?.toLowerCase().includes('cailles') ? 'cailles' : 
+                              event.notes?.toLowerCase().includes('canards') ? 'canards' :
+                              event.notes?.toLowerCase().includes('oies') ? 'oies' :
+                              event.notes?.toLowerCase().includes('dindes') ? 'dindes' :
+                              event.notes?.toLowerCase().includes('lapins') ? 'lapins' : 'poussins';
+            
+            console.log('⚠️ Navigating to animal type screen without lot highlight:', animalType);
+            if (navigation && navigation.navigate) {
+              navigation.navigate('Gestion', { 
+                screen: 'ElevageScreen',
+                params: {
+                  animalType: animalType,
+                  initialTab: 'lots'
+                }
+              });
+              Alert.alert(
+                'Information', 
+                `Le lot référencé par cet événement n'existe plus.\n\nVous avez été redirigé vers la page ${animalType}.`
+              );
+            }
+            return;
+          }
+        } catch (error) {
+          console.error('Error loading lot from database:', error);
+        }
+      } else {
+        console.log('✅ Found lot in allLots:', lot.name, 'species:', lot.species);
+      }
+      
       if (lot && navigation && navigation.navigate) {
+        // Determine animal type from lot species
+        const animalType = lot.species || 'poussins';
+        console.log('📍 Navigating to ElevageScreen for lot:', lot.name, 'animalType:', animalType, 'lot_id:', lot.id);
         navigation.navigate('Gestion', { 
-          highlightLotId: event.lot_id,
-          highlightLotName: lot.name
+          screen: 'ElevageScreen',
+          params: {
+            animalType: animalType,
+            highlightLotId: lot.id, // Use lot.id instead of event.lot_id to ensure correct type
+            highlightLotName: lot.name,
+            initialTab: 'lots'
+          }
         });
+      } else if (!lot) {
+        console.error('❌ Lot not found for event:', event);
+        console.error('📋 Event lot_id:', event.lot_id, 'Type:', typeof event.lot_id);
+        // Final fallback - navigate to default animal type
+        if (navigation && navigation.navigate) {
+          navigation.navigate('Gestion', { 
+            screen: 'ElevageScreen',
+            params: {
+              animalType: 'poussins',
+              initialTab: 'lots'
+            }
+          });
+        }
+        Alert.alert(
+          'Information', 
+          `Le lot référencé par cet événement n'existe plus.\n\nID recherché: ${event.lot_id}\nTitre: ${event.title}\n\nVous avez été redirigé vers la page des poussins.`
+        );
       }
       return;
     }
@@ -1023,7 +1222,13 @@ export default function DashboardScreen({ navigation }) {
               <View key={index} style={[styles.resultCard, resultIsEstimated && styles.resultCardEstimated]}>
                 <View style={styles.resultHeader}>
                   <View style={styles.resultHeaderLeft}>
-                    <Text style={styles.resultRace}>{result.race}</Text>
+                    <View style={styles.resultRaceRow}>
+                      <Text style={styles.resultAnimalTypeIcon}>{result.animalTypeIcon || '🐾'}</Text>
+                      <Text style={styles.resultRace}>{result.race}</Text>
+                      {result.animalTypeName && (
+                        <Text style={styles.resultAnimalType}>({result.animalTypeName})</Text>
+                      )}
+                    </View>
                     <Text style={styles.resultLot}>{result.lotName}</Text>
                     {resultIsEstimated && (
                       <View style={styles.estimatedBadge}>
@@ -1567,12 +1772,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
   },
+  resultRaceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 4,
+  },
+  resultAnimalTypeIcon: {
+    fontSize: 16,
+    marginRight: 6,
+  },
   resultRace: {
     fontSize: 16,
     fontWeight: '700',
     color: '#1a1a1a',
-    marginBottom: 4,
-    marginRight: 8,
+    marginRight: 6,
+  },
+  resultAnimalType: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
   },
   resultLot: {
     fontSize: 12,

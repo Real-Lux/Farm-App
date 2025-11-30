@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text, StatusBar, Platform } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,7 +15,7 @@ import CheeseScreen from './src/screens/CheeseScreen';
 const Tab = createBottomTabNavigator();
 
 // Create a navigator component that handles both order screens
-function OrdersNavigator({ route }) {
+function OrdersNavigator({ route, navigation: tabNavigation }) {
   const [currentScreen, setCurrentScreen] = useState('BookingSystem');
   const [editingOrder, setEditingOrder] = useState(null);
   const [orders, setOrders] = useState([]);
@@ -58,12 +58,16 @@ function OrdersNavigator({ route }) {
       if (screenName === 'AddOrder') {
         navigateToAddOrder(params?.editingOrder);
       } else if (screenName === 'Gestion') {
-        navigateToProductManagement();
+        // Use the actual tab navigation to switch to Gestion tab
+        if (tabNavigation && tabNavigation.navigate) {
+          tabNavigation.navigate('Gestion', params || {});
+        }
       } else {
         navigateToBookingSystem();
       }
     },
-    goBack: navigateToBookingSystem
+    goBack: navigateToBookingSystem,
+    getParent: () => tabNavigation
   };
 
   if (currentScreen === 'AddOrder') {
@@ -257,7 +261,7 @@ function TabNavigatorWithSafeArea() {
             />
             <Tab.Screen 
               name="Commandes" 
-              component={OrdersNavigator}
+              component={({ navigation, route }) => <OrdersNavigator navigation={navigation} route={route} />}
               options={{
                 tabBarIcon: ({ color }) => (
                   <Text style={{ fontSize: 20, color }}>🛒</Text>
