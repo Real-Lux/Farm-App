@@ -1700,9 +1700,33 @@ class SimpleTestDatabaseService {
         },
         {
           id: 3,
+          title: 'Confirmation Commande',
+          category: 'Commande',
+          content: 'Bonjour {nom},\n\nNous vous confirmons votre commande du {date}.\n\nDétails de la commande :\n- Produit : {produit}\n- Quantité : {quantite}\n- Montant total : {prix}\n\nVotre commande sera prête pour le {date}.\n\nMerci de votre confiance !\n\nCordialement,\nL\'équipe de la ferme'
+        },
+        {
+          id: 4,
+          title: 'Commande Prête',
+          category: 'Commande',
+          content: 'Bonjour {nom},\n\nVotre commande est prête !\n\nVous pouvez venir récupérer votre commande dès maintenant.\n\nDétails :\n- Produit : {produit}\n- Quantité : {quantite}\n- Montant : {prix}\n\nAu plaisir de vous accueillir !\n\nCordialement,\nL\'équipe de la ferme'
+        },
+        {
+          id: 5,
+          title: 'Rappel Commande',
+          category: 'Commande',
+          content: 'Bonjour {nom},\n\nNous vous rappelons que votre commande du {date} est en préparation.\n\nDétails :\n- Produit : {produit}\n- Quantité : {quantite}\n- Montant : {prix}\n\nNous vous tiendrons informé dès qu\'elle sera prête.\n\nCordialement,\nL\'équipe de la ferme'
+        },
+        {
+          id: 6,
           title: 'Annulation Commande',
           category: 'Commande',
           content: 'Bonjour {nom},\n\nNous vous informons que votre commande du {date} a été annulée.\n\nN\'hésitez pas à nous recontacter pour toute question.\n\nCordialement,\nL\'équipe de la ferme'
+        },
+        {
+          id: 7,
+          title: 'Commande Livrée',
+          category: 'Commande',
+          content: 'Bonjour {nom},\n\nVotre commande a été livrée avec succès !\n\nDétails :\n- Produit : {produit}\n- Quantité : {quantite}\n- Montant : {prix}\n\nNous espérons que vous serez satisfait de votre achat.\n\nMerci de votre confiance !\n\nCordialement,\nL\'équipe de la ferme'
         }
       ]
     };

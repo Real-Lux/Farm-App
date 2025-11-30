@@ -41,6 +41,8 @@ export default function ElevageScreen({ navigation, route }) {
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
   const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
   const [isDraggingRace, setIsDraggingRace] = useState(false); // Track if any race is being dragged
+  const [dragInsertPosition, setDragInsertPosition] = useState(null); // Track where to insert dragged race
+  const [draggingItemIndex, setDraggingItemIndex] = useState(null); // Track which race is being dragged
   const [highlightedLotId, setHighlightedLotId] = useState(null);
   const [highlightedLotName, setHighlightedLotName] = useState(null);
   const [validationErrors, setValidationErrors] = useState({}); // Track validation errors for incubation update
@@ -1532,7 +1534,7 @@ export default function ElevageScreen({ navigation, route }) {
     );
   };
 
-  const RaceItem = ({ item, index, totalRaces, sortedRaces, setIsDraggingRace, flatListRef, scrollOffsetRef, dragInsertPosition, setDragInsertPosition, draggingItemIndex }) => {
+  const RaceItem = ({ item, index, totalRaces, sortedRaces, setIsDraggingRace, flatListRef, scrollOffsetRef, dragInsertPosition, setDragInsertPosition, draggingItemIndex, setDraggingItemIndex }) => {
     const lotsWithRace = getLotsByRace(item.name);
     const totalStock = lotsWithRace.reduce((total, lot) => total + lot.races[item.name].current, 0);
     
@@ -1586,6 +1588,9 @@ export default function ElevageScreen({ navigation, route }) {
     const startDragging = useCallback(() => {
       setIsDragging(true);
       setIsDraggingRace(true);
+      if (setDraggingItemIndex) {
+        setDraggingItemIndex(index);
+      }
       
       // Visual feedback when dragging starts
       Animated.parallel([
@@ -1599,27 +1604,25 @@ export default function ElevageScreen({ navigation, route }) {
           useNativeDriver: true,
         }),
       ]).start();
-    }, []);
+    }, [index, setDraggingItemIndex]);
 
     const panResponder = useMemo(() => PanResponder.create({
       onStartShouldSetPanResponder: (evt) => {
-        // Check if touch is on drag handle (left side, first 50px)
-        const touchX = evt.nativeEvent.locationX;
-        return touchX < 50 || isDragging;
+        // Allow if already dragging
+        return isDragging;
       },
       onStartShouldSetPanResponderCapture: (evt) => {
-        // Capture if on drag handle or already dragging
-        const touchX = evt.nativeEvent.locationX;
-        return touchX < 50 || isDragging;
+        // Capture if already dragging
+        return isDragging;
       },
       onMoveShouldSetPanResponder: (evt, gestureState) => {
         // If already dragging, capture all moves
         if (isDragging) {
           return true;
         }
-        // Check if we've held long enough (300ms) and moved vertically
+        // Check if we've held long enough (200ms) and moved vertically
         const timeHeld = Date.now() - touchStartTime.current;
-        return timeHeld > 300 && Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
+        return timeHeld > 200 && Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
       },
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
         // Use capture to beat FlatList
@@ -1627,12 +1630,7 @@ export default function ElevageScreen({ navigation, route }) {
           return true;
         }
         const timeHeld = Date.now() - touchStartTime.current;
-        const touchX = evt.nativeEvent.locationX;
-        // Also capture if on drag handle
-        if (touchX < 50) {
-          return true;
-        }
-        return timeHeld > 300 && Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
+        return timeHeld > 200 && Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
       },
       onPanResponderGrant: (evt) => {
         touchStartTime.current = Date.now();
@@ -1640,19 +1638,12 @@ export default function ElevageScreen({ navigation, route }) {
         touchStartIndex.current = index;
         hasMoved.current = false;
         
-        // Check if touch is on drag handle (left side, first 50px)
-        const touchX = evt.nativeEvent.locationX;
-        if (touchX < 50) {
-          // Start dragging immediately if on drag handle
-          startDragging();
-        } else {
-          // Start long press timer for other areas
-          longPressTimer.current = setTimeout(() => {
-            if (!hasMoved.current) {
-              startDragging();
-            }
-          }, 300);
-        }
+        // Start long press timer - dragging can start from anywhere on the card
+        longPressTimer.current = setTimeout(() => {
+          if (!hasMoved.current) {
+            startDragging();
+          }
+        }, 200); // Reduced from 300ms for faster response
       },
       onPanResponderMove: (evt, gestureState) => {
         if (isDragging) {
@@ -1664,52 +1655,12 @@ export default function ElevageScreen({ navigation, route }) {
           // Update translateY for visual feedback
           translateY.setValue(deltaY);
           
-          // Calculate target index based on movement - use middle of card for insertion
-          const cardMiddleY = currentY;
-          const estimatedItemHeight = cardHeight.current;
+          // Simple calculation: determine new index based on how far we've moved
+          const estimatedItemHeight = cardHeight.current || 130;
+          const itemsMoved = Math.round(deltaY / estimatedItemHeight);
+          const newIndex = Math.max(0, Math.min(totalRaces - 1, touchStartIndex.current + itemsMoved));
           
-          // Calculate which position we're hovering over
-          // Check if we're above or below the middle of each item
-          let insertPosition = null;
-          
-          for (let i = 0; i < totalRaces; i++) {
-            if (i === index) continue; // Skip the item being dragged
-            
-            // Estimate position of item i
-            const itemTop = i * estimatedItemHeight;
-            const itemMiddle = itemTop + estimatedItemHeight / 2;
-            const itemBottom = itemTop + estimatedItemHeight;
-            
-            // Check if we're in the middle zone of this item (between top and bottom)
-            if (cardMiddleY >= itemTop && cardMiddleY <= itemBottom) {
-              // Determine if we're above or below the middle
-              if (cardMiddleY < itemMiddle) {
-                // Insert before this item
-                insertPosition = i;
-                break;
-              } else {
-                // Insert after this item
-                insertPosition = i + 1;
-                break;
-              }
-            }
-          }
-          
-          // Fallback: calculate based on delta
-          if (insertPosition === null) {
-            const newIndex = Math.max(0, Math.min(totalRaces - 1, Math.round(touchStartIndex.current + deltaY / estimatedItemHeight)));
-            insertPosition = newIndex < index ? newIndex : newIndex + 1;
-          }
-          
-          // Clamp insert position
-          insertPosition = Math.max(0, Math.min(totalRaces, insertPosition));
-          
-          if (setDragInsertPosition) {
-            setDragInsertPosition(insertPosition);
-          }
-          
-          // Also update dragOverIndex for backward compatibility
-          const newIndex = insertPosition > index ? insertPosition - 1 : insertPosition;
+          // Update dragOverIndex when we cross into a new item's space
           if (newIndex !== dragOverIndex && newIndex !== index && newIndex >= 0 && newIndex < totalRaces) {
             setDragOverIndex(newIndex);
           }
@@ -1756,7 +1707,7 @@ export default function ElevageScreen({ navigation, route }) {
         } else {
           // Check if we should start dragging
           const timeHeld = Date.now() - touchStartTime.current;
-          if (timeHeld > 300 && Math.abs(gestureState.dy) > 10) {
+          if (timeHeld > 200 && Math.abs(gestureState.dy) > 10) {
             hasMoved.current = true;
             startDragging();
             touchStartY.current = evt.nativeEvent.pageY;
@@ -1794,24 +1745,10 @@ export default function ElevageScreen({ navigation, route }) {
             }),
           ]).start();
           
-          // Handle drop using insertPosition if available, otherwise fallback to dragOverIndex
-          const insertPos = dragInsertPosition !== null && dragInsertPosition !== undefined ? dragInsertPosition : null;
-          let targetIndex = null;
-          
-          if (insertPos !== null && insertPos >= 0 && insertPos <= totalRaces) {
-            // Calculate target index based on insert position
-            if (insertPos <= index) {
-              targetIndex = insertPos;
-            } else {
-              targetIndex = insertPos - 1; // Account for removing current item
-            }
-          } else if (dragOverIndex !== null && dragOverIndex !== index && dragOverIndex >= 0 && dragOverIndex < totalRaces) {
-            targetIndex = dragOverIndex;
-          }
-          
-          if (targetIndex !== null && targetIndex !== index && sortedRaces && targetIndex >= 0 && targetIndex < totalRaces) {
+          // Handle drop - use dragOverIndex directly (simpler approach)
+          if (dragOverIndex !== null && dragOverIndex !== index && sortedRaces && dragOverIndex >= 0 && dragOverIndex < totalRaces) {
             try {
-              const targetRace = sortedRaces[targetIndex];
+              const targetRace = sortedRaces[dragOverIndex];
               await database.reorderRaces(item.id, targetRace.id);
               loadData();
             } catch (error) {
@@ -1826,10 +1763,13 @@ export default function ElevageScreen({ navigation, route }) {
           if (setDragInsertPosition) {
             setDragInsertPosition(null);
           }
+          if (setDraggingItemIndex) {
+            setDraggingItemIndex(null);
+          }
         } else if (!hasMoved.current) {
           // Quick tap - open edit
           const timeHeld = Date.now() - touchStartTime.current;
-          if (timeHeld < 300) {
+          if (timeHeld < 200) {
             setTimeout(() => {
               if (!isDragging) {
                 handleEdit();
@@ -1874,11 +1814,17 @@ export default function ElevageScreen({ navigation, route }) {
         setIsDragging(false);
         setIsDraggingRace(false);
         setDragOverIndex(null);
+        if (setDragInsertPosition) {
+          setDragInsertPosition(null);
+        }
+        if (setDraggingItemIndex) {
+          setDraggingItemIndex(null);
+        }
         hasMoved.current = false;
         touchStartTime.current = 0;
         touchStartY.current = 0;
       },
-    }), [index, totalRaces, sortedRaces, dragOverIndex, item.id, isDragging, startDragging, handleEdit]);
+    }), [index, totalRaces, sortedRaces, dragOverIndex, dragInsertPosition, item.id, isDragging, startDragging, handleEdit, setDragInsertPosition, setDraggingItemIndex]);
     
     const handleLongPress = () => {
       if (!isDragging) {
@@ -1899,9 +1845,13 @@ export default function ElevageScreen({ navigation, route }) {
             zIndex: isDragging ? 1000 : 1,
             elevation: isDragging ? 8 : 3,
           },
-          dragOverIndex === index && styles.cardDragOver,
         ]}
         {...panResponder.panHandlers}
+        onLayout={(event) => {
+          const { y, height } = event.nativeEvent.layout;
+          cardLayout.current = { y, height };
+          cardHeight.current = height;
+        }}
       >
         <View style={styles.cardContent}>
           {/* Drag handle on the left - only show when dragging */}
@@ -1917,7 +1867,7 @@ export default function ElevageScreen({ navigation, route }) {
             activeOpacity={0.7}
             onPress={handleEdit}
             onLongPress={handleLongPress}
-            delayLongPress={300}
+            delayLongPress={200}
             disabled={isDragging}
           >
             <View style={styles.cardHeader}>
@@ -2058,6 +2008,10 @@ export default function ElevageScreen({ navigation, route }) {
                     setIsDraggingRace={setIsDraggingRace}
                     flatListRef={racesFlatListRef}
                     scrollOffsetRef={racesScrollOffset}
+                    dragInsertPosition={dragInsertPosition}
+                    setDragInsertPosition={setDragInsertPosition}
+                    draggingItemIndex={draggingItemIndex}
+                    setDraggingItemIndex={setDraggingItemIndex}
                   />
                 )}
               keyExtractor={item => item.id.toString()}
@@ -3819,6 +3773,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
+    minWidth: 30,
   },
   cardDragging: {
     opacity: 0.7,
@@ -3837,6 +3792,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#999',
     fontWeight: 'bold',
+  },
+  dragGapIndicator: {
+    height: 2,
+    backgroundColor: '#2196F3',
+    marginVertical: 3,
+    borderRadius: 1,
+    marginHorizontal: 15,
+    opacity: 0.6,
   },
   cardMainContent: {
     flex: 1,

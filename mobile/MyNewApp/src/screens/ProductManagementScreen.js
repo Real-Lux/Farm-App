@@ -18,6 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import database from '../services/database';
 import configService from '../services/configService';
+import { toFrenchDate } from '../utils/dateUtils';
 
 export default function ProductManagementScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -50,6 +51,12 @@ export default function ProductManagementScreen({ navigation, route }) {
     category: 'Adoption',
     content: ''
   });
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState(null); // null = all categories
+  const [generateMessageModal, setGenerateMessageModal] = useState(false);
+  const [selectedTemplateForGeneration, setSelectedTemplateForGeneration] = useState(null);
+  const [selectedOrderForGeneration, setSelectedOrderForGeneration] = useState(null);
+  const [generatedMessagePreview, setGeneratedMessagePreview] = useState('');
+  const [orders, setOrders] = useState([]);
 
   // Treatments state
   const [treatmentModal, setTreatmentModal] = useState(false);
@@ -100,6 +107,7 @@ export default function ProductManagementScreen({ navigation, route }) {
     loadConfigs();
     // loadTemplateMessages(); // Load on demand when Client tab is accessed
     loadElevageStatistics();
+    loadOrders();
   }, []);
 
   // Handle initial tab from route params - this should take precedence over saved config
@@ -164,6 +172,15 @@ export default function ProductManagementScreen({ navigation, route }) {
       setTemplateMessages(messages);
     } catch (error) {
       console.error('Error loading template messages:', error);
+    }
+  };
+
+  const loadOrders = async () => {
+    try {
+      const ordersData = await database.getOrders();
+      setOrders(ordersData);
+    } catch (error) {
+      console.error('Error loading orders:', error);
     }
   };
 
@@ -326,6 +343,91 @@ export default function ProductManagementScreen({ navigation, route }) {
   const copyToClipboard = (content) => {
     // In a real app, you would use Clipboard from @react-native-clipboard/clipboard
     Alert.alert('Copié', 'Message copié dans le presse-papiers');
+  };
+
+  const replaceMessageVariables = (template, order) => {
+    if (!template || !order) return template;
+    
+    let message = template.content || template;
+    
+    // Replace common variables
+    message = message.replace(/{nom}/g, order.customerName || 'Client');
+    message = message.replace(/{date}/g, order.deliveryDate ? toFrenchDate(order.deliveryDate) : order.orderDate ? toFrenchDate(order.orderDate) : new Date().toLocaleDateString('fr-FR'));
+    message = message.replace(/{heure}/g, new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+    message = message.replace(/{quantite}/g, order.quantity?.toString() || '');
+    
+    // Replace race information
+    if (order.animalDetails) {
+      const animalTypes = Object.keys(order.animalDetails);
+      if (animalTypes.length > 0) {
+        const firstAnimal = order.animalDetails[animalTypes[0]];
+        if (firstAnimal?.races && firstAnimal.races.length > 0) {
+          const raceNames = firstAnimal.races.map(r => r.race).join(', ');
+          message = message.replace(/{race}/g, raceNames);
+        }
+      }
+    } else if (order.race) {
+      message = message.replace(/{race}/g, order.race);
+    }
+    
+    // Replace product information
+    if (order.product) {
+      message = message.replace(/{produit}/g, order.product);
+    }
+    
+    // Replace price
+    if (order.totalPrice) {
+      message = message.replace(/{prix}/g, order.totalPrice.toFixed(2) + '€');
+    }
+    
+    return message;
+  };
+
+  const generateMessagePreview = () => {
+    if (!selectedTemplateForGeneration) {
+      setGeneratedMessagePreview('');
+      return;
+    }
+    
+    if (selectedOrderForGeneration) {
+      const preview = replaceMessageVariables(selectedTemplateForGeneration, selectedOrderForGeneration);
+      setGeneratedMessagePreview(preview);
+    } else {
+      // Show template with placeholders
+      setGeneratedMessagePreview(selectedTemplateForGeneration.content || '');
+    }
+  };
+
+  useEffect(() => {
+    generateMessagePreview();
+  }, [selectedTemplateForGeneration, selectedOrderForGeneration]);
+
+  const handleCopyGeneratedMessage = () => {
+    if (generatedMessagePreview) {
+      copyToClipboard(generatedMessagePreview);
+      Alert.alert('Succès', 'Message généré copié dans le presse-papiers');
+    }
+  };
+
+  const handleSendGeneratedMessage = () => {
+    if (!selectedOrderForGeneration) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une commande pour envoyer le message');
+      return;
+    }
+    
+    if (generatedMessagePreview) {
+      // In a real app, this would integrate with email/SMS service
+      Alert.alert(
+        'Envoyer le message',
+        `Envoyer le message à ${selectedOrderForGeneration.customerName}?\n\n${selectedOrderForGeneration.customerEmail ? `Email: ${selectedOrderForGeneration.customerEmail}` : ''}\n${selectedOrderForGeneration.customerPhone ? `Téléphone: ${selectedOrderForGeneration.customerPhone}` : ''}`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Envoyer', onPress: () => {
+            Alert.alert('Message', 'Fonctionnalité d\'envoi de message à venir');
+          }}
+        ]
+      );
+    }
   };
 
 
@@ -649,7 +751,11 @@ export default function ProductManagementScreen({ navigation, route }) {
     if (!item) return null;
     
     return (
-      <View style={styles.messageCard}>
+      <TouchableOpacity 
+        style={styles.messageCard}
+        onPress={() => openEditMessageModal(item)}
+        activeOpacity={0.7}
+      >
         <View style={styles.messageHeader}>
           <Text style={styles.messageTitle}>{item.title || 'Sans titre'}</Text>
           <View style={[styles.categoryBadge, { 
@@ -669,24 +775,34 @@ export default function ProductManagementScreen({ navigation, route }) {
         <View style={styles.messageActions}>
           <TouchableOpacity 
             style={[styles.actionBtn, styles.copyBtn]}
-            onPress={() => copyToClipboard(item.content || '')}
+            onPress={(e) => {
+              e.stopPropagation();
+              copyToClipboard(item.content || '');
+            }}
           >
             <Text style={styles.actionBtnText}>📋 Copier</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.actionBtn, styles.editBtn]}
-            onPress={() => openEditMessageModal(item)}
+            style={[styles.actionBtn, styles.generateBtn]}
+            onPress={(e) => {
+              e.stopPropagation();
+              setSelectedTemplateForGeneration(item);
+              setGenerateMessageModal(true);
+            }}
           >
-            <Text style={styles.actionBtnText}>✏️ Modifier</Text>
+            <Text style={styles.actionBtnText}>📨 Générer</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.actionBtn, styles.deleteBtn]}
-            onPress={() => deleteMessage(item.id)}
+            onPress={(e) => {
+              e.stopPropagation();
+              deleteMessage(item.id);
+            }}
           >
             <Text style={styles.actionBtnText}>🗑️ Supprimer</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -1182,7 +1298,16 @@ export default function ProductManagementScreen({ navigation, route }) {
   );
 
 
+  const getFilteredMessages = () => {
+    if (!selectedCategoryFilter) {
+      return templateMessages;
+    }
+    return templateMessages.filter(msg => msg?.category === selectedCategoryFilter);
+  };
+
   const renderClient = () => {
+    const filteredMessages = getFilteredMessages();
+    
     return (
       <View style={styles.tabContent}>
         <View style={styles.sectionCard}>
@@ -1197,33 +1322,94 @@ export default function ProductManagementScreen({ navigation, route }) {
       
       <View style={styles.messageCategories}>
         <View style={styles.categoryStats}>
-          <View style={styles.categoryStatItem}>
-            <Text style={styles.categoryStatNumber}>
+          <TouchableOpacity 
+            style={[
+              styles.categoryStatItem,
+              selectedCategoryFilter === 'Adoption' && styles.categoryStatItemActive
+            ]}
+            onPress={() => setSelectedCategoryFilter(selectedCategoryFilter === 'Adoption' ? null : 'Adoption')}
+            activeOpacity={0.7}
+          >
+            <Text style={[
+              styles.categoryStatNumber,
+              selectedCategoryFilter === 'Adoption' && styles.categoryStatNumberActive
+            ]}>
               {templateMessages?.filter(msg => msg?.category === 'Adoption')?.length || 0}
             </Text>
-            <Text style={styles.categoryStatLabel}>Adoption</Text>
-          </View>
-          <View style={styles.categoryStatItem}>
-            <Text style={styles.categoryStatNumber}>
+            <Text style={[
+              styles.categoryStatLabel,
+              selectedCategoryFilter === 'Adoption' && styles.categoryStatLabelActive
+            ]}>Adoption</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.categoryStatItem,
+              selectedCategoryFilter === 'Activité' && styles.categoryStatItemActive
+            ]}
+            onPress={() => setSelectedCategoryFilter(selectedCategoryFilter === 'Activité' ? null : 'Activité')}
+            activeOpacity={0.7}
+          >
+            <Text style={[
+              styles.categoryStatNumber,
+              selectedCategoryFilter === 'Activité' && styles.categoryStatNumberActive
+            ]}>
               {templateMessages?.filter(msg => msg?.category === 'Activité')?.length || 0}
             </Text>
-            <Text style={styles.categoryStatLabel}>Activité</Text>
-          </View>
-          <View style={styles.categoryStatItem}>
-            <Text style={styles.categoryStatNumber}>
+            <Text style={[
+              styles.categoryStatLabel,
+              selectedCategoryFilter === 'Activité' && styles.categoryStatLabelActive
+            ]}>Activité</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.categoryStatItem,
+              selectedCategoryFilter === 'Commande' && styles.categoryStatItemActive
+            ]}
+            onPress={() => setSelectedCategoryFilter(selectedCategoryFilter === 'Commande' ? null : 'Commande')}
+            activeOpacity={0.7}
+          >
+            <Text style={[
+              styles.categoryStatNumber,
+              selectedCategoryFilter === 'Commande' && styles.categoryStatNumberActive
+            ]}>
               {templateMessages?.filter(msg => msg?.category === 'Commande')?.length || 0}
             </Text>
-            <Text style={styles.categoryStatLabel}>Commande</Text>
-          </View>
+            <Text style={[
+              styles.categoryStatLabel,
+              selectedCategoryFilter === 'Commande' && styles.categoryStatLabelActive
+            ]}>Commande</Text>
+          </TouchableOpacity>
         </View>
       </View>
       
       <View style={styles.messagesSection}>
-        <Text style={styles.messagesSectionTitle}>Messages Modèles</Text>
+        <View style={styles.messagesSectionHeader}>
+          <Text style={styles.messagesSectionTitle}>
+            Messages Modèles
+            {selectedCategoryFilter && ` (${selectedCategoryFilter})`}
+          </Text>
+          {selectedCategoryFilter && (
+            <TouchableOpacity 
+              style={styles.clearFilterButton}
+              onPress={() => setSelectedCategoryFilter(null)}
+            >
+              <Text style={styles.clearFilterText}>✕ Tout afficher</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <View style={styles.messageList}>
-          {templateMessages?.map((item) => (
+          {filteredMessages?.map((item) => (
             <MessageItem key={item?.id?.toString() || Math.random().toString()} item={item} />
           )) || []}
+          {filteredMessages?.length === 0 && (
+            <View style={styles.emptyMessagesState}>
+              <Text style={styles.emptyMessagesText}>
+                {selectedCategoryFilter 
+                  ? `Aucun message modèle pour la catégorie "${selectedCategoryFilter}"`
+                  : 'Aucun message modèle configuré'}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     </View>
@@ -2007,6 +2193,147 @@ export default function ProductManagementScreen({ navigation, route }) {
                   </Text>
                 </TouchableOpacity>
               </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* Generate Message Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={generateMessageModal}
+          onRequestClose={() => {
+            setGenerateMessageModal(false);
+            setSelectedTemplateForGeneration(null);
+            setSelectedOrderForGeneration(null);
+            setGeneratedMessagePreview('');
+          }}
+        >
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>📨 Générer un Message</Text>
+                
+                <Text style={styles.inputLabel}>Sélectionner un modèle :</Text>
+                <ScrollView 
+                  style={styles.templateSelector}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                >
+                  {templateMessages.map((template) => (
+                    <TouchableOpacity
+                      key={template.id}
+                      style={[
+                        styles.templateOption,
+                        selectedTemplateForGeneration?.id === template.id && styles.templateOptionSelected
+                      ]}
+                      onPress={() => setSelectedTemplateForGeneration(template)}
+                    >
+                      <Text style={[
+                        styles.templateOptionText,
+                        selectedTemplateForGeneration?.id === template.id && styles.templateOptionTextSelected
+                      ]}>
+                        {template.title}
+                      </Text>
+                      <Text style={styles.templateOptionCategory}>{template.category}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                {selectedTemplateForGeneration && (
+                  <>
+                    <Text style={styles.inputLabel}>Sélectionner une commande (optionnel) :</Text>
+                    <ScrollView 
+                      style={styles.orderSelector}
+                      nestedScrollEnabled={true}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.orderOption,
+                          !selectedOrderForGeneration && styles.orderOptionSelected
+                        ]}
+                        onPress={() => setSelectedOrderForGeneration(null)}
+                      >
+                        <Text style={[
+                          styles.orderOptionText,
+                          !selectedOrderForGeneration && styles.orderOptionTextSelected
+                        ]}>
+                          Aucune commande (message générique)
+                        </Text>
+                      </TouchableOpacity>
+                      {orders.slice(0, 10).map((order) => (
+                        <TouchableOpacity
+                          key={order.id}
+                          style={[
+                            styles.orderOption,
+                            selectedOrderForGeneration?.id === order.id && styles.orderOptionSelected
+                          ]}
+                          onPress={() => setSelectedOrderForGeneration(order)}
+                        >
+                          <Text style={[
+                            styles.orderOptionText,
+                            selectedOrderForGeneration?.id === order.id && styles.orderOptionTextSelected
+                          ]}>
+                            {order.customerName} - {order.orderType} - {order.totalPrice?.toFixed(2)}€
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+
+                    <Text style={styles.inputLabel}>Aperçu du message :</Text>
+                    <View style={styles.messagePreviewContainer}>
+                      <Text style={styles.messagePreviewText}>
+                        {generatedMessagePreview || selectedTemplateForGeneration.content}
+                      </Text>
+                    </View>
+                  </>
+                )}
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.cancelBtn]}
+                    onPress={() => {
+                      setGenerateMessageModal(false);
+                      setSelectedTemplateForGeneration(null);
+                      setSelectedOrderForGeneration(null);
+                      setGeneratedMessagePreview('');
+                    }}
+                  >
+                    <Text style={styles.modalBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+                  {generatedMessagePreview && (
+                    <>
+                      <TouchableOpacity 
+                        style={[styles.modalBtn, styles.copyBtn]}
+                        onPress={handleCopyGeneratedMessage}
+                      >
+                        <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                          📋 Copier
+                        </Text>
+                      </TouchableOpacity>
+                      {selectedOrderForGeneration && (
+                        <TouchableOpacity 
+                          style={[styles.modalBtn, styles.sendBtn]}
+                          onPress={handleSendGeneratedMessage}
+                        >
+                          <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                            📧 Envoyer
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  )}
+                </View>
               </ScrollView>
             </View>
           </KeyboardAvoidingView>
@@ -3366,5 +3693,134 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     textAlign: 'center',
+  },
+  // Category filter styles
+  categoryStatItemActive: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#2196F3',
+  },
+  categoryStatNumberActive: {
+    color: '#2196F3',
+  },
+  categoryStatLabelActive: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  messagesSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  clearFilterButton: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  clearFilterText: {
+    fontSize: 11,
+    color: '#666',
+    fontWeight: '600',
+  },
+  emptyMessagesState: {
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  emptyMessagesText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  generateBtn: {
+    backgroundColor: '#9C27B0',
+  },
+  // Generate Message Modal styles
+  templateSelector: {
+    marginBottom: 15,
+    maxHeight: 180,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+  },
+  templateOption: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  templateOptionSelected: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#2196F3',
+    borderWidth: 2,
+  },
+  templateOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  templateOptionTextSelected: {
+    color: '#2196F3',
+  },
+  templateOptionCategory: {
+    fontSize: 11,
+    color: '#666',
+  },
+  orderSelector: {
+    marginBottom: 15,
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+  },
+  orderOption: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  orderOptionSelected: {
+    backgroundColor: '#e8f5e8',
+    borderColor: '#4CAF50',
+    borderWidth: 2,
+  },
+  orderOptionText: {
+    fontSize: 13,
+    color: '#333',
+  },
+  orderOptionTextSelected: {
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  messagePreviewContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    minHeight: 100,
+  },
+  messagePreviewText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  sendBtn: {
+    backgroundColor: '#4CAF50',
   },
 }); 
