@@ -19,9 +19,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import database from '../services/database';
 import configService from '../services/configService';
 
-export default function ProductManagementScreen({ navigation }) {
+export default function ProductManagementScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState('elevage');
+  // Get initialTab from route params if provided
+  const { initialTab } = route?.params || {};
+  const [activeTab, setActiveTab] = useState(initialTab || 'elevage');
   const [templateSettingsModal, setTemplateSettingsModal] = useState(false);
   const [selectedAnimalType, setSelectedAnimalType] = useState('poussins');
   const [pricingGrids, setPricingGrids] = useState({});
@@ -100,6 +102,14 @@ export default function ProductManagementScreen({ navigation }) {
     loadElevageStatistics();
   }, []);
 
+  // Handle initial tab from route params - this should take precedence over saved config
+  useEffect(() => {
+    if (initialTab && ['elevage', 'etable', 'productions', 'activites', 'traitements', 'client'].includes(initialTab)) {
+      console.log('📦 ProductManagement: Setting activeTab from initialTab:', initialTab);
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   // Load template messages when client tab is accessed
   useEffect(() => {
     if (activeTab === 'client' && templateMessages.length === 0) {
@@ -107,19 +117,30 @@ export default function ProductManagementScreen({ navigation }) {
     }
   }, [activeTab]);
 
-  // Reload statistics when screen comes into focus
+  // Reload statistics when screen comes into focus and check for initialTab
   useFocusEffect(
     React.useCallback(() => {
       loadElevageStatistics();
-    }, [])
+      // Check route params when screen comes into focus to ensure initialTab is respected
+      const routeInitialTab = route?.params?.initialTab;
+      if (routeInitialTab && ['elevage', 'etable', 'productions', 'activites', 'traitements', 'client'].includes(routeInitialTab)) {
+        console.log('📦 ProductManagement: Setting activeTab from route params on focus:', routeInitialTab);
+        setActiveTab(routeInitialTab);
+      }
+    }, [route?.params?.initialTab])
   );
 
   const loadConfigs = async () => {
     try {
-      const activeTab = await configService.loadProductManagementActiveTab();
+      const savedActiveTab = await configService.loadProductManagementActiveTab();
       const selectedAnimalType = await configService.loadProductManagementSelectedAnimalType();
       
-      setActiveTab(activeTab);
+      // Only set activeTab from saved config if no initialTab was provided via route params
+      // initialTab takes precedence over saved config - check route params directly
+      const routeInitialTab = route?.params?.initialTab;
+      if (!routeInitialTab && savedActiveTab) {
+        setActiveTab(savedActiveTab);
+      }
       setSelectedAnimalType(selectedAnimalType);
     } catch (error) {
       console.error('Error loading configs:', error);
@@ -709,10 +730,15 @@ export default function ProductManagementScreen({ navigation }) {
   const [herdTypes, setHerdTypes] = useState([]);
   const [addHerdTypeModal, setAddHerdTypeModal] = useState(false);
   const [newHerdTypeName, setNewHerdTypeName] = useState('');
+  const [herdTypeStats, setHerdTypeStats] = useState({});
 
   useEffect(() => {
     loadHerdTypes();
   }, []);
+
+  useEffect(() => {
+    loadHerdTypeStats();
+  }, [herdTypes]);
 
   const loadHerdTypes = async () => {
     try {
@@ -721,6 +747,62 @@ export default function ProductManagementScreen({ navigation }) {
     } catch (error) {
       console.error('Error loading herd types:', error);
     }
+  };
+
+  const loadHerdTypeStats = async () => {
+    try {
+      const stats = {};
+      for (const herdType of herdTypes) {
+        const animals = await database.getHerdAnimals(herdType);
+        stats[herdType] = animals.length;
+      }
+      setHerdTypeStats(stats);
+    } catch (error) {
+      console.error('Error loading herd type stats:', error);
+    }
+  };
+
+  const deleteHerdType = async (herdType) => {
+    Alert.alert(
+      'Supprimer le troupeau',
+      `Êtes-vous sûr de vouloir supprimer le troupeau ${getHerdTypeName(herdType)}? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Supprimer', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              // Get current types and filter out the one to delete
+              const types = await database.getHerdTypes();
+              const updatedTypes = types.filter(t => t !== herdType);
+              
+              // Update storage directly (since there's no deleteHerdType method yet)
+              // Access the storage through the database instance
+              const dbInstance = database;
+              if (dbInstance.storage && dbInstance.storage.herd_types) {
+                dbInstance.storage.herd_types = updatedTypes;
+                // Also clean up related data
+                if (dbInstance.storage.herd_animals && dbInstance.storage.herd_animals[herdType]) {
+                  delete dbInstance.storage.herd_animals[herdType];
+                }
+                if (dbInstance.storage.herd_settings && dbInstance.storage.herd_settings[herdType]) {
+                  delete dbInstance.storage.herd_settings[herdType];
+                }
+                await dbInstance.saveToStorage();
+              }
+              
+              setHerdTypes(updatedTypes);
+              await loadHerdTypeStats(); // Reload stats after deletion
+              Alert.alert('Succès', `Troupeau ${getHerdTypeName(herdType)} supprimé`);
+            } catch (error) {
+              console.error('Error deleting herd type:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer le troupeau');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const addHerdType = async () => {
@@ -754,6 +836,7 @@ export default function ProductManagementScreen({ navigation }) {
       setHerdTypes(prev => [...prev, herdTypeKey]);
       setAddHerdTypeModal(false);
       setNewHerdTypeName('');
+      await loadHerdTypeStats(); // Reload stats after adding
       Alert.alert('Succès', `Type de troupeau "${newHerdTypeName}" ajouté avec succès!`);
     } catch (error) {
       console.error('Error adding herd type:', error);
@@ -783,47 +866,67 @@ export default function ProductManagementScreen({ navigation }) {
     return names[herdType] || herdType.charAt(0).toUpperCase() + herdType.slice(1);
   };
 
-  const renderElevageCaprin = () => (
+  const getAnimalLabel = (herdType) => {
+    const labels = {
+      'caprin': 'Chèvres',
+      'ovin': 'Brebis',
+      'bovin': 'Vaches',
+      'équin': 'Chevaux',
+      'porcin': 'Porcs'
+    };
+    return labels[herdType] || 'Animaux';
+  };
+
+  const renderElevageEtable = () => (
     <View style={styles.tabContent}>
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>🏠 Étable - Gestion des Troupeaux</Text>
         <Text style={styles.sectionDescription}>
           Gestion complète de tous vos troupeaux : naissances, production, généalogie
         </Text>
-      </View>
-
-      {herdTypes.map((herdType) => (
-        <TouchableOpacity 
-          key={herdType}
-          style={styles.sectionCard}
-          onPress={() => navigation.navigate('EtableScreen', { herdType })}
-          activeOpacity={0.7}
-        >
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleContainer}>
-              <Text style={styles.sectionTitle}>
-                {getHerdTypeIcon(herdType)} {getHerdTypeName(herdType)}
-              </Text>
-              <Text style={styles.sectionDescription}>
-                Gestion du troupeau {getHerdTypeName(herdType).toLowerCase()} : naissances, production, généalogie
+        
+        {/* Herd Types List */}
+        <View style={styles.herdTypesContainer}>
+          {herdTypes.length > 0 ? (
+            herdTypes.map((herdType) => (
+              <TouchableOpacity 
+                key={herdType}
+                style={styles.herdTypeCard}
+                onPress={() => navigation.navigate('EtableScreen', { herdType })}
+                activeOpacity={0.7}
+              >
+                <View style={styles.herdTypeCardContent}>
+                  <View style={styles.herdTypeCardLeft}>
+                    <Text style={styles.herdTypeIcon}>{getHerdTypeIcon(herdType)}</Text>
+                    <View style={styles.herdTypeInfo}>
+                      <Text style={styles.herdTypeName}>{getHerdTypeName(herdType)}</Text>
+                      <Text style={styles.herdTypeCount}>
+                        {herdTypeStats[herdType] || 0} {getAnimalLabel(herdType)}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.deleteHerdTypeButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      deleteHerdType(herdType);
+                    }}
+                  >
+                    <Text style={styles.deleteHerdTypeButtonText}>🗑️</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.noHerdTypesCard}>
+              <Text style={styles.noHerdTypesText}>Aucun troupeau configuré</Text>
+              <Text style={styles.noHerdTypesSubtext}>
+                Appuyez sur le bouton + pour ajouter un troupeau
               </Text>
             </View>
-            <TouchableOpacity 
-              style={styles.infoButton}
-              onPress={(e) => {
-                e.stopPropagation();
-                Alert.alert(
-                  `Fonctionnalités ${getHerdTypeName(herdType)}`,
-                  '• 👶 Gestion des naissances et nommage\n• 🥛 Suivi de production laitière\n• 📊 Statistiques par groupe\n• 📜 Historique de vie complet\n• 🌳 Arbre généalogique',
-                  [{ text: 'OK' }]
-                );
-              }}
-            >
-              <Text style={styles.infoButtonText}>ℹ️</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      ))}
+          )}
+        </View>
+      </View>
       
       <TouchableOpacity 
         style={styles.sectionCard}
@@ -1155,14 +1258,14 @@ export default function ProductManagementScreen({ navigation }) {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.tab, activeTab === 'caprin' && styles.activeTab]}
+            style={[styles.tab, activeTab === 'etable' && styles.activeTab]}
             onPress={async () => {
-              setActiveTab('caprin');
-              await configService.saveProductManagementActiveTab('caprin');
+              setActiveTab('etable');
+              await configService.saveProductManagementActiveTab('etable');
             }}
           >
-            <Text style={[styles.tabText, activeTab === 'caprin' && styles.activeTabText]}>
-              🐐 Caprin
+            <Text style={[styles.tabText, activeTab === 'etable' && styles.activeTabText]}>
+              🏠 Étable
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -1218,7 +1321,7 @@ export default function ProductManagementScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           {activeTab === 'elevage' && renderElevageAvicole()}
-          {activeTab === 'caprin' && renderElevageCaprin()}
+          {activeTab === 'etable' && renderElevageEtable()}
           {activeTab === 'productions' && renderProductions()}
           {activeTab === 'activites' && renderActivites()}
           {activeTab === 'traitements' && renderTraitements()}
@@ -1226,7 +1329,7 @@ export default function ProductManagementScreen({ navigation }) {
         </ScrollView>
 
         {/* Floating Add Button for Herd Types */}
-        {activeTab === 'caprin' && (
+        {activeTab === 'etable' && (
           <TouchableOpacity
             style={styles.floatingAddButton}
             onPress={() => setAddHerdTypeModal(true)}
@@ -3188,5 +3291,80 @@ const styles = StyleSheet.create({
   },
   herdTypeOptionTextDisabled: {
     color: '#999',
+  },
+  herdTypesContainer: {
+    marginTop: 15,
+    gap: 10,
+  },
+  herdTypeCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  herdTypeCardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  herdTypeCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  herdTypeIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  herdTypeInfo: {
+    flex: 1,
+  },
+  herdTypeName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  herdTypeCount: {
+    fontSize: 13,
+    color: '#666',
+  },
+  deleteHerdTypeButton: {
+    backgroundColor: '#F44336',
+    borderRadius: 6,
+    padding: 8,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteHerdTypeButtonText: {
+    fontSize: 16,
+  },
+  noHerdTypesCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  noHerdTypesText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 5,
+  },
+  noHerdTypesSubtext: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
   },
 }); 

@@ -23,13 +23,15 @@ import database from '../services/database';
 import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar, calculateEstimatedHatchingDate, addDays, getSuggestedFertilizationCheckDate } from '../utils/dateUtils';
 
-export default function ElevageScreen({ navigation }) {
+export default function ElevageScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  // Get route parameters for highlighting specific lots and initial tab
+  const { highlightLotId, highlightLotName, initialTab } = route?.params || {};
   const [lots, setLots] = useState([]);
   const [races, setRaces] = useState([]);
   const [historique, setHistorique] = useState([]);
   const [incubationStats, setIncubationStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('lots');
+  const [activeTab, setActiveTab] = useState(initialTab || 'lots');
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState('lot'); // 'lot', 'race', 'update', 'incubationUpdate'
   const [editingItem, setEditingItem] = useState(null);
@@ -39,8 +41,13 @@ export default function ElevageScreen({ navigation }) {
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
   const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
   const [isDraggingRace, setIsDraggingRace] = useState(false); // Track if any race is being dragged
+  const [highlightedLotId, setHighlightedLotId] = useState(null);
+  const [highlightedLotName, setHighlightedLotName] = useState(null);
+  const [validationErrors, setValidationErrors] = useState({}); // Track validation errors for incubation update
   const racesFlatListRef = useRef(null); // Ref for races FlatList
   const racesScrollOffset = useRef(0); // Track current scroll offset
+  const lotsFlatListRef = useRef(null); // Ref for lots FlatList
+  const lotItemPositions = useRef({});
   
   const [lotForm, setLotForm] = useState({
     name: '',
@@ -52,10 +59,13 @@ export default function ElevageScreen({ navigation }) {
     estimated_hatching_date: '', // Calculated estimated date
     estimated_min_date: '', // Minimum estimated date
     estimated_max_date: '', // Maximum estimated date
-    eggs_count: '', // Number of eggs
-    fertilized_count: '', // Number of fertilized eggs
+    eggs_count: '', // Number of eggs (calculated from eggs_by_race)
+    eggs_by_race: {}, // Number of eggs per race: { raceName: count }
+    fertilized_count: '', // Number of fertilized eggs (total)
+    fertilized_by_race: {}, // Number of fertilized eggs per race: { raceName: count }
     rejected_count: '', // Number of rejected/unfertilized eggs
-    hatched_count: '', // Number of hatched animals (becomes initial/current)
+    hatched_count: '', // Number of hatched animals (total)
+    hatched_by_race: {}, // Number of hatched animals per race: { raceName: count }
     estimated_success_rate: '', // Estimated success rate percentage (e.g., 80 for 80%)
     races: {}, // For poultry: races within the species
     status: 'Actif',
@@ -84,6 +94,42 @@ export default function ElevageScreen({ navigation }) {
     loadData();
     loadConfigs();
   }, []);
+
+  // Handle initial tab from route params
+  useEffect(() => {
+    if (initialTab && ['lots', 'races', 'historique', 'statistiques'].includes(initialTab)) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  // Handle navigation from dashboard/calendar with specific lot highlight
+  useEffect(() => {
+    if (highlightLotId && lots.length > 0) {
+      console.log('🎯 Highlighting lot from route params:', highlightLotId);
+      setHighlightedLotId(highlightLotId);
+      setHighlightedLotName(highlightLotName);
+      
+      // Ensure we're on the lots tab
+      setActiveTab('lots');
+      
+      // Expand the lot if it's collapsed
+      if (collapsedLots[highlightLotId]) {
+        toggleLotCollapse(highlightLotId);
+      }
+      
+      // Scroll to the lot after a short delay to ensure the list is rendered
+      setTimeout(() => {
+        scrollToLot(highlightLotId);
+      }, 300);
+      
+      // Clear highlight after a few seconds
+      setTimeout(() => {
+        console.log('🎯 Clearing lot highlight after timeout');
+        setHighlightedLotId(null);
+        setHighlightedLotName(null);
+      }, 2000);
+    }
+  }, [highlightLotId, highlightLotName, lots]);
 
   const loadConfigs = async () => {
     try {
@@ -259,9 +305,12 @@ export default function ElevageScreen({ navigation }) {
       estimated_min_date: '',
       estimated_max_date: '',
       eggs_count: '',
+      eggs_by_race: {},
       fertilized_count: '',
+      fertilized_by_race: {},
       rejected_count: '',
       hatched_count: '',
+      hatched_by_race: {},
       estimated_success_rate: '',
       races: {},
       status: 'Actif',
@@ -273,6 +322,52 @@ export default function ElevageScreen({ navigation }) {
   const openEditLotModal = (lot) => {
     setEditingItem(lot);
     setModalType('lot');
+    
+    // Handle eggs_by_race: use existing or distribute evenly for backward compatibility
+    let eggsByRace = lot.eggs_by_race || {};
+    if (!lot.eggs_by_race && lot.eggs_count > 0 && Object.keys(lot.races || {}).length > 0) {
+      // Distribute eggs evenly across races for backward compatibility
+      const raceNames = Object.keys(lot.races);
+      const eggsPerRace = Math.floor(lot.eggs_count / raceNames.length);
+      const remainder = lot.eggs_count % raceNames.length;
+      eggsByRace = {};
+      raceNames.forEach((raceName, index) => {
+        eggsByRace[raceName] = eggsPerRace + (index < remainder ? 1 : 0);
+      });
+    }
+    
+    // Handle fertilized_by_race and hatched_by_race: distribute proportionally for backward compatibility
+    let fertilizedByRace = lot.fertilized_by_race || {};
+    let hatchedByRace = lot.hatched_by_race || {};
+    
+    if (!lot.fertilized_by_race && lot.fertilized_count > 0 && Object.keys(eggsByRace).length > 0) {
+      const totalEggs = lot.eggs_count || 0;
+      const raceNames = Object.keys(eggsByRace);
+      fertilizedByRace = {};
+      raceNames.forEach((raceName, index) => {
+        const eggsForRace = eggsByRace[raceName] || 0;
+        const proportion = totalEggs > 0 ? eggsForRace / totalEggs : 1 / raceNames.length;
+        const count = index === raceNames.length - 1 
+          ? lot.fertilized_count - Object.values(fertilizedByRace).reduce((sum, c) => sum + c, 0)
+          : Math.round(lot.fertilized_count * proportion);
+        fertilizedByRace[raceName] = count;
+      });
+    }
+    
+    if (!lot.hatched_by_race && lot.hatched_count > 0 && Object.keys(eggsByRace).length > 0) {
+      const totalEggs = lot.eggs_count || 0;
+      const raceNames = Object.keys(eggsByRace);
+      hatchedByRace = {};
+      raceNames.forEach((raceName, index) => {
+        const eggsForRace = eggsByRace[raceName] || 0;
+        const proportion = totalEggs > 0 ? eggsForRace / totalEggs : 1 / raceNames.length;
+        const count = index === raceNames.length - 1 
+          ? lot.hatched_count - Object.values(hatchedByRace).reduce((sum, c) => sum + c, 0)
+          : Math.round(lot.hatched_count * proportion);
+        hatchedByRace[raceName] = count;
+      });
+    }
+    
     setLotForm({
       name: lot.name,
       species: lot.species || '',
@@ -284,9 +379,12 @@ export default function ElevageScreen({ navigation }) {
       estimated_min_date: lot.estimated_min_date || '',
       estimated_max_date: lot.estimated_max_date || '',
       eggs_count: lot.eggs_count?.toString() || '',
+      eggs_by_race: eggsByRace,
       fertilized_count: lot.fertilized_count?.toString() || '',
+      fertilized_by_race: fertilizedByRace,
       rejected_count: lot.rejected_count?.toString() || '',
       hatched_count: lot.hatched_count?.toString() || '',
+      hatched_by_race: hatchedByRace,
       estimated_success_rate: lot.estimated_success_rate?.toString() || '',
       races: lot.races,
       status: lot.status,
@@ -317,14 +415,54 @@ export default function ElevageScreen({ navigation }) {
   const openIncubationUpdateModal = (lot) => {
     setEditingItem(lot);
     setModalType('incubationUpdate');
+    
+    // Initialize fertilized_by_race and hatched_by_race
+    // If they don't exist, distribute proportionally based on eggs_by_race for backward compatibility
+    let fertilizedByRace = lot.fertilized_by_race || {};
+    let hatchedByRace = lot.hatched_by_race || {};
+    
+    if (!lot.fertilized_by_race && lot.fertilized_count > 0 && lot.eggs_by_race && Object.keys(lot.eggs_by_race).length > 0) {
+      // Distribute fertilized_count proportionally
+      const totalEggs = lot.eggs_count || 0;
+      const raceNames = Object.keys(lot.eggs_by_race);
+      fertilizedByRace = {};
+      raceNames.forEach((raceName, index) => {
+        const eggsForRace = lot.eggs_by_race[raceName] || 0;
+        const proportion = totalEggs > 0 ? eggsForRace / totalEggs : 1 / raceNames.length;
+        const count = index === raceNames.length - 1 
+          ? lot.fertilized_count - Object.values(fertilizedByRace).reduce((sum, c) => sum + c, 0)
+          : Math.round(lot.fertilized_count * proportion);
+        fertilizedByRace[raceName] = count;
+      });
+    }
+    
+    if (!lot.hatched_by_race && lot.hatched_count > 0 && lot.eggs_by_race && Object.keys(lot.eggs_by_race).length > 0) {
+      // Distribute hatched_count proportionally
+      const totalEggs = lot.eggs_count || 0;
+      const raceNames = Object.keys(lot.eggs_by_race);
+      hatchedByRace = {};
+      raceNames.forEach((raceName, index) => {
+        const eggsForRace = lot.eggs_by_race[raceName] || 0;
+        const proportion = totalEggs > 0 ? eggsForRace / totalEggs : 1 / raceNames.length;
+        const count = index === raceNames.length - 1 
+          ? lot.hatched_count - Object.values(hatchedByRace).reduce((sum, c) => sum + c, 0)
+          : Math.round(lot.hatched_count * proportion);
+        hatchedByRace[raceName] = count;
+      });
+    }
+    
     setLotForm({
       ...lot,
       eggs_count: lot.eggs_count?.toString() || '',
-      fertilized_count: lot.fertilized_count?.toString() || '',
-      rejected_count: lot.rejected_count?.toString() || '',
-      hatched_count: lot.hatched_count?.toString() || '',
+      // Only show value if > 0, otherwise empty
+      fertilized_count: (lot.fertilized_count && lot.fertilized_count > 0) ? lot.fertilized_count.toString() : '',
+      fertilized_by_race: fertilizedByRace,
+      rejected_count: (lot.rejected_count && lot.rejected_count > 0) ? lot.rejected_count.toString() : '',
+      hatched_count: (lot.hatched_count && lot.hatched_count > 0) ? lot.hatched_count.toString() : '',
+      hatched_by_race: hatchedByRace,
       fertilization_check_date: lot.fertilization_check_date || ''
     });
+    setValidationErrors({});
     setModalVisible(true);
   };
 
@@ -414,38 +552,161 @@ export default function ElevageScreen({ navigation }) {
 
       // Convert string numbers to integers (only eggs_count is required initially)
       finalLotForm.eggs_count = parseInt(finalLotForm.eggs_count) || 0;
+      // Ensure eggs_by_race is saved (convert to integers)
+      if (finalLotForm.eggs_by_race) {
+        const eggsByRaceInt = {};
+        Object.keys(finalLotForm.eggs_by_race).forEach(raceName => {
+          eggsByRaceInt[raceName] = parseInt(finalLotForm.eggs_by_race[raceName]) || 0;
+        });
+        finalLotForm.eggs_by_race = eggsByRaceInt;
+      }
+      // Convert fertilized_by_race and hatched_by_race to integers
+      if (finalLotForm.fertilized_by_race) {
+        const fertilizedByRaceInt = {};
+        Object.keys(finalLotForm.fertilized_by_race).forEach(raceName => {
+          fertilizedByRaceInt[raceName] = parseInt(finalLotForm.fertilized_by_race[raceName]) || 0;
+        });
+        finalLotForm.fertilized_by_race = fertilizedByRaceInt;
+      }
+      if (finalLotForm.hatched_by_race) {
+        const hatchedByRaceInt = {};
+        Object.keys(finalLotForm.hatched_by_race).forEach(raceName => {
+          hatchedByRaceInt[raceName] = parseInt(finalLotForm.hatched_by_race[raceName]) || 0;
+        });
+        finalLotForm.hatched_by_race = hatchedByRaceInt;
+      }
       finalLotForm.fertilized_count = parseInt(finalLotForm.fertilized_count) || 0;
       finalLotForm.rejected_count = parseInt(finalLotForm.rejected_count) || 0;
       finalLotForm.hatched_count = parseInt(finalLotForm.hatched_count) || 0;
       finalLotForm.estimated_success_rate = parseFloat(finalLotForm.estimated_success_rate) || null;
 
-      // Calculate initial quantities from hatched_count (real data) or estimated_success_rate (estimation)
+      // Calculate initial quantities based on progression: hatched_by_race > fertilized_by_race > hatched_count > fertilized_count > estimated_success_rate
       if (Object.keys(finalLotForm.races).length > 0) {
-        let totalInitial = 0;
+        const raceNames = Object.keys(finalLotForm.races);
         
-        // Priority 1: Use hatched_count if available (real data)
-        if (finalLotForm.hatched_count > 0) {
-          totalInitial = finalLotForm.hatched_count;
-        }
-        // Priority 2: Calculate from estimated_success_rate if no hatched_count but eggs_count and rate are provided
-        else if (finalLotForm.eggs_count > 0 && finalLotForm.estimated_success_rate && finalLotForm.estimated_success_rate > 0) {
-          totalInitial = Math.round(finalLotForm.eggs_count * (finalLotForm.estimated_success_rate / 100));
-        }
-
-        // Distribute totalInitial across races
-        if (totalInitial > 0) {
-          const raceNames = Object.keys(finalLotForm.races);
-          const initialPerRace = Math.floor(totalInitial / raceNames.length);
-          const remainder = totalInitial % raceNames.length;
-
-          raceNames.forEach((raceName, index) => {
-            const count = initialPerRace + (index < remainder ? 1 : 0);
+        // Priority 1: Use hatched_by_race if available (per-race data - final)
+        if (finalLotForm.hatched_by_race && Object.keys(finalLotForm.hatched_by_race).length > 0) {
+          raceNames.forEach((raceName) => {
+            const count = finalLotForm.hatched_by_race[raceName] || 0;
             finalLotForm.races[raceName] = {
               ...finalLotForm.races[raceName],
               initial: count,
               current: count
             };
           });
+        }
+        // Priority 2: Use fertilized_by_race if available (per-race data - after fertilization check)
+        else if (finalLotForm.fertilized_by_race && Object.keys(finalLotForm.fertilized_by_race).length > 0) {
+          raceNames.forEach((raceName) => {
+            const count = finalLotForm.fertilized_by_race[raceName] || 0;
+            finalLotForm.races[raceName] = {
+              ...finalLotForm.races[raceName],
+              initial: count,
+              current: count
+            };
+          });
+        }
+        // Priority 3: Use hatched_count if available (total - distribute proportionally)
+        else if (finalLotForm.hatched_count > 0) {
+          const totalInitial = finalLotForm.hatched_count;
+          const totalEggs = finalLotForm.eggs_count || 0;
+          
+          if (totalEggs > 0 && finalLotForm.eggs_by_race && Object.keys(finalLotForm.eggs_by_race).length > 0) {
+            let distributed = 0;
+            raceNames.forEach((raceName, index) => {
+              const eggsForRace = finalLotForm.eggs_by_race[raceName] || 0;
+              const proportion = eggsForRace / totalEggs;
+              const count = index === raceNames.length - 1 
+                ? totalInitial - distributed
+                : Math.round(totalInitial * proportion);
+              distributed += count;
+              
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count
+              };
+            });
+          } else {
+            const initialPerRace = Math.floor(totalInitial / raceNames.length);
+            const remainder = totalInitial % raceNames.length;
+            raceNames.forEach((raceName, index) => {
+              const count = initialPerRace + (index < remainder ? 1 : 0);
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count
+              };
+            });
+          }
+        }
+        // Priority 4: Use fertilized_count if available (total - distribute proportionally)
+        else if (finalLotForm.fertilized_count > 0) {
+          const totalInitial = finalLotForm.fertilized_count;
+          const totalEggs = finalLotForm.eggs_count || 0;
+          
+          if (totalEggs > 0 && finalLotForm.eggs_by_race && Object.keys(finalLotForm.eggs_by_race).length > 0) {
+            let distributed = 0;
+            raceNames.forEach((raceName, index) => {
+              const eggsForRace = finalLotForm.eggs_by_race[raceName] || 0;
+              const proportion = eggsForRace / totalEggs;
+              const count = index === raceNames.length - 1 
+                ? totalInitial - distributed
+                : Math.round(totalInitial * proportion);
+              distributed += count;
+              
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count
+              };
+            });
+          } else {
+            const initialPerRace = Math.floor(totalInitial / raceNames.length);
+            const remainder = totalInitial % raceNames.length;
+            raceNames.forEach((raceName, index) => {
+              const count = initialPerRace + (index < remainder ? 1 : 0);
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count
+              };
+            });
+          }
+        }
+        // Priority 5: Calculate from estimated_success_rate if no hatched_count/fertilized_count but eggs_count and rate are provided
+        else if (finalLotForm.eggs_count > 0 && finalLotForm.estimated_success_rate && finalLotForm.estimated_success_rate > 0) {
+          const totalInitial = Math.round(finalLotForm.eggs_count * (finalLotForm.estimated_success_rate / 100));
+          const totalEggs = finalLotForm.eggs_count || 0;
+          
+          if (totalEggs > 0 && finalLotForm.eggs_by_race && Object.keys(finalLotForm.eggs_by_race).length > 0) {
+            let distributed = 0;
+            raceNames.forEach((raceName, index) => {
+              const eggsForRace = finalLotForm.eggs_by_race[raceName] || 0;
+              const proportion = eggsForRace / totalEggs;
+              const count = index === raceNames.length - 1 
+                ? totalInitial - distributed
+                : Math.round(totalInitial * proportion);
+              distributed += count;
+              
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count
+              };
+            });
+          } else {
+            const initialPerRace = Math.floor(totalInitial / raceNames.length);
+            const remainder = totalInitial % raceNames.length;
+            raceNames.forEach((raceName, index) => {
+              const count = initialPerRace + (index < remainder ? 1 : 0);
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count
+              };
+            });
+          }
         }
       }
 
@@ -469,30 +730,104 @@ export default function ElevageScreen({ navigation }) {
   const saveIncubationUpdate = async () => {
     if (!editingItem) return;
 
+    // Check for validation errors
+    if (Object.keys(validationErrors).length > 0) {
+      Alert.alert('Erreur de validation', 'Veuillez corriger les erreurs avant de sauvegarder.');
+      return;
+    }
+
     try {
+      const totalEggs = parseInt(lotForm.eggs_count || editingItem.eggs_count || 0);
+      const fertilized = parseInt(lotForm.fertilized_count || 0);
+      const hatched = parseInt(lotForm.hatched_count || 0);
+      
+      // Final validation before saving
+      if (fertilized > totalEggs && totalEggs > 0) {
+        Alert.alert('Erreur', `Le nombre de fécondés (${fertilized}) ne peut pas dépasser le total d'œufs (${totalEggs}).`);
+        return;
+      }
+      
+      if (hatched > fertilized && fertilized > 0) {
+        Alert.alert('Erreur', `Le nombre d'éclos (${hatched}) ne peut pas dépasser le nombre de fécondés (${fertilized}).`);
+        return;
+      }
+
+      // Convert fertilized_by_race and hatched_by_race to integers
+      const fertilizedByRaceInt = {};
+      const hatchedByRaceInt = {};
+      if (lotForm.fertilized_by_race) {
+        Object.keys(lotForm.fertilized_by_race).forEach(raceName => {
+          fertilizedByRaceInt[raceName] = parseInt(lotForm.fertilized_by_race[raceName]) || 0;
+        });
+      }
+      if (lotForm.hatched_by_race) {
+        Object.keys(lotForm.hatched_by_race).forEach(raceName => {
+          hatchedByRaceInt[raceName] = parseInt(lotForm.hatched_by_race[raceName]) || 0;
+        });
+      }
+
       const updatedLot = {
         ...editingItem,
-        eggs_count: parseInt(lotForm.eggs_count) || editingItem.eggs_count || 0,
-        fertilized_count: parseInt(lotForm.fertilized_count) || 0,
-        rejected_count: parseInt(lotForm.rejected_count) || 0,
-        hatched_count: parseInt(lotForm.hatched_count) || 0,
+        eggs_count: totalEggs,
+        eggs_by_race: editingItem.eggs_by_race || {}, // Preserve eggs_by_race
+        fertilized_count: fertilized,
+        fertilized_by_race: Object.keys(fertilizedByRaceInt).length > 0 ? fertilizedByRaceInt : (editingItem.fertilized_by_race || {}),
+        rejected_count: totalEggs > 0 ? Math.max(0, totalEggs - fertilized) : 0,
+        hatched_count: hatched,
+        hatched_by_race: Object.keys(hatchedByRaceInt).length > 0 ? hatchedByRaceInt : (editingItem.hatched_by_race || {}),
         fertilization_check_date: lotForm.fertilization_check_date || editingItem.fertilization_check_date || ''
       };
 
-      // If hatched_count is set and races exist, update initial/current
-      if (updatedLot.hatched_count > 0 && Object.keys(updatedLot.races).length > 0) {
+      // Update initial/current from per-race values (hatched_by_race > fertilized_by_race)
+      if (Object.keys(updatedLot.races).length > 0) {
         const raceNames = Object.keys(updatedLot.races);
-        const hatchedPerRace = Math.floor(updatedLot.hatched_count / raceNames.length);
-        const remainder = updatedLot.hatched_count % raceNames.length;
-
-        raceNames.forEach((raceName, index) => {
-          const count = hatchedPerRace + (index < remainder ? 1 : 0);
+        
+        raceNames.forEach((raceName) => {
           const currentRaceData = updatedLot.races[raceName];
-          updatedLot.races[raceName] = {
-            ...currentRaceData,
-            initial: count,
-            current: currentRaceData.current || count
-          };
+          let count = 0;
+          
+          // Priority 1: Use hatched_by_race if available (final count)
+          if (updatedLot.hatched_by_race && updatedLot.hatched_by_race[raceName] !== undefined) {
+            count = updatedLot.hatched_by_race[raceName] || 0;
+            updatedLot.races[raceName] = {
+              ...currentRaceData,
+              initial: count,
+              current: count
+            };
+          }
+          // Priority 2: Use fertilized_by_race if available (after fertilization check)
+          else if (updatedLot.fertilized_by_race && updatedLot.fertilized_by_race[raceName] !== undefined) {
+            count = updatedLot.fertilized_by_race[raceName] || 0;
+            updatedLot.races[raceName] = {
+              ...currentRaceData,
+              initial: count,
+              current: count
+            };
+          }
+          // Fallback: If no per-race data, use proportional distribution from totals
+          else if (hatched > 0 || fertilized > 0) {
+            const quantityToDistribute = hatched > 0 ? hatched : fertilized;
+            const eggsByRace = updatedLot.eggs_by_race || {};
+            const totalEggsForDistribution = totalEggs || 0;
+            
+            if (totalEggsForDistribution > 0 && Object.keys(eggsByRace).length > 0) {
+              const eggsForRace = eggsByRace[raceName] || 0;
+              const proportion = eggsForRace / totalEggsForDistribution;
+              count = Math.round(quantityToDistribute * proportion);
+            } else {
+              // Even distribution fallback
+              const perRace = Math.floor(quantityToDistribute / raceNames.length);
+              const raceIndex = raceNames.indexOf(raceName);
+              const remainder = quantityToDistribute % raceNames.length;
+              count = perRace + (raceIndex < remainder ? 1 : 0);
+            }
+            
+            updatedLot.races[raceName] = {
+              ...currentRaceData,
+              initial: count,
+              current: count
+            };
+          }
         });
       }
 
@@ -600,12 +935,18 @@ export default function ElevageScreen({ navigation }) {
   };
 
   const addRaceToLot = (raceName) => {
+    const newEggsByRace = {
+      ...lotForm.eggs_by_race,
+      [raceName]: undefined // Leave empty, don't set to 0
+    };
+    
     setLotForm({
       ...lotForm,
       races: {
         ...lotForm.races,
-        [raceName]: { initial: 0, current: 0, males: 0, females: 0, deaths: 0 }
-      }
+        [raceName]: { initial: undefined, current: undefined, males: undefined, females: undefined, deaths: undefined }
+      },
+      eggs_by_race: newEggsByRace
     });
   };
 
@@ -624,10 +965,121 @@ export default function ElevageScreen({ navigation }) {
 
   const removeRaceFromLot = (raceName) => {
     const newRaces = { ...lotForm.races };
+    const newEggsByRace = { ...lotForm.eggs_by_race };
     delete newRaces[raceName];
+    delete newEggsByRace[raceName];
+    
+    // Recalculate total eggs (only count non-empty values)
+    const totalEggs = Object.values(newEggsByRace).reduce((sum, count) => {
+      const num = count !== undefined && count !== null ? parseInt(count) : 0;
+      return sum + (isNaN(num) ? 0 : num);
+    }, 0);
+    
     setLotForm({
       ...lotForm,
-      races: newRaces
+      races: newRaces,
+      eggs_by_race: newEggsByRace,
+      eggs_count: totalEggs > 0 ? totalEggs.toString() : ''
+    });
+  };
+
+  const updateEggsForRace = (raceName, eggCount) => {
+    // Store as string, or undefined if empty
+    const value = eggCount.trim() === '' ? undefined : eggCount;
+    const newEggsByRace = {
+      ...lotForm.eggs_by_race,
+      [raceName]: value
+    };
+    
+    // Calculate total eggs from all races (only count non-empty values)
+    const totalEggs = Object.values(newEggsByRace).reduce((sum, count) => {
+      const num = count !== undefined && count !== null ? parseInt(count) : 0;
+      return sum + (isNaN(num) ? 0 : num);
+    }, 0);
+    
+    setLotForm({
+      ...lotForm,
+      eggs_by_race: newEggsByRace,
+      eggs_count: totalEggs > 0 ? totalEggs.toString() : ''
+    });
+  };
+
+  const updateFertilizedForRace = (raceName, fertilizedCount) => {
+    // Only allow numeric input
+    const numericText = fertilizedCount.replace(/[^0-9]/g, '');
+    const eggsForRace = parseInt(editingItem?.eggs_by_race?.[raceName] || lotForm.eggs_by_race?.[raceName] || 0);
+    const fertilizedNum = parseInt(numericText || 0);
+    
+    // Validate: fertilized cannot exceed eggs for this race
+    let finalValue = numericText;
+    if (numericText && eggsForRace > 0 && fertilizedNum > eggsForRace) {
+      Alert.alert(
+        'Valeur invalide',
+        `Impossible: ${fertilizedNum} fécondés dépasse le total de ${eggsForRace} œufs pour ${raceName}. La valeur sera limitée à ${eggsForRace}.`,
+        [{ text: 'OK' }]
+      );
+      finalValue = eggsForRace.toString();
+    }
+    
+    // Store as string, or undefined if empty
+    const value = finalValue.trim() === '' ? undefined : finalValue;
+    const newFertilizedByRace = {
+      ...lotForm.fertilized_by_race,
+      [raceName]: value
+    };
+    
+    // Calculate total fertilized from all races
+    const totalFertilized = Object.values(newFertilizedByRace).reduce((sum, count) => {
+      const num = count !== undefined && count !== null ? parseInt(count) : 0;
+      return sum + (isNaN(num) ? 0 : num);
+    }, 0);
+    
+    // Calculate rejected count
+    const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+    const rejected = totalEggs > 0 ? Math.max(0, totalEggs - totalFertilized) : '';
+    
+    setLotForm({
+      ...lotForm,
+      fertilized_by_race: newFertilizedByRace,
+      fertilized_count: totalFertilized > 0 ? totalFertilized.toString() : '',
+      rejected_count: rejected.toString()
+    });
+  };
+
+  const updateHatchedForRace = (raceName, hatchedCount) => {
+    // Only allow numeric input
+    const numericText = hatchedCount.replace(/[^0-9]/g, '');
+    const fertilizedForRace = parseInt(lotForm.fertilized_by_race?.[raceName] || editingItem?.fertilized_by_race?.[raceName] || 0);
+    const hatchedNum = parseInt(numericText || 0);
+    
+    // Validate: hatched cannot exceed fertilized for this race
+    let finalValue = numericText;
+    if (numericText && fertilizedForRace > 0 && hatchedNum > fertilizedForRace) {
+      Alert.alert(
+        'Valeur invalide',
+        `Impossible: ${hatchedNum} éclos dépasse le nombre de ${fertilizedForRace} fécondés pour ${raceName}. La valeur sera limitée à ${fertilizedForRace}.`,
+        [{ text: 'OK' }]
+      );
+      finalValue = fertilizedForRace.toString();
+    }
+    
+    // Store as string, or undefined if empty
+    const value = finalValue.trim() === '' ? undefined : finalValue;
+    const newHatchedByRace = {
+      ...lotForm.hatched_by_race,
+      [raceName]: value
+    };
+    
+    // Calculate total hatched from all races
+    const totalHatched = Object.values(newHatchedByRace).reduce((sum, count) => {
+      const num = count !== undefined && count !== null ? parseInt(count) : 0;
+      return sum + (isNaN(num) ? 0 : num);
+    }, 0);
+    
+    setLotForm({
+      ...lotForm,
+      hatched_by_race: newHatchedByRace,
+      hatched_count: totalHatched > 0 ? totalHatched.toString() : ''
     });
   };
 
@@ -635,7 +1087,11 @@ export default function ElevageScreen({ navigation }) {
     const updatedForm = {
       ...lotForm,
       species: species,
-      races: {} // Clear races when species changes
+      races: {}, // Clear races when species changes
+      eggs_by_race: {}, // Clear eggs_by_race when species changes
+      eggs_count: '', // Clear eggs_count when species changes
+      fertilized_by_race: {}, // Clear fertilized_by_race when species changes
+      hatched_by_race: {} // Clear hatched_by_race when species changes
     };
 
     // Recalculate estimated dates if incubation_start_date is set
@@ -756,12 +1212,64 @@ export default function ElevageScreen({ navigation }) {
     await configService.saveElevageCollapsedLots(newCollapsedLots);
   };
 
+  const scrollToLot = (lotId) => {
+    const position = lotItemPositions.current[lotId];
+    if (position && lotsFlatListRef.current) {
+      try {
+        const lotIndex = lots.findIndex(lot => lot.id === lotId);
+        if (lotIndex !== -1) {
+          lotsFlatListRef.current.scrollToIndex({
+            index: lotIndex,
+            animated: true,
+            viewPosition: 0.5 // Center the item in the view
+          });
+        }
+      } catch (error) {
+        console.log('ScrollToIndex failed, using fallback:', error);
+        // Fallback: scroll to offset if scrollToIndex fails
+        const estimatedItemHeight = 200; // Approximate height of each lot card
+        const lotIndex = lots.findIndex(lot => lot.id === lotId);
+        if (lotIndex !== -1) {
+          const offset = lotIndex * estimatedItemHeight;
+          lotsFlatListRef.current.scrollToOffset({
+            offset: offset,
+            animated: true
+          });
+        }
+      }
+    }
+  };
+
+  const handleLotLayout = (lotId, event) => {
+    const { y } = event.nativeEvent.layout;
+    lotItemPositions.current[lotId] = y;
+  };
+
   const getLotStatus = (lot) => {
-    const totalAlive = Object.values(lot.races).reduce((total, race) => total + race.current, 0);
-    const totalInitial = Object.values(lot.races).reduce((total, race) => total + race.initial, 0);
-    const survivalRate = totalInitial > 0 ? (totalAlive / totalInitial) : 0;
+    // Check if still incubating (has eggs but no hatched count or hatched count is 0)
+    const isIncubating = lot.eggs_count > 0 && (!lot.hatched_count || lot.hatched_count === 0);
     
-    if (totalAlive === 0) return { status: 'Épuisé', color: '#F44336' };
+    if (isIncubating) {
+      // Check if fertilization check has been done
+      if (lot.fertilization_check_date) {
+        return { status: 'En incubation (fécondés)', color: '#2196F3' };
+      }
+      return { status: 'En incubation', color: '#2196F3' };
+    }
+    
+    const totalAlive = Object.values(lot.races).reduce((total, race) => total + (race.current || 0), 0);
+    const totalInitial = Object.values(lot.races).reduce((total, race) => total + (race.initial || 0), 0);
+    
+    // Can't be "Épuisé" if nothing has been born yet
+    if (totalInitial === 0 && totalAlive === 0) {
+      return { status: 'En attente', color: '#9E9E9E' };
+    }
+    
+    if (totalAlive === 0 && totalInitial > 0) {
+      return { status: 'Épuisé', color: '#F44336' };
+    }
+    
+    const survivalRate = totalInitial > 0 ? (totalAlive / totalInitial) : 0;
     if (survivalRate < 0.5) return { status: 'Faible', color: '#FF9800' };
     if (survivalRate < 0.8) return { status: 'Moyen', color: '#FF9800' };
     return { status: 'Actif', color: '#4CAF50' };
@@ -809,9 +1317,17 @@ export default function ElevageScreen({ navigation }) {
     const totalAlive = Object.values(item.races).reduce((total, race) => total + race.current, 0);
     const totalInitial = Object.values(item.races).reduce((total, race) => total + race.initial, 0);
     const isEstimated = isLotEstimated(item);
+    const isHighlighted = highlightedLotId === item.id;
     
     return (
-      <View style={[styles.card, isEstimated && styles.cardEstimated]}>
+      <View 
+        style={[
+          styles.card, 
+          isEstimated && styles.cardEstimated,
+          isHighlighted && styles.highlightedLotCard
+        ]}
+        onLayout={(event) => handleLotLayout(item.id, event)}
+      >
         <TouchableOpacity 
           style={styles.cardHeader}
           onPress={() => toggleLotCollapse(item.id)}
@@ -1016,7 +1532,7 @@ export default function ElevageScreen({ navigation }) {
     );
   };
 
-  const RaceItem = ({ item, index, totalRaces, sortedRaces, setIsDraggingRace, flatListRef, scrollOffsetRef }) => {
+  const RaceItem = ({ item, index, totalRaces, sortedRaces, setIsDraggingRace, flatListRef, scrollOffsetRef, dragInsertPosition, setDragInsertPosition, draggingItemIndex }) => {
     const lotsWithRace = getLotsByRace(item.name);
     const totalStock = lotsWithRace.reduce((total, lot) => total + lot.races[item.name].current, 0);
     
@@ -1033,6 +1549,7 @@ export default function ElevageScreen({ navigation }) {
     const hasMoved = useRef(false);
     const autoScrollTimer = useRef(null);
     const currentPageY = useRef(0);
+    const cardLayout = useRef({ y: 0, height: 0 });
     
     const handleEdit = () => {
       if (isDragging) return;
@@ -1147,9 +1664,52 @@ export default function ElevageScreen({ navigation }) {
           // Update translateY for visual feedback
           translateY.setValue(deltaY);
           
-          // Calculate target index based on movement
-          const newIndex = Math.max(0, Math.min(totalRaces - 1, Math.round(touchStartIndex.current + deltaY / cardHeight.current)));
+          // Calculate target index based on movement - use middle of card for insertion
+          const cardMiddleY = currentY;
+          const estimatedItemHeight = cardHeight.current;
           
+          // Calculate which position we're hovering over
+          // Check if we're above or below the middle of each item
+          let insertPosition = null;
+          
+          for (let i = 0; i < totalRaces; i++) {
+            if (i === index) continue; // Skip the item being dragged
+            
+            // Estimate position of item i
+            const itemTop = i * estimatedItemHeight;
+            const itemMiddle = itemTop + estimatedItemHeight / 2;
+            const itemBottom = itemTop + estimatedItemHeight;
+            
+            // Check if we're in the middle zone of this item (between top and bottom)
+            if (cardMiddleY >= itemTop && cardMiddleY <= itemBottom) {
+              // Determine if we're above or below the middle
+              if (cardMiddleY < itemMiddle) {
+                // Insert before this item
+                insertPosition = i;
+                break;
+              } else {
+                // Insert after this item
+                insertPosition = i + 1;
+                break;
+              }
+            }
+          }
+          
+          // Fallback: calculate based on delta
+          if (insertPosition === null) {
+            const newIndex = Math.max(0, Math.min(totalRaces - 1, Math.round(touchStartIndex.current + deltaY / estimatedItemHeight)));
+            insertPosition = newIndex < index ? newIndex : newIndex + 1;
+          }
+          
+          // Clamp insert position
+          insertPosition = Math.max(0, Math.min(totalRaces, insertPosition));
+          
+          if (setDragInsertPosition) {
+            setDragInsertPosition(insertPosition);
+          }
+          
+          // Also update dragOverIndex for backward compatibility
+          const newIndex = insertPosition > index ? insertPosition - 1 : insertPosition;
           if (newIndex !== dragOverIndex && newIndex !== index && newIndex >= 0 && newIndex < totalRaces) {
             setDragOverIndex(newIndex);
           }
@@ -1234,11 +1794,24 @@ export default function ElevageScreen({ navigation }) {
             }),
           ]).start();
           
-          // Handle drop
-          const currentDragOverIndex = dragOverIndex;
-          if (currentDragOverIndex !== null && currentDragOverIndex !== index && sortedRaces && currentDragOverIndex >= 0 && currentDragOverIndex < totalRaces) {
+          // Handle drop using insertPosition if available, otherwise fallback to dragOverIndex
+          const insertPos = dragInsertPosition !== null && dragInsertPosition !== undefined ? dragInsertPosition : null;
+          let targetIndex = null;
+          
+          if (insertPos !== null && insertPos >= 0 && insertPos <= totalRaces) {
+            // Calculate target index based on insert position
+            if (insertPos <= index) {
+              targetIndex = insertPos;
+            } else {
+              targetIndex = insertPos - 1; // Account for removing current item
+            }
+          } else if (dragOverIndex !== null && dragOverIndex !== index && dragOverIndex >= 0 && dragOverIndex < totalRaces) {
+            targetIndex = dragOverIndex;
+          }
+          
+          if (targetIndex !== null && targetIndex !== index && sortedRaces && targetIndex >= 0 && targetIndex < totalRaces) {
             try {
-              const targetRace = sortedRaces[currentDragOverIndex];
+              const targetRace = sortedRaces[targetIndex];
               await database.reorderRaces(item.id, targetRace.id);
               loadData();
             } catch (error) {
@@ -1250,6 +1823,9 @@ export default function ElevageScreen({ navigation }) {
           setIsDragging(false);
           setIsDraggingRace(false);
           setDragOverIndex(null);
+          if (setDragInsertPosition) {
+            setDragInsertPosition(null);
+          }
         } else if (!hasMoved.current) {
           // Quick tap - open edit
           const timeHeld = Date.now() - touchStartTime.current;
@@ -1328,10 +1904,12 @@ export default function ElevageScreen({ navigation }) {
         {...panResponder.panHandlers}
       >
         <View style={styles.cardContent}>
-          {/* Drag handle on the left */}
-          <View style={styles.dragHandleContainer}>
-            <Text style={styles.dragHandle}>☰</Text>
-          </View>
+          {/* Drag handle on the left - only show when dragging */}
+          {isDragging && (
+            <View style={styles.dragHandleContainer}>
+              <Text style={styles.dragHandle}>☰</Text>
+            </View>
+          )}
           
           {/* Main content */}
           <TouchableOpacity
@@ -1446,11 +2024,16 @@ export default function ElevageScreen({ navigation }) {
         <View style={styles.content}>
         {activeTab === 'lots' && (
           <FlatList
+            ref={lotsFlatListRef}
             data={lots}
             renderItem={({ item }) => <LotItem item={item} />}
             keyExtractor={item => item.id.toString()}
             style={styles.list}
             showsVerticalScrollIndicator={false}
+            onScrollToIndexFailed={(info) => {
+              // Fallback if scrollToIndex fails
+              console.log('Scroll to index failed:', info);
+            }}
           />
         )}
 
@@ -1951,14 +2534,104 @@ export default function ElevageScreen({ navigation }) {
                       {/* Incubation Statistics - Initial Setup */}
                       <Text style={styles.sectionTitle}>🥚 Données d'incubation:</Text>
                       
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Nombre d'œufs mis en incubation *"
-                        placeholderTextColor="#999"
-                        value={lotForm.eggs_count}
-                        onChangeText={(text) => setLotForm({...lotForm, eggs_count: text})}
-                        keyboardType="number-pad"
-                      />
+                      {/* Race Selection (for poultry) - integrated into incubation section */}
+                      {['poussins', 'cailles', 'canards', 'oies', 'dindes'].includes(lotForm.species) && (
+                        <>
+                          <Text style={styles.inputLabel}>Sélectionner les races:</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={styles.raceSelector}>
+                              {getRacesForSpecies(lotForm.species).map((race) => (
+                                <TouchableOpacity
+                                  key={race.id}
+                                  style={[
+                                    styles.raceSelectorItem,
+                                    lotForm.races[race.name] && styles.raceSelectorItemSelected
+                                  ]}
+                                  onPress={() => {
+                                    if (lotForm.races[race.name]) {
+                                      removeRaceFromLot(race.name);
+                                    } else {
+                                      // Recalculate estimated dates when race is added (for special cases like barbaries)
+                                      if (lotForm.incubation_start_date && lotForm.species === 'canards') {
+                                        const hatchingDates = calculateEstimatedHatchingDate(
+                                          lotForm.species,
+                                          race.name,
+                                          lotForm.incubation_start_date
+                                        );
+                                        const newEggsByRace = {
+                                          ...lotForm.eggs_by_race,
+                                          [race.name]: undefined // Leave empty, don't set to 0
+                                        };
+                                        setLotForm({
+                                          ...lotForm,
+                                          races: {
+                                            ...lotForm.races,
+                                            [race.name]: { initial: undefined, current: undefined, males: undefined, females: undefined, deaths: undefined }
+                                          },
+                                          eggs_by_race: newEggsByRace,
+                                          estimated_hatching_date: hatchingDates.estimatedDate,
+                                          estimated_min_date: hatchingDates.minDate,
+                                          estimated_max_date: hatchingDates.maxDate
+                                        });
+                                      } else {
+                                        addRaceToLot(race.name);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <Text style={[
+                                    styles.raceSelectorText,
+                                    lotForm.races[race.name] && styles.raceSelectorTextSelected
+                                  ]}>
+                                    {lotForm.races[race.name] ? '✓ ' : ''}{race.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                              {getRacesForSpecies(lotForm.species).length === 0 && (
+                                <Text style={styles.noRacesText}>
+                                  Aucune race trouvée pour cette espèce. Créez d'abord une race.
+                                </Text>
+                              )}
+                            </View>
+                          </ScrollView>
+                          
+                          {/* Per-race egg inputs - shown after races are selected */}
+                          {Object.keys(lotForm.races).length > 0 && (
+                            <>
+                              <Text style={[styles.inputLabel, { marginTop: 15 }]}>Nombre d'œufs par race:</Text>
+                              {Object.keys(lotForm.races).map((raceName) => (
+                                <View key={raceName} style={styles.raceEggInputContainer}>
+                                  <Text style={styles.raceEggLabel}>{raceName}:</Text>
+                                  <TextInput
+                                    style={styles.numberInput}
+                                    placeholder=""
+                                    placeholderTextColor="#999"
+                                    value={lotForm.eggs_by_race[raceName] !== undefined && lotForm.eggs_by_race[raceName] !== null ? lotForm.eggs_by_race[raceName].toString() : ''}
+                                    onChangeText={(text) => updateEggsForRace(raceName, text)}
+                                    keyboardType="number-pad"
+                                  />
+                                </View>
+                              ))}
+                              <View style={styles.totalEggsDisplay}>
+                                <Text style={styles.totalEggsLabel}>Total œufs:</Text>
+                                <Text style={styles.totalEggsValue}>{lotForm.eggs_count || 0}</Text>
+                              </View>
+                            </>
+                          )}
+                        </>
+                      )}
+                      
+                      {/* Single input for non-poultry */}
+                      {!['poussins', 'cailles', 'canards', 'oies', 'dindes'].includes(lotForm.species) && (
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Nombre d'œufs mis en incubation *"
+                          placeholderTextColor="#999"
+                          value={lotForm.eggs_count}
+                          onChangeText={(text) => setLotForm({...lotForm, eggs_count: text})}
+                          keyboardType="number-pad"
+                        />
+                      )}
 
                       {/* Estimated Success Rate - Only show if hatched_count is not filled */}
                       {(!lotForm.hatched_count || lotForm.hatched_count === '' || parseInt(lotForm.hatched_count) === 0) && (
@@ -1989,94 +2662,6 @@ export default function ElevageScreen({ navigation }) {
                     </>
                   )}
 
-                  {/* Race Selection (for poultry) */}
-                  {lotForm.species && ['poussins', 'cailles', 'canards', 'oies', 'dindes'].includes(lotForm.species) && (
-                    <>
-                      <Text style={styles.sectionTitle}>Races dans ce lot:</Text>
-                  
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.raceSelector}>
-                      {getRacesForSpecies(lotForm.species).map((race) => (
-                        <TouchableOpacity
-                          key={race.id}
-                          style={[
-                            styles.raceSelectorItem,
-                            lotForm.races[race.name] && styles.raceSelectorItemSelected
-                          ]}
-                          onPress={() => {
-                            if (lotForm.races[race.name]) {
-                              removeRaceFromLot(race.name);
-                            } else {
-                              // Recalculate estimated dates when race is added (for special cases like barbaries)
-                              if (lotForm.incubation_start_date && lotForm.species === 'canards') {
-                                const hatchingDates = calculateEstimatedHatchingDate(
-                                  lotForm.species,
-                                  race.name,
-                                  lotForm.incubation_start_date
-                                );
-                                setLotForm({
-                                  ...lotForm,
-                                  races: {
-                                    ...lotForm.races,
-                                    [race.name]: { initial: 0, current: 0, males: 0, females: 0, deaths: 0 }
-                                  },
-                                  estimated_hatching_date: hatchingDates.estimatedDate,
-                                  estimated_min_date: hatchingDates.minDate,
-                                  estimated_max_date: hatchingDates.maxDate
-                                });
-                              } else {
-                                addRaceToLot(race.name);
-                              }
-                            }
-                          }}
-                        >
-                          <Text style={[
-                            styles.raceSelectorText,
-                            lotForm.races[race.name] && styles.raceSelectorTextSelected
-                          ]}>
-                            {lotForm.races[race.name] ? '✓ ' : ''}{race.name}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                      {getRacesForSpecies(lotForm.species).length === 0 && (
-                        <Text style={styles.noRacesText}>
-                          Aucune race trouvée pour cette espèce. Créez d'abord une race.
-                        </Text>
-                      )}
-                    </View>
-                  </ScrollView>
-                  </>
-                  )}
-
-                  {Object.entries(lotForm.races).map(([raceName, raceData]) => (
-                    <View key={raceName} style={styles.raceConfig}>
-                      <Text style={styles.raceConfigTitle}>{raceName}:</Text>
-                      <View style={styles.raceConfigInputs}>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>Initialement:</Text>
-                          <TextInput
-                            style={[styles.input, styles.smallInput]}
-                            placeholder="0"
-                            placeholderTextColor="#999"
-                            value={raceData.initial?.toString() || ''}
-                            onChangeText={(text) => updateRaceInLot(raceName, 'initial', text)}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                        <View style={styles.inputWithLabel}>
-                          <Text style={styles.inputLabel}>Vivant:</Text>
-                          <TextInput
-                            style={[styles.input, styles.smallInput]}
-                            placeholder="0"
-                            placeholderTextColor="#999"
-                            value={raceData.current?.toString() || ''}
-                            onChangeText={(text) => updateRaceInLot(raceName, 'current', text)}
-                            keyboardType="number-pad"
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  ))}
 
                   <TextInput
                     style={[styles.input, styles.textArea]}
@@ -2189,22 +2774,106 @@ export default function ElevageScreen({ navigation }) {
                               <Text style={styles.suggestionButtonText}>📅 Modifier la date</Text>
                             </TouchableOpacity>
                             <View style={styles.inputGroup}>
-                              <TextInput
-                                style={styles.input}
-                                placeholder="Nombre d'œufs fécondés"
-                                placeholderTextColor="#999"
-                                value={lotForm.fertilized_count}
-                                onChangeText={(text) => setLotForm({...lotForm, fertilized_count: text})}
-                                keyboardType="number-pad"
-                              />
-                              <TextInput
-                                style={styles.input}
-                                placeholder="Nombre d'œufs rejetés/non fécondés"
-                                placeholderTextColor="#999"
-                                value={lotForm.rejected_count}
-                                onChangeText={(text) => setLotForm({...lotForm, rejected_count: text})}
-                                keyboardType="number-pad"
-                              />
+                              {/* Per-race inputs if races exist, otherwise single input */}
+                              {editingItem?.races && Object.keys(editingItem.races).length > 0 ? (
+                                <>
+                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>Nombre d'œufs fécondés par race:</Text>
+                                  {Object.keys(editingItem.races).map((raceName) => {
+                                    const eggsForRace = editingItem?.eggs_by_race?.[raceName] || 0;
+                                    return (
+                                      <View key={raceName} style={styles.raceEggInputContainer}>
+                                        <Text style={styles.raceEggLabel}>{raceName}:</Text>
+                                        <TextInput
+                                          style={styles.numberInput}
+                                          placeholder={`0 à ${eggsForRace}`}
+                                          placeholderTextColor="#999"
+                                          value={lotForm.fertilized_by_race?.[raceName] !== undefined && lotForm.fertilized_by_race[raceName] !== null ? lotForm.fertilized_by_race[raceName].toString() : ''}
+                                          onChangeText={(text) => updateFertilizedForRace(raceName, text)}
+                                          keyboardType="number-pad"
+                                        />
+                                      </View>
+                                    );
+                                  })}
+                                  <View style={styles.totalEggsDisplay}>
+                                    <Text style={styles.totalEggsLabel}>Total fécondés:</Text>
+                                    <Text style={styles.totalEggsValue}>{lotForm.fertilized_count || 0}</Text>
+                                  </View>
+                                  <View style={styles.totalEggsDisplay}>
+                                    <Text style={styles.totalEggsLabel}>Total rejetés:</Text>
+                                    <Text style={[styles.totalEggsValue, { color: '#F44336' }]}>
+                                      {(() => {
+                                        const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+                                        const fertilized = parseInt(lotForm.fertilized_count || 0);
+                                        return totalEggs > 0 ? Math.max(0, totalEggs - fertilized) : 0;
+                                      })()}
+                                    </Text>
+                                  </View>
+                                </>
+                              ) : (
+                                <View style={styles.fertilizationInputRow}>
+                                  <View style={styles.fertilizationInputContainer}>
+                                    <Text style={styles.inputLabel}>Nombre d'œufs fécondés:</Text>
+                                    <TextInput
+                                      style={[
+                                        styles.numberInput,
+                                        validationErrors.fertilized_count && styles.numberInputError
+                                      ]}
+                                      placeholder={`0 à ${lotForm.eggs_count || editingItem?.eggs_count || 0}`}
+                                      placeholderTextColor="#999"
+                                      value={lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0 ? lotForm.fertilized_count : ''}
+                                      onChangeText={(text) => {
+                                        const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+                                        
+                                        // Only allow numeric input
+                                        const numericText = text.replace(/[^0-9]/g, '');
+                                        const fertilizedNum = parseInt(numericText || 0);
+                                        
+                                        // Validate: fertilized cannot exceed total eggs
+                                        const errors = { ...validationErrors };
+                                        if (numericText && fertilizedNum > totalEggs && totalEggs > 0) {
+                                          // Show alert warning
+                                          Alert.alert(
+                                            'Valeur invalide',
+                                            `Impossible: ${fertilizedNum} fécondés dépasse le total de ${totalEggs} œufs. La valeur sera limitée à ${totalEggs}.`,
+                                            [{ text: 'OK' }]
+                                          );
+                                          // Cap at maximum
+                                          const maxFertilized = totalEggs.toString();
+                                          const rejected = totalEggs > 0 ? Math.max(0, totalEggs - totalEggs) : '';
+                                          setLotForm({
+                                            ...lotForm, 
+                                            fertilized_count: maxFertilized,
+                                            rejected_count: rejected.toString()
+                                          });
+                                          delete errors.fertilized_count;
+                                        } else {
+                                          delete errors.fertilized_count;
+                                          const rejected = totalEggs > 0 ? Math.max(0, totalEggs - fertilizedNum) : '';
+                                          setLotForm({
+                                            ...lotForm, 
+                                            fertilized_count: numericText,
+                                            rejected_count: rejected.toString()
+                                          });
+                                        }
+                                        setValidationErrors(errors);
+                                      }}
+                                      keyboardType="number-pad"
+                                    />
+                                  </View>
+                                  <View style={styles.fertilizationDisplayContainer}>
+                                    <Text style={styles.inputLabel}>Nombre d'œufs rejetés:</Text>
+                                    <View style={styles.readOnlyNumberDisplay}>
+                                      <Text style={styles.readOnlyNumberText}>
+                                        {(() => {
+                                          const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+                                          const fertilized = parseInt(lotForm.fertilized_count || 0);
+                                          return totalEggs > 0 ? Math.max(0, totalEggs - fertilized) : '';
+                                        })()}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </View>
+                              )}
                               <Text style={styles.infoText}>
                                 💡 Total: {parseInt(lotForm.fertilized_count || 0) + parseInt(lotForm.rejected_count || 0)} sur {lotForm.eggs_count || editingItem?.eggs_count || 0} œufs
                               </Text>
@@ -2232,22 +2901,106 @@ export default function ElevageScreen({ navigation }) {
                             </TouchableOpacity>
                             {lotForm.fertilization_check_date && (
                               <View style={styles.inputGroup}>
-                                <TextInput
-                                  style={styles.input}
-                                  placeholder="Nombre d'œufs fécondés"
-                                  placeholderTextColor="#999"
-                                  value={lotForm.fertilized_count}
-                                  onChangeText={(text) => setLotForm({...lotForm, fertilized_count: text})}
-                                  keyboardType="number-pad"
-                                />
-                                <TextInput
-                                  style={styles.input}
-                                  placeholder="Nombre d'œufs rejetés/non fécondés"
-                                  placeholderTextColor="#999"
-                                  value={lotForm.rejected_count}
-                                  onChangeText={(text) => setLotForm({...lotForm, rejected_count: text})}
-                                  keyboardType="number-pad"
-                                />
+                                {/* Per-race inputs if races exist, otherwise single input */}
+                                {editingItem?.races && Object.keys(editingItem.races).length > 0 ? (
+                                  <>
+                                    <Text style={[styles.inputLabel, { marginBottom: 10 }]}>Nombre d'œufs fécondés par race:</Text>
+                                    {Object.keys(editingItem.races).map((raceName) => {
+                                      const eggsForRace = editingItem?.eggs_by_race?.[raceName] || 0;
+                                      return (
+                                        <View key={raceName} style={styles.raceEggInputContainer}>
+                                          <Text style={styles.raceEggLabel}>{raceName}:</Text>
+                                          <TextInput
+                                            style={styles.numberInput}
+                                            placeholder={`0 à ${eggsForRace}`}
+                                            placeholderTextColor="#999"
+                                            value={lotForm.fertilized_by_race?.[raceName] !== undefined && lotForm.fertilized_by_race[raceName] !== null ? lotForm.fertilized_by_race[raceName].toString() : ''}
+                                            onChangeText={(text) => updateFertilizedForRace(raceName, text)}
+                                            keyboardType="number-pad"
+                                          />
+                                        </View>
+                                      );
+                                    })}
+                                    <View style={styles.totalEggsDisplay}>
+                                      <Text style={styles.totalEggsLabel}>Total fécondés:</Text>
+                                      <Text style={styles.totalEggsValue}>{lotForm.fertilized_count || 0}</Text>
+                                    </View>
+                                    <View style={styles.totalEggsDisplay}>
+                                      <Text style={styles.totalEggsLabel}>Total rejetés:</Text>
+                                      <Text style={[styles.totalEggsValue, { color: '#F44336' }]}>
+                                        {(() => {
+                                          const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+                                          const fertilized = parseInt(lotForm.fertilized_count || 0);
+                                          return totalEggs > 0 ? Math.max(0, totalEggs - fertilized) : 0;
+                                        })()}
+                                      </Text>
+                                    </View>
+                                  </>
+                                ) : (
+                                  <View style={styles.fertilizationInputRow}>
+                                    <View style={styles.fertilizationInputContainer}>
+                                      <Text style={styles.inputLabel}>Nombre d'œufs fécondés:</Text>
+                                      <TextInput
+                                        style={[
+                                          styles.numberInput,
+                                          validationErrors.fertilized_count && styles.numberInputError
+                                        ]}
+                                        placeholder={`0 à ${lotForm.eggs_count || editingItem?.eggs_count || 0}`}
+                                        placeholderTextColor="#999"
+                                        value={lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0 ? lotForm.fertilized_count : ''}
+                                        onChangeText={(text) => {
+                                          const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+                                          
+                                          // Only allow numeric input
+                                          const numericText = text.replace(/[^0-9]/g, '');
+                                          const fertilizedNum = parseInt(numericText || 0);
+                                          
+                                          // Validate: fertilized cannot exceed total eggs
+                                          const errors = { ...validationErrors };
+                                          if (numericText && fertilizedNum > totalEggs && totalEggs > 0) {
+                                            // Show alert warning
+                                            Alert.alert(
+                                              'Valeur invalide',
+                                              `Impossible: ${fertilizedNum} fécondés dépasse le total de ${totalEggs} œufs. La valeur sera limitée à ${totalEggs}.`,
+                                              [{ text: 'OK' }]
+                                            );
+                                            // Cap at maximum
+                                            const maxFertilized = totalEggs.toString();
+                                            const rejected = totalEggs > 0 ? Math.max(0, totalEggs - totalEggs) : '';
+                                            setLotForm({
+                                              ...lotForm, 
+                                              fertilized_count: maxFertilized,
+                                              rejected_count: rejected.toString()
+                                            });
+                                            delete errors.fertilized_count;
+                                          } else {
+                                            delete errors.fertilized_count;
+                                            const rejected = totalEggs > 0 ? Math.max(0, totalEggs - fertilizedNum) : '';
+                                            setLotForm({
+                                              ...lotForm, 
+                                              fertilized_count: numericText,
+                                              rejected_count: rejected.toString()
+                                            });
+                                          }
+                                          setValidationErrors(errors);
+                                        }}
+                                        keyboardType="number-pad"
+                                      />
+                                    </View>
+                                    <View style={styles.fertilizationDisplayContainer}>
+                                      <Text style={styles.inputLabel}>Nombre d'œufs rejetés:</Text>
+                                      <View style={styles.readOnlyNumberDisplay}>
+                                        <Text style={styles.readOnlyNumberText}>
+                                          {(() => {
+                                            const totalEggs = parseInt(lotForm.eggs_count || editingItem?.eggs_count || 0);
+                                            const fertilized = parseInt(lotForm.fertilized_count || 0);
+                                            return totalEggs > 0 ? Math.max(0, totalEggs - fertilized) : '';
+                                          })()}
+                                        </Text>
+                                      </View>
+                                    </View>
+                                  </View>
+                                )}
                               </View>
                             )}
                           </>
@@ -2278,14 +3031,88 @@ export default function ElevageScreen({ navigation }) {
                             >
                               <Text style={styles.suggestionButtonText}>📅 Modifier la date d'éclosion</Text>
                             </TouchableOpacity>
-                            <TextInput
-                              style={styles.input}
-                              placeholder="Nombre éclos/nés"
-                              placeholderTextColor="#999"
-                              value={lotForm.hatched_count}
-                              onChangeText={(text) => setLotForm({...lotForm, hatched_count: text})}
-                              keyboardType="number-pad"
-                            />
+                            <View style={styles.hatchingInputContainer}>
+                              {/* Per-race inputs if races exist, otherwise single input */}
+                              {editingItem?.races && Object.keys(editingItem.races).length > 0 ? (
+                                <>
+                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>Nombre éclos/nés par race:</Text>
+                                  {Object.keys(editingItem.races).map((raceName) => {
+                                    const fertilizedForRace = parseInt(lotForm.fertilized_by_race?.[raceName] || editingItem?.fertilized_by_race?.[raceName] || 0);
+                                    const isDisabled = !(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) && !(editingItem?.fertilized_count && editingItem.fertilized_count > 0);
+                                    return (
+                                      <View key={raceName} style={styles.raceEggInputContainer}>
+                                        <Text style={styles.raceEggLabel}>{raceName}:</Text>
+                                        <TextInput
+                                          style={[
+                                            styles.numberInput,
+                                            isDisabled && styles.numberInputDisabled
+                                          ]}
+                                          placeholder={fertilizedForRace > 0 ? `0 à ${fertilizedForRace}` : 'Remplir d\'abord les fécondés'}
+                                          placeholderTextColor="#999"
+                                          value={lotForm.hatched_by_race?.[raceName] !== undefined && lotForm.hatched_by_race[raceName] !== null ? lotForm.hatched_by_race[raceName].toString() : ''}
+                                          onChangeText={(text) => updateHatchedForRace(raceName, text)}
+                                          keyboardType="number-pad"
+                                          editable={!isDisabled}
+                                        />
+                                      </View>
+                                    );
+                                  })}
+                                  <View style={styles.totalEggsDisplay}>
+                                    <Text style={styles.totalEggsLabel}>Total éclos/nés:</Text>
+                                    <Text style={styles.totalEggsValue}>{lotForm.hatched_count || 0}</Text>
+                                  </View>
+                                </>
+                              ) : (
+                                <>
+                                  <Text style={styles.inputLabel}>Nombre éclos/nés:</Text>
+                                  <TextInput
+                                    style={[
+                                      styles.numberInput,
+                                      validationErrors.hatched_count && styles.numberInputError,
+                                      !(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) && !(editingItem?.fertilized_count && editingItem.fertilized_count > 0) && styles.numberInputDisabled
+                                    ]}
+                                    placeholder={(() => {
+                                      const fertilized = parseInt(lotForm.fertilized_count || editingItem?.fertilized_count || 0);
+                                      return fertilized > 0 ? `0 à ${fertilized}` : 'Remplir d\'abord les fécondés';
+                                    })()}
+                                    placeholderTextColor="#999"
+                                    value={lotForm.hatched_count && parseInt(lotForm.hatched_count) > 0 ? lotForm.hatched_count : ''}
+                                    onChangeText={(text) => {
+                                      const fertilized = parseInt(lotForm.fertilized_count || editingItem?.fertilized_count || 0);
+                                      
+                                      // Only allow numeric input
+                                      const numericText = text.replace(/[^0-9]/g, '');
+                                      const hatchedNum = parseInt(numericText || 0);
+                                      
+                                      // Validate: hatched cannot exceed fertilized
+                                      const errors = { ...validationErrors };
+                                      if (numericText && fertilized > 0 && hatchedNum > fertilized) {
+                                        // Show alert warning
+                                        Alert.alert(
+                                          'Valeur invalide',
+                                          `Impossible: ${hatchedNum} éclos dépasse le nombre de ${fertilized} fécondés. La valeur sera limitée à ${fertilized}.`,
+                                          [{ text: 'OK' }]
+                                        );
+                                        // Cap at maximum
+                                        setLotForm({...lotForm, hatched_count: fertilized.toString()});
+                                        delete errors.hatched_count;
+                                      } else {
+                                        delete errors.hatched_count;
+                                        setLotForm({...lotForm, hatched_count: numericText});
+                                      }
+                                      setValidationErrors(errors);
+                                    }}
+                                    keyboardType="number-pad"
+                                    editable={!!(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) || !!(editingItem?.fertilized_count && editingItem.fertilized_count > 0)}
+                                  />
+                                  {validationErrors.hatched_count && (
+                                    <Text style={styles.validationErrorText}>
+                                      {validationErrors.hatched_count}
+                                    </Text>
+                                  )}
+                                </>
+                              )}
+                            </View>
                             <Text style={styles.infoText}>
                               💡 La modification de ce nombre mettra à jour automatiquement les quantités initiales des races.
                             </Text>
@@ -2297,14 +3124,88 @@ export default function ElevageScreen({ navigation }) {
                                 📅 Date estimée: {formatForCalendar(lotForm.estimated_hatching_date)}
                               </Text>
                             )}
-                            <TextInput
-                              style={styles.input}
-                              placeholder="Nombre éclos/nés"
-                              placeholderTextColor="#999"
-                              value={lotForm.hatched_count}
-                              onChangeText={(text) => setLotForm({...lotForm, hatched_count: text})}
-                              keyboardType="number-pad"
-                            />
+                            <View style={styles.hatchingInputContainer}>
+                              {/* Per-race inputs if races exist, otherwise single input */}
+                              {editingItem?.races && Object.keys(editingItem.races).length > 0 ? (
+                                <>
+                                  <Text style={[styles.inputLabel, { marginBottom: 10 }]}>Nombre éclos/nés par race:</Text>
+                                  {Object.keys(editingItem.races).map((raceName) => {
+                                    const fertilizedForRace = parseInt(lotForm.fertilized_by_race?.[raceName] || editingItem?.fertilized_by_race?.[raceName] || 0);
+                                    const isDisabled = !(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) && !(editingItem?.fertilized_count && editingItem.fertilized_count > 0);
+                                    return (
+                                      <View key={raceName} style={styles.raceEggInputContainer}>
+                                        <Text style={styles.raceEggLabel}>{raceName}:</Text>
+                                        <TextInput
+                                          style={[
+                                            styles.numberInput,
+                                            isDisabled && styles.numberInputDisabled
+                                          ]}
+                                          placeholder={fertilizedForRace > 0 ? `0 à ${fertilizedForRace}` : 'Remplir d\'abord les fécondés'}
+                                          placeholderTextColor="#999"
+                                          value={lotForm.hatched_by_race?.[raceName] !== undefined && lotForm.hatched_by_race[raceName] !== null ? lotForm.hatched_by_race[raceName].toString() : ''}
+                                          onChangeText={(text) => updateHatchedForRace(raceName, text)}
+                                          keyboardType="number-pad"
+                                          editable={!isDisabled}
+                                        />
+                                      </View>
+                                    );
+                                  })}
+                                  <View style={styles.totalEggsDisplay}>
+                                    <Text style={styles.totalEggsLabel}>Total éclos/nés:</Text>
+                                    <Text style={styles.totalEggsValue}>{lotForm.hatched_count || 0}</Text>
+                                  </View>
+                                </>
+                              ) : (
+                                <>
+                                  <Text style={styles.inputLabel}>Nombre éclos/nés:</Text>
+                                  <TextInput
+                                    style={[
+                                      styles.numberInput,
+                                      validationErrors.hatched_count && styles.numberInputError,
+                                      !(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) && !(editingItem?.fertilized_count && editingItem.fertilized_count > 0) && styles.numberInputDisabled
+                                    ]}
+                                    placeholder={(() => {
+                                      const fertilized = parseInt(lotForm.fertilized_count || editingItem?.fertilized_count || 0);
+                                      return fertilized > 0 ? `0 à ${fertilized}` : 'Remplir d\'abord les fécondés';
+                                    })()}
+                                    placeholderTextColor="#999"
+                                    value={lotForm.hatched_count && parseInt(lotForm.hatched_count) > 0 ? lotForm.hatched_count : ''}
+                                    onChangeText={(text) => {
+                                      const fertilized = parseInt(lotForm.fertilized_count || editingItem?.fertilized_count || 0);
+                                      
+                                      // Only allow numeric input
+                                      const numericText = text.replace(/[^0-9]/g, '');
+                                      const hatchedNum = parseInt(numericText || 0);
+                                      
+                                      // Validate: hatched cannot exceed fertilized
+                                      const errors = { ...validationErrors };
+                                      if (numericText && fertilized > 0 && hatchedNum > fertilized) {
+                                        // Show alert warning
+                                        Alert.alert(
+                                          'Valeur invalide',
+                                          `Impossible: ${hatchedNum} éclos dépasse le nombre de ${fertilized} fécondés. La valeur sera limitée à ${fertilized}.`,
+                                          [{ text: 'OK' }]
+                                        );
+                                        // Cap at maximum
+                                        setLotForm({...lotForm, hatched_count: fertilized.toString()});
+                                        delete errors.hatched_count;
+                                      } else {
+                                        delete errors.hatched_count;
+                                        setLotForm({...lotForm, hatched_count: numericText});
+                                      }
+                                      setValidationErrors(errors);
+                                    }}
+                                    keyboardType="number-pad"
+                                    editable={!!(lotForm.fertilized_count && parseInt(lotForm.fertilized_count) > 0) || !!(editingItem?.fertilized_count && editingItem.fertilized_count > 0)}
+                                  />
+                                  {validationErrors.hatched_count && (
+                                    <Text style={styles.validationErrorText}>
+                                      {validationErrors.hatched_count}
+                                    </Text>
+                                  )}
+                                </>
+                              )}
+                            </View>
                             <Text style={styles.infoText}>
                               💡 Le nombre éclos sera utilisé comme quantité initiale pour les races.
                             </Text>
@@ -2804,6 +3705,16 @@ const styles = StyleSheet.create({
     borderLeftColor: '#FF9800',
     backgroundColor: '#FFF8E1',
   },
+  highlightedLotCard: {
+    borderWidth: 3,
+    borderColor: '#4CAF50',
+    backgroundColor: '#f0f8f0',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   estimatedBadge: {
     backgroundColor: '#FF9800',
     borderRadius: 8,
@@ -3227,6 +4138,39 @@ const styles = StyleSheet.create({
   smallInput: {
     flex: 1,
     marginBottom: 0,
+  },
+  raceEggInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  raceEggLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    minWidth: 100,
+  },
+  totalEggsDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#e8f4f8',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#005F6B',
+  },
+  totalEggsLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  totalEggsValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#005F6B',
   },
   typeSelector: {
     flexDirection: 'row',
@@ -3995,6 +4939,62 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginTop: 8,
+  },
+  fertilizationInputRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 10,
+  },
+  fertilizationInputContainer: {
+    flex: 1,
+  },
+  fertilizationDisplayContainer: {
+    flex: 1,
+  },
+  numberInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    minWidth: 80,
+    maxWidth: 120,
+    textAlign: 'center',
+  },
+  numberInputError: {
+    borderColor: '#F44336',
+    borderWidth: 2,
+    backgroundColor: '#FFEBEE',
+  },
+  numberInputDisabled: {
+    backgroundColor: '#f5f5f5',
+    borderColor: '#e0e0e0',
+    opacity: 0.6,
+  },
+  validationErrorText: {
+    fontSize: 11,
+    color: '#F44336',
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  readOnlyNumberDisplay: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    minWidth: 80,
+    maxWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  readOnlyNumberText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  hatchingInputContainer: {
+    marginBottom: 10,
   },
   lotIncubationRates: {
     flexDirection: 'row',

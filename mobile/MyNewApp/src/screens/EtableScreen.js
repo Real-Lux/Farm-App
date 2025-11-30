@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -49,6 +49,10 @@ export default function EtableScreen({ navigation, route }) {
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [highlightedAnimalId, setHighlightedAnimalId] = useState(null);
   const [highlightedAnimalName, setHighlightedAnimalName] = useState(null);
+  
+  // Refs for scrolling
+  const animalsScrollViewRef = useRef(null);
+  const animalItemPositions = useRef({});
   
   // Use custom hooks
   const { animals, loadAnimals, saveAnimal, deleteAnimal } = useHerdAnimals(currentHerdType);
@@ -106,6 +110,14 @@ export default function EtableScreen({ navigation, route }) {
   });
   const [selectedAnimalsForGroup, setSelectedAnimalsForGroup] = useState({});
 
+  // Update currentHerdType when route params change
+  useEffect(() => {
+    if (route?.params?.herdType && route.params.herdType !== currentHerdType) {
+      console.log('🔄 Updating herd type from', currentHerdType, 'to', route.params.herdType);
+      setCurrentHerdType(route.params.herdType);
+    }
+  }, [route?.params?.herdType]);
+
   useEffect(() => {
     loadCaprinSettings();
     loadConfigs();
@@ -139,6 +151,36 @@ export default function EtableScreen({ navigation, route }) {
   useEffect(() => {
     console.log('🎯 Highlighting state changed - ID:', highlightedAnimalId, 'Name:', highlightedAnimalName);
   }, [highlightedAnimalId, highlightedAnimalName]);
+
+  // Initialize all animals as collapsed by default
+  useEffect(() => {
+    if (animals.length > 0) {
+      setCollapsedAnimals(prev => {
+        // Only add animals that aren't already in the state
+        const updated = { ...prev };
+        let hasChanges = false;
+        
+        animals.forEach(animal => {
+          // If animal ID is not in state, default to collapsed (true)
+          if (!(animal.id in updated)) {
+            updated[animal.id] = true;
+            hasChanges = true;
+          }
+        });
+        
+        // Remove animals that no longer exist
+        const animalIds = new Set(animals.map(a => a.id));
+        Object.keys(updated).forEach(id => {
+          if (!animalIds.has(parseInt(id)) && !animalIds.has(id)) {
+            delete updated[id];
+            hasChanges = true;
+          }
+        });
+        
+        return hasChanges ? updated : prev;
+      });
+    }
+  }, [animals]); // Run when animals array changes
 
 
   const loadConfigs = async () => {
@@ -242,7 +284,117 @@ export default function EtableScreen({ navigation, route }) {
       console.log('🎯 Clearing highlight after timeout');
       setHighlightedAnimalId(null);
       setHighlightedAnimalName(null);
-    }, 5000); // Increased to 5 seconds for better visibility
+    }, 2000); // Increased to 5 seconds for better visibility
+  };
+
+  const openAnimalsFromGenealogy = (animal) => {
+    // Navigate to animals tab and highlight the animal
+    console.log('🐐 Navigating to animals from genealogy for animal:', animal.name, 'ID:', animal.id);
+    setActiveTab('animals');
+    setHighlightedAnimalId(animal.id);
+    setHighlightedAnimalName(animal.name);
+    
+    // Expand the animal card if it's collapsed (default is collapsed)
+    if (collapsedAnimals[animal.id] ?? true) {
+      toggleAnimalCollapse(animal.id);
+    }
+    
+    // Scroll to the animal after a short delay to ensure the tab has switched
+    setTimeout(() => {
+      scrollToAnimal(animal.id);
+    }, 300);
+    
+    // Clear highlight after a few seconds
+    setTimeout(() => {
+      console.log('🎯 Clearing highlight after timeout');
+      setHighlightedAnimalId(null);
+      setHighlightedAnimalName(null);
+    }, 2000);
+  };
+
+  const scrollToAnimal = (animalId) => {
+    // Wait a bit for the layout to be ready and tab switch to complete
+    setTimeout(() => {
+      if (!animalsScrollViewRef.current) return;
+      
+      // Find the animal in the sorted list
+      const animalIndex = sortedAnimals.findIndex(a => a.id === animalId || a.id == animalId);
+      
+      if (animalIndex === -1) {
+        console.log('⚠️ Animal not found in sorted list');
+        return;
+      }
+      
+      // Use the stored position if available
+      const storedPosition = animalItemPositions.current[animalId];
+      
+      if (storedPosition !== undefined) {
+        console.log('📜 Scrolling to animal ID:', animalId, 'at stored position:', storedPosition);
+        // Scroll to position the animal at the top of the visible area
+        animalsScrollViewRef.current.scrollTo({
+          y: Math.max(0, storedPosition),
+          animated: true
+        });
+      } else {
+        // Calculate approximate position based on index
+        // QuickStats: ~120px (reduced), ViewModeToggle: ~60px, section header: ~60px, sort dropdown: ~50px
+        const headerHeight = 120 + 60 + 60 + 50;
+        let cumulativeHeight = headerHeight;
+        
+        // Calculate cumulative height of all previous animals
+        for (let i = 0; i < animalIndex; i++) {
+          const prevAnimal = sortedAnimals[i];
+          const isCollapsed = collapsedAnimals[prevAnimal.id] ?? true; // Default to collapsed
+          cumulativeHeight += isCollapsed ? 100 : 290; // More accurate heights
+        }
+        
+        // Position the animal at the top (no offset)
+        const scrollY = cumulativeHeight;
+        
+        console.log('📜 Scrolling to animal at index:', animalIndex, 'calculated scrollY:', scrollY);
+        animalsScrollViewRef.current.scrollTo({
+          y: Math.max(0, scrollY),
+          animated: true
+        });
+      }
+      
+      // Try scrolling again after a short delay to account for any layout changes
+      setTimeout(() => {
+        const storedPosition = animalItemPositions.current[animalId];
+        if (storedPosition !== undefined && animalsScrollViewRef.current) {
+          animalsScrollViewRef.current.scrollTo({
+            y: Math.max(0, storedPosition),
+            animated: true
+          });
+        }
+      }, 200);
+    }, 500); // Increased delay to ensure tab switch and layout are complete
+  };
+
+  const handleAnimalLayout = (animalId, event) => {
+    // Measure the position - y is relative to the parent View, but we need cumulative from ScrollView start
+    const { y } = event.nativeEvent.layout;
+    
+    // Find the index to calculate cumulative height from start of ScrollView
+    const animalIndex = sortedAnimals.findIndex(a => a.id === animalId || a.id == animalId);
+    if (animalIndex !== -1) {
+        // Calculate cumulative height: header components + previous cards
+        // QuickStats (reduced): ~120px, ViewModeToggle: ~60px, section header: ~60px, sort dropdown: ~50px
+        const headerHeight = 120 + 60 + 60 + 50;
+      let cumulativeHeight = headerHeight;
+      
+      // Add heights of previous animals (more accurate estimates)
+      for (let i = 0; i < animalIndex; i++) {
+        const prevAnimal = sortedAnimals[i];
+        const isCollapsed = collapsedAnimals[prevAnimal.id] ?? true; // Default to collapsed
+        // Card height: collapsed ~90px, expanded ~280px (including margins)
+        cumulativeHeight += isCollapsed ? 100 : 290;
+      }
+      
+      // Store the position
+      animalItemPositions.current[animalId] = cumulativeHeight;
+      console.log('📍 Stored position for', animalId, 'at index', animalIndex, ':', cumulativeHeight);
+    }
   };
 
   const openSettingsModal = () => {
@@ -375,7 +527,7 @@ export default function EtableScreen({ navigation, route }) {
   const toggleAnimalCollapse = (animalId) => {
     setCollapsedAnimals(prev => ({
       ...prev,
-      [animalId]: !prev[animalId]
+      [animalId]: !(prev[animalId] ?? true) // Default to true (collapsed), then toggle
     }));
   };
 
@@ -546,7 +698,7 @@ export default function EtableScreen({ navigation, route }) {
   };
 
   const AnimalItem = ({ item }) => {
-    const isCollapsed = collapsedAnimals[item.id];
+    const isCollapsed = collapsedAnimals[item.id] ?? true; // Default to collapsed
     const age = getAnimalAge(item.birthDate);
     const totalMilk = getTotalMilkProduction(item);
     const avgMilk = getAverageMilkProduction(item);
@@ -723,6 +875,7 @@ export default function EtableScreen({ navigation, route }) {
 
   const renderAnimals = () => (
     <ScrollView 
+      ref={animalsScrollViewRef}
       style={styles.tabContent} 
       showsVerticalScrollIndicator={false}
       onTouchStart={() => setShowSortDropdown(false)}
@@ -801,10 +954,7 @@ export default function EtableScreen({ navigation, route }) {
       
       <View style={styles.animalsSection}>
         <View style={styles.animalsHeader}>
-          <Text style={styles.animalsTitle}>{getHerdConfig().icon} Animaux</Text>
-          <TouchableOpacity style={styles.addButton} onPress={openAddAnimalModal}>
-            <Text style={styles.addButtonText}>+ Nouvel Animal</Text>
-          </TouchableOpacity>
+          <Text style={styles.animalsTitle}>{getHerdConfig().icon} {getHerdConfig().animalLabel || 'Animaux'}</Text>
         </View>
         
         <View style={styles.sortFilterContainer}>
@@ -857,18 +1007,22 @@ export default function EtableScreen({ navigation, route }) {
           )}
         </View>
         {viewMode === 'all' && sortedAnimals.map((animal, index) => (
-          <AnimalItem 
-            key={`${animal.id}-${animalSortOrder}-${index}`} 
-            item={animal}
-            isCollapsed={collapsedAnimals[animal.id]}
-            isHighlighted={(highlightedAnimalId === animal.id || highlightedAnimalId == animal.id) || 
-                          (highlightedAnimalName === animal.name)}
-            onToggleCollapse={toggleAnimalCollapse}
-            onEdit={openEditAnimalModal}
-            onDelete={handleDeleteAnimal}
-            onViewGenealogy={openGenealogyModal}
-            getHerdConfig={getHerdConfig}
-          />
+          <View
+            key={`${animal.id}-${animalSortOrder}-${index}`}
+            onLayout={(event) => handleAnimalLayout(animal.id, event)}
+          >
+            <AnimalItem 
+              item={animal}
+              isCollapsed={collapsedAnimals[animal.id] ?? true}
+              isHighlighted={(highlightedAnimalId === animal.id || highlightedAnimalId == animal.id) || 
+                            (highlightedAnimalName === animal.name)}
+              onToggleCollapse={toggleAnimalCollapse}
+              onEdit={openEditAnimalModal}
+              onDelete={handleDeleteAnimal}
+              onViewGenealogy={openGenealogyModal}
+              getHerdConfig={getHerdConfig}
+            />
+          </View>
         ))}
         
         {viewMode === 'groups' && sortedAnimals.map((animal, index) => {
@@ -878,18 +1032,22 @@ export default function EtableScreen({ navigation, route }) {
             return null; // Don't show in "all" view if in a group
           }
           return (
-            <AnimalItem 
-              key={`${animal.id}-${animalSortOrder}-${index}`} 
-              item={animal}
-              isCollapsed={collapsedAnimals[animal.id]}
-              isHighlighted={(highlightedAnimalId === animal.id || highlightedAnimalId == animal.id) || 
-                            (highlightedAnimalName === animal.name)}
-              onToggleCollapse={toggleAnimalCollapse}
-              onEdit={openEditAnimalModal}
-              onDelete={handleDeleteAnimal}
-              onViewGenealogy={openGenealogyModal}
-              getHerdConfig={getHerdConfig}
-            />
+            <View
+              key={`${animal.id}-${animalSortOrder}-${index}`}
+              onLayout={(event) => handleAnimalLayout(animal.id, event)}
+            >
+              <AnimalItem 
+                item={animal}
+                isCollapsed={collapsedAnimals[animal.id] ?? true}
+                isHighlighted={(highlightedAnimalId === animal.id || highlightedAnimalId == animal.id) || 
+                              (highlightedAnimalName === animal.name)}
+                onToggleCollapse={toggleAnimalCollapse}
+                onEdit={openEditAnimalModal}
+                onDelete={handleDeleteAnimal}
+                onViewGenealogy={openGenealogyModal}
+                getHerdConfig={getHerdConfig}
+              />
+            </View>
           );
         })}
       </View>
@@ -1045,13 +1203,17 @@ export default function EtableScreen({ navigation, route }) {
             </View>
           )}
           
-          {/* Animal card */}
-          <View style={[
-            styles.treeAnimalCard,
-            isDeceased && styles.treeAnimalCardDeceased,
-            isHighlighted && styles.treeAnimalCardHighlighted,
-            { marginLeft: node.level * 20 }
-          ]}>
+          {/* Animal card - Make it clickable */}
+          <TouchableOpacity 
+            style={[
+              styles.treeAnimalCard,
+              isDeceased && styles.treeAnimalCardDeceased,
+              isHighlighted && styles.treeAnimalCardHighlighted,
+              { marginLeft: node.level * 20 }
+            ]}
+            onPress={() => openAnimalsFromGenealogy(node)}
+            activeOpacity={0.7}
+          >
             <View style={styles.treeAnimalHeader}>
               <Text style={[
                 styles.treeAnimalIcon,
@@ -1077,7 +1239,7 @@ export default function EtableScreen({ navigation, route }) {
                 )}
               </View>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
         
         {/* Render children */}
@@ -1158,7 +1320,7 @@ export default function EtableScreen({ navigation, route }) {
           onPress={() => setActiveTab('animals')}
         >
           <Text style={[styles.tabText, activeTab === 'animals' && { color: getHerdConfig().color }]}>
-            {getHerdConfig().icon} Animaux
+            {getHerdConfig().icon} {getHerdConfig().animalLabel || 'Animaux'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
@@ -1851,6 +2013,17 @@ export default function EtableScreen({ navigation, route }) {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+
+        {/* Floating Add Animal Button - Only show on animals tab */}
+        {activeTab === 'animals' && (
+          <TouchableOpacity
+            style={styles.floatingAddButton}
+            onPress={openAddAnimalModal}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.floatingAddButtonText}>+</Text>
+          </TouchableOpacity>
+        )}
       </SafeAreaView>
     </View>
   );
@@ -3146,5 +3319,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     flex: 1,
+  },
+  floatingAddButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 1000,
+  },
+  floatingAddButtonText: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: 'bold',
   },
 });

@@ -687,6 +687,38 @@ export default function DashboardScreen({ navigation }) {
       .slice(0, 4);
   };
 
+  const handleEventPress = (event) => {
+    // Check if this is an order-related event (Récupération)
+    if (event.type === 'Récupération' && event.order_id) {
+      // Navigate to BookingSystemScreen with order highlight
+      if (navigation && navigation.navigate) {
+        navigation.navigate('Commandes', { 
+          highlightOrderId: event.order_id,
+          customerName: event.customer_name 
+        });
+      }
+      return;
+    }
+    
+    // Check if this is a lot-related event (Éclosion, Reproduction with lot_id)
+    if ((event.type === 'Reproduction' || event.title?.includes('Éclosion')) && event.lot_id) {
+      // Find the lot to get its name
+      const lot = allLots.find(l => l.id === event.lot_id);
+      if (lot && navigation && navigation.navigate) {
+        navigation.navigate('Gestion', { 
+          highlightLotId: event.lot_id,
+          highlightLotName: lot.name
+        });
+      }
+      return;
+    }
+    
+    // For other events, navigate to calendar
+    if (navigation && navigation.navigate) {
+      navigation.navigate('Calendrier');
+    }
+  };
+
   const generateRecentActivity = (orders, products, events, lots, historique) => {
     const activities = [];
     const now = new Date();
@@ -832,7 +864,7 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.header}>
         <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>🐓 La Ferme Aux oeufs bleus</Text>
+          <Text style={styles.headerTitle}>🐓 La Ferme Aux Oeufs Bleus</Text>
           <Text style={styles.headerDate}>
             {new Date().toLocaleDateString('fr-FR', {
               weekday: 'long',
@@ -890,7 +922,12 @@ export default function DashboardScreen({ navigation }) {
         {weeklyEvents.length > 0 ? (
           <View style={styles.eventsList}>
             {weeklyEvents.slice(0, 3).map((event, index) => (
-              <View key={index} style={styles.eventItem}>
+              <TouchableOpacity 
+                key={index} 
+                style={styles.eventItem}
+                onPress={() => handleEventPress(event)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.eventInfo}>
                   <Text style={styles.eventTitle}>{event.title}</Text>
                   <Text style={styles.eventDate}>
@@ -910,7 +947,7 @@ export default function DashboardScreen({ navigation }) {
                     </Text>
                   </View>
                 )}
-              </View>
+              </TouchableOpacity>
             ))}
             {weeklyEvents.length > 3 && (
               <Text style={styles.moreEventsText}>
@@ -1093,13 +1130,34 @@ export default function DashboardScreen({ navigation }) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Actions Rapides</Text>
         <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.actionButton}>
-            <Text style={styles.actionButtonText}>📝 Ajouter Produit</Text>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => {
+              if (navigation && navigation.navigate) {
+                navigation.navigate('Gestion', { initialTab: 'lots' });
+              }
+            }}
+          >
+            <Text style={styles.actionButtonText}>📦 Lots</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton}>
-            <Text style={styles.actionButtonText}>📅 Voir Calendrier</Text>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => {
+              if (navigation && navigation.navigate) {
+                navigation.navigate('Gestion', { initialTab: 'etable' });
+              }
+            }}
+          >
+            <Text style={styles.actionButtonText}>🐓 Gestion troupeaux</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => {
+              if (navigation && navigation.navigate) {
+                navigation.navigate('Gestion', { initialTab: 'statistiques' });
+              }
+            }}
+          >
             <Text style={styles.actionButtonText}>📊 Statistiques</Text>
           </TouchableOpacity>
         </View>

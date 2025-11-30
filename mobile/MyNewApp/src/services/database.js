@@ -3050,6 +3050,7 @@ class SimpleTestDatabaseService {
         color: '#8B4513',
         species: ['chèvre', 'brebis'],
         defaultSpecies: 'chèvre',
+        animalLabel: 'Chèvres',
         emoji: { 'chèvre': '🐐', 'brebis': '🐑' },
         description: 'Gestion des chèvres et brebis'
       },
@@ -3059,6 +3060,7 @@ class SimpleTestDatabaseService {
         color: '#6B8E23',
         species: ['brebis', 'bélier'],
         defaultSpecies: 'brebis',
+        animalLabel: 'Brebis',
         emoji: { 'brebis': '🐑', 'bélier': '🐑' },
         description: 'Gestion des brebis et béliers'
       },
@@ -3068,6 +3070,7 @@ class SimpleTestDatabaseService {
         color: '#654321',
         species: ['vache', 'taureau'],
         defaultSpecies: 'vache',
+        animalLabel: 'Vaches',
         emoji: { 'vache': '🐄', 'taureau': '🐄' },
         description: 'Gestion des vaches et taureaux'
       },
@@ -3077,6 +3080,7 @@ class SimpleTestDatabaseService {
         color: '#8B4513',
         species: ['jument', 'étalon'],
         defaultSpecies: 'jument',
+        animalLabel: 'Chevaux',
         emoji: { 'jument': '🐴', 'étalon': '🐴' },
         description: 'Gestion des juments et étalons'
       },
@@ -3086,6 +3090,7 @@ class SimpleTestDatabaseService {
         color: '#FFB6C1',
         species: ['truie', 'porc'],
         defaultSpecies: 'truie',
+        animalLabel: 'Porcs',
         emoji: { 'truie': '🐷', 'porc': '🐷' },
         description: 'Gestion des truies et porcs'
       }
@@ -3096,6 +3101,7 @@ class SimpleTestDatabaseService {
       color: '#8B4513',
       species: ['animal'],
       defaultSpecies: 'animal',
+      animalLabel: 'Animaux',
       emoji: { 'animal': '🐾' },
       description: `Gestion du troupeau ${herdType}`
     };

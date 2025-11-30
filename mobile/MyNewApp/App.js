@@ -94,59 +94,88 @@ function OrdersNavigator({ route }) {
 // Create a navigator component that handles ProductManagement, Elevage, and Caprin screens
 function GestionNavigator({ route }) {
   const [currentScreen, setCurrentScreen] = useState('ProductManagement');
+  const [screenParams, setScreenParams] = useState({});
 
-  // Handle route parameters for highlighting specific animals
+  // Handle route parameters for highlighting specific animals or lots, or initialTab
   React.useEffect(() => {
     if (route?.params?.highlightAnimalId) {
       console.log('🐐 GestionNavigator: Received highlightAnimalId:', route.params.highlightAnimalId);
       setCurrentScreen('Etable');
+      setScreenParams(route.params);
+    } else if (route?.params?.highlightLotId) {
+      console.log('🐓 GestionNavigator: Received highlightLotId:', route.params.highlightLotId);
+      setCurrentScreen('Elevage');
+      setScreenParams(route.params);
+    } else if (route?.params?.initialTab) {
+      // If initialTab is for Elevage (lots, races, historique, statistiques), go to Elevage
+      // Otherwise, stay on ProductManagement (elevage, etable, productions, etc.)
+      const elevageTabs = ['lots', 'races', 'historique', 'statistiques'];
+      if (elevageTabs.includes(route.params.initialTab)) {
+        console.log('🐓 GestionNavigator: Received initialTab for Elevage:', route.params.initialTab);
+        setCurrentScreen('Elevage');
+      } else {
+        console.log('📦 GestionNavigator: Received initialTab for ProductManagement:', route.params.initialTab);
+        setCurrentScreen('ProductManagement');
+      }
+      setScreenParams(route.params);
     }
   }, [route?.params]);
 
-  const navigateToElevage = () => {
+  const navigateToElevage = (params = {}) => {
     setCurrentScreen('Elevage');
+    setScreenParams(params);
   };
 
-  const navigateToEtable = () => {
+  const navigateToEtable = (params = {}) => {
     setCurrentScreen('Etable');
+    setScreenParams(params);
   };
 
-  const navigateToProductManagement = () => {
+  const navigateToProductManagement = (params = {}) => {
     setCurrentScreen('ProductManagement');
+    setScreenParams(params);
   };
 
-  const navigateToCheese = () => {
+  const navigateToCheese = (params = {}) => {
     setCurrentScreen('Cheese');
+    setScreenParams(params);
   };
 
   const mockNavigation = {
-    navigate: (screenName, params) => {
+    navigate: (screenName, params = {}) => {
+      console.log('🧭 Navigation:', screenName, 'with params:', params);
       if (screenName === 'ElevageScreen') {
-        navigateToElevage();
-      } else if (screenName === 'EtableScreen' || screenName === 'CaprinScreen') {
-        navigateToEtable();
+        navigateToElevage(params);
+      } else if (screenName === 'EtableScreen') {
+        navigateToEtable(params);
       } else if (screenName === 'CheeseScreen') {
-        navigateToCheese();
+        navigateToCheese(params);
       } else {
-        navigateToProductManagement();
+        navigateToProductManagement(params);
       }
     },
     goBack: navigateToProductManagement
   };
 
+  // Create a route object with params for child screens
+  const createRoute = (params = {}) => ({
+    params: { ...route?.params, ...screenParams, ...params }
+  });
+
   if (currentScreen === 'Elevage') {
     return (
       <ElevageScreen 
         navigation={mockNavigation}
+        route={createRoute()}
       />
     );
   }
 
-  if (currentScreen === 'Etable' || currentScreen === 'Caprin') {
+  if (currentScreen === 'Etable') {
     return (
       <EtableScreen 
         navigation={mockNavigation}
-        route={route}
+        route={createRoute()}
       />
     );
   }
@@ -163,6 +192,7 @@ function GestionNavigator({ route }) {
   return (
     <ProductManagementScreen 
       navigation={mockNavigation}
+      route={createRoute()}
     />
   );
 }

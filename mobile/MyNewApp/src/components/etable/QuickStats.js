@@ -6,15 +6,19 @@ export default function QuickStats({ animals, getHerdConfig }) {
   const herdConfig = getHerdConfig();
   const defaultSpecies = herdConfig.species[0] || 'Espèce 1';
   const secondSpecies = herdConfig.species[1];
+  const totalFemales = animals.filter(a => a.gender === 'femelle').length;
+  const totalMales = animals.filter(a => a.gender === 'mâle').length;
+  const babyMales = getBabyMales(animals).length;
+  const babyFemales = getBabyFemales(animals).length;
+  const grownMales = getGrownMales(animals).length;
+  const grownFemales = totalFemales - babyFemales;
+  const deceased = getDeceasedAnimals(animals).length;
 
   return (
     <View style={styles.quickStats}>
       <Text style={styles.quickStatsTitle}>Statistiques Rapides</Text>
       <View style={styles.statsGrid}>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{animals.length}</Text>
-          <Text style={styles.statLabel}>Total Animaux</Text>
-        </View>
+        {/* Species row */}
         <View style={styles.statCard}>
           <Text style={styles.statNumber}>
             {animals.filter(a => a.species === defaultSpecies).length}
@@ -29,34 +33,44 @@ export default function QuickStats({ animals, getHerdConfig }) {
             <Text style={styles.statLabel}>{secondSpecies}</Text>
           </View>
         )}
+        
+        {/* Mâles | Femelles */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {animals.filter(a => a.gender === 'femelle').length}
-          </Text>
-          <Text style={styles.statLabel}>Femelles</Text>
+          <Text style={styles.statNumber}>{totalMales}</Text>
+          <Text style={styles.statLabel}>Mâles</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {getBabyMales(animals).length}
-          </Text>
+          <Text style={styles.statNumber}>{totalFemales}</Text>
+          <Text style={styles.statLabel}>Femelles</Text>
+        </View>
+        
+        {/* Mâles Bébés | Femelles Bébés */}
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{babyMales}</Text>
           <Text style={styles.statLabel}>Mâles Bébés</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {getBabyFemales(animals).length}
-          </Text>
+          <Text style={styles.statNumber}>{babyFemales}</Text>
           <Text style={styles.statLabel}>Femelles Bébés</Text>
         </View>
+        
+        {/* Mâles Adultes | Femelles Adultes */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {getGrownMales(animals).length}
-          </Text>
+          <Text style={styles.statNumber}>{grownMales}</Text>
           <Text style={styles.statLabel}>Mâles Adultes</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {getDeceasedAnimals(animals).length}
-          </Text>
+          <Text style={styles.statNumber}>{grownFemales}</Text>
+          <Text style={styles.statLabel}>Femelles Adultes</Text>
+        </View>
+        
+        {/* Last row: Total | Décédés */}
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{animals.length}</Text>
+          <Text style={styles.statLabel}>Total</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{deceased}</Text>
           <Text style={styles.statLabel}>Décédés</Text>
         </View>
       </View>
@@ -67,9 +81,9 @@ export default function QuickStats({ animals, getHerdConfig }) {
 const styles = StyleSheet.create({
   quickStats: {
     backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -77,10 +91,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   quickStatsTitle: {
-    fontSize: 18,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 12,
+    marginBottom: 6,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -90,20 +104,22 @@ const styles = StyleSheet.create({
   statCard: {
     width: '48%',
     backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
+    borderRadius: 6,
+    padding: 6,
+    marginBottom: 5,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#8B4513',
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 9,
     color: '#666',
-    marginTop: 4,
+    marginTop: 2,
     textAlign: 'center',
   },
 });
