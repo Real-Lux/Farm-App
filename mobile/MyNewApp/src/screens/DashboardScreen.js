@@ -1333,42 +1333,6 @@ export default function DashboardScreen({ navigation }) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Actions Rapides</Text>
-        <View style={styles.quickActions}>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => {
-              if (navigation && navigation.navigate) {
-                navigation.navigate('Gestion', { initialTab: 'lots' });
-              }
-            }}
-          >
-            <Text style={styles.actionButtonText}>📦 Lots</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => {
-              if (navigation && navigation.navigate) {
-                navigation.navigate('Gestion', { initialTab: 'etable' });
-              }
-            }}
-          >
-            <Text style={styles.actionButtonText}>🐓 Gestion troupeaux</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => {
-              if (navigation && navigation.navigate) {
-                navigation.navigate('Gestion', { initialTab: 'statistiques' });
-              }
-            }}
-          >
-            <Text style={styles.actionButtonText}>📊 Statistiques</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Activité Récente</Text>
         {recentActivity.length > 0 ? (
           recentActivity.map((activity) => (

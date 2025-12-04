@@ -1962,7 +1962,14 @@ export default function ElevageScreen({ navigation, route }) {
         <View style={styles.headerContent}>
           <TouchableOpacity 
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              // Navigate back to ProductManagementScreen with elevage (avicole) tab selected
+              if (navigation && navigation.navigate) {
+                navigation.navigate('ProductManagementScreen', { initialTab: 'elevage' });
+              } else {
+                navigation.goBack();
+              }
+            }}
           >
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>

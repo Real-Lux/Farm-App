@@ -608,26 +608,89 @@ export default function AddOrderScreen({ navigation, route }) {
       
       // Go through all race configurations for this animal
       animalDetail.races.forEach(raceConfig => {
-        if (!raceConfig.selectedLot || !raceConfig.ageMonths && !raceConfig.ageWeeks) return;
+        if (!raceConfig.selectedLot || (!raceConfig.ageMonths && !raceConfig.ageWeeks)) return;
         
-        const lot = raceConfig.selectedLot;
-        const lotCreationDate = new Date(lot.date_creation);
-        const desiredAgeMonths = parseFloat(raceConfig.ageMonths || 0) + (parseFloat(raceConfig.ageWeeks || 0) / 4.33);
-        
-        // Calculate target date: lot creation date + desired age
-        const targetDate = new Date(lotCreationDate);
-        targetDate.setMonth(targetDate.getMonth() + Math.floor(desiredAgeMonths));
-        targetDate.setDate(targetDate.getDate() + Math.round((desiredAgeMonths % 1) * 30.44));
-        
-        suggestedDates.push(targetDate);
+        try {
+          const lot = raceConfig.selectedLot;
+          
+          // Validate lot.date_creation
+          if (!lot.date_creation) return;
+          
+          const lotCreationDate = new Date(lot.date_creation);
+          
+          // Check if date is valid
+          if (isNaN(lotCreationDate.getTime())) {
+            console.warn('Invalid lot creation date:', lot.date_creation);
+            return;
+          }
+          
+          const desiredAgeMonths = parseFloat(raceConfig.ageMonths || 0) + (parseFloat(raceConfig.ageWeeks || 0) / 4.33);
+          
+          // Validate desired age
+          if (isNaN(desiredAgeMonths) || desiredAgeMonths < 0) {
+            return;
+          }
+          
+          // Calculate target date: lot creation date + desired age
+          // Use a safer method to add months and days
+          const targetDate = new Date(lotCreationDate);
+          
+          // Add months safely
+          const monthsToAdd = Math.floor(desiredAgeMonths);
+          if (monthsToAdd > 0) {
+            const currentMonth = targetDate.getMonth();
+            const newMonth = currentMonth + monthsToAdd;
+            targetDate.setMonth(newMonth);
+            
+            // Check if date is still valid after setting month
+            if (isNaN(targetDate.getTime())) {
+              // If invalid, try setting to last day of month
+              targetDate.setDate(0); // Go to last day of previous month
+              targetDate.setMonth(newMonth); // Then set to new month
+            }
+          }
+          
+          // Add remaining days (from weeks)
+          const remainingDays = Math.round((desiredAgeMonths % 1) * 30.44);
+          if (remainingDays > 0) {
+            targetDate.setDate(targetDate.getDate() + remainingDays);
+          }
+          
+          // Validate the final date
+          if (isNaN(targetDate.getTime())) {
+            console.warn('Invalid calculated target date');
+            return;
+          }
+          
+          suggestedDates.push(targetDate);
+        } catch (error) {
+          console.error('Error calculating suggested date for race config:', error);
+          // Continue with other race configs
+        }
       });
     });
     
     if (suggestedDates.length === 0) return null;
     
-    // Return the latest date (so all animals are ready)
-    const latestDate = new Date(Math.max(...suggestedDates.map(d => d.getTime())));
-    return toISODate(latestDate.toISOString().split('T')[0]);
+    try {
+      // Return the latest date (so all animals are ready)
+      const validDates = suggestedDates.filter(d => !isNaN(d.getTime()));
+      if (validDates.length === 0) return null;
+      
+      const latestDate = new Date(Math.max(...validDates.map(d => d.getTime())));
+      
+      // Final validation
+      if (isNaN(latestDate.getTime())) {
+        console.warn('Invalid latest date calculated');
+        return null;
+      }
+      
+      const isoDate = latestDate.toISOString().split('T')[0];
+      return toISODate(isoDate);
+    } catch (error) {
+      console.error('Error processing suggested dates:', error);
+      return null;
+    }
   };
 
   const getSuggestedLots = (race, desiredAgeMonths, deliveryDate) => {
@@ -1385,26 +1448,39 @@ export default function AddOrderScreen({ navigation, route }) {
         {(hasAdoptionItems || hasProducts) && (
           <View style={styles.dateContainer}>
             <Text style={styles.dropdownLabel}>Date de collecte *</Text>
-            {hasAdoptionItems && getSuggestedCollectionDate() && (
-              <View style={styles.suggestedDateContainer}>
-                <Text style={styles.suggestedDateText}>
-                  💡 Date suggérée basée sur les configurations: {new Date(getSuggestedCollectionDate()).toLocaleDateString('fr-FR', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
-                </Text>
-                <TouchableOpacity 
-                  style={styles.useSuggestedDateButton}
-                  onPress={() => setOrderForm({...orderForm, deliveryDate: getSuggestedCollectionDate()})}
-                >
-                  <Text style={styles.useSuggestedDateButtonText}>
-                    {orderForm.deliveryDate ? 'Utiliser la date suggérée' : 'Utiliser cette date'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            {hasAdoptionItems && (() => {
+              const suggestedDate = getSuggestedCollectionDate();
+              if (!suggestedDate) return null;
+              
+              try {
+                const suggestedDateObj = new Date(suggestedDate);
+                if (isNaN(suggestedDateObj.getTime())) return null;
+                
+                return (
+                  <View style={styles.suggestedDateContainer}>
+                    <Text style={styles.suggestedDateText}>
+                      💡 Date suggérée basée sur les configurations: {suggestedDateObj.toLocaleDateString('fr-FR', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.useSuggestedDateButton}
+                      onPress={() => setOrderForm({...orderForm, deliveryDate: suggestedDate})}
+                    >
+                      <Text style={styles.useSuggestedDateButtonText}>
+                        {orderForm.deliveryDate ? 'Utiliser la date suggérée' : 'Utiliser cette date'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              } catch (error) {
+                console.error('Error displaying suggested date:', error);
+                return null;
+              }
+            })()}
             <TouchableOpacity 
               style={styles.datePickerButton}
               onPress={openCalendarModal}
