@@ -11,7 +11,8 @@ import {
   FlatList,
   StatusBar,
   Platform,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  InteractionManager
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
@@ -53,6 +54,8 @@ export default function EtableScreen({ navigation, route }) {
   // Refs for scrolling
   const animalsScrollViewRef = useRef(null);
   const animalItemPositions = useRef({});
+  const animalItemRefs = useRef({});
+  const scrollToAnimalIdRef = useRef(null);
   
   // Use custom hooks
   const { animals, loadAnimals, saveAnimal, deleteAnimal } = useHerdAnimals(currentHerdType);
@@ -151,6 +154,28 @@ export default function EtableScreen({ navigation, route }) {
   useEffect(() => {
     console.log('🎯 Highlighting state changed - ID:', highlightedAnimalId, 'Name:', highlightedAnimalName);
   }, [highlightedAnimalId, highlightedAnimalName]);
+
+  // Auto-scroll when tab changes to animals and an animal is highlighted
+  useEffect(() => {
+    if (activeTab === 'animals' && scrollToAnimalIdRef.current) {
+      // Use InteractionManager for better timing after tab switch
+      const handle = InteractionManager.runAfterInteractions(() => {
+        // Try scrolling immediately, and retry if position not yet stored
+        const tryScroll = () => {
+          if (animalItemPositions.current[scrollToAnimalIdRef.current]) {
+            scrollToAnimal(scrollToAnimalIdRef.current);
+            scrollToAnimalIdRef.current = null;
+          } else {
+            // Retry after a short delay if position not yet available
+            setTimeout(tryScroll, 50);
+          }
+        };
+        tryScroll();
+      });
+      
+      return () => handle.cancel();
+    }
+  }, [activeTab, sortedAnimals]);
 
   // Initialize all animals as collapsed by default
   useEffect(() => {
@@ -269,131 +294,121 @@ export default function EtableScreen({ navigation, route }) {
   };
 
   const openGenealogyModal = (animal) => {
-    // Navigate to genealogy tab and highlight the animal
-    console.log('🐐 Navigating to genealogy for animal:', animal.name, 'ID:', animal.id, 'Type:', typeof animal.id);
-    setActiveTab('genealogy');
+    // Navigate to genealogy tab and highlight the animal immediately
+    console.log('🐐 Navigating to genealogy for animal:', animal.name, 'ID:', animal.id);
     setHighlightedAnimalId(animal.id);
     setHighlightedAnimalName(animal.name);
+    setActiveTab('genealogy');
     
-    // Debug: Log the highlighting state
-    console.log('🎯 Set highlightedAnimalId to:', animal.id);
-    console.log('🎯 Set highlightedAnimalName to:', animal.name);
-    
-    // Clear highlight after a few seconds
+    // Clear highlight after 3 seconds
     setTimeout(() => {
-      console.log('🎯 Clearing highlight after timeout');
       setHighlightedAnimalId(null);
       setHighlightedAnimalName(null);
-    }, 2000); // Increased to 5 seconds for better visibility
+    }, 3000);
   };
 
   const openAnimalsFromGenealogy = (animal) => {
-    // Navigate to animals tab and highlight the animal
+    // Navigate to animals tab and highlight the animal immediately
     console.log('🐐 Navigating to animals from genealogy for animal:', animal.name, 'ID:', animal.id);
-    setActiveTab('animals');
+    
+    // Set highlight and tab change immediately
     setHighlightedAnimalId(animal.id);
     setHighlightedAnimalName(animal.name);
+    setActiveTab('animals');
     
     // Expand the animal card if it's collapsed (default is collapsed)
     if (collapsedAnimals[animal.id] ?? true) {
       toggleAnimalCollapse(animal.id);
     }
     
-    // Scroll to the animal after a short delay to ensure the tab has switched
-    setTimeout(() => {
-      scrollToAnimal(animal.id);
-    }, 300);
+    // Store the animal ID to scroll to after layout
+    scrollToAnimalIdRef.current = animal.id;
     
-    // Clear highlight after a few seconds
+    // Clear highlight after 3 seconds
     setTimeout(() => {
-      console.log('🎯 Clearing highlight after timeout');
       setHighlightedAnimalId(null);
       setHighlightedAnimalName(null);
-    }, 2000);
+    }, 3000);
   };
 
   const scrollToAnimal = (animalId) => {
-    // Wait a bit for the layout to be ready and tab switch to complete
-    setTimeout(() => {
-      if (!animalsScrollViewRef.current) return;
-      
-      // Find the animal in the sorted list
-      const animalIndex = sortedAnimals.findIndex(a => a.id === animalId || a.id == animalId);
-      
-      if (animalIndex === -1) {
-        console.log('⚠️ Animal not found in sorted list');
-        return;
-      }
-      
-      // Use the stored position if available
-      const storedPosition = animalItemPositions.current[animalId];
-      
-      if (storedPosition !== undefined) {
-        console.log('📜 Scrolling to animal ID:', animalId, 'at stored position:', storedPosition);
-        // Scroll to position the animal at the top of the visible area
-        animalsScrollViewRef.current.scrollTo({
-          y: Math.max(0, storedPosition),
-          animated: true
-        });
-      } else {
-        // Calculate approximate position based on index
-        // QuickStats: ~120px (reduced), ViewModeToggle: ~60px, section header: ~60px, sort dropdown: ~50px
-        const headerHeight = 120 + 60 + 60 + 50;
-        let cumulativeHeight = headerHeight;
-        
-        // Calculate cumulative height of all previous animals
-        for (let i = 0; i < animalIndex; i++) {
-          const prevAnimal = sortedAnimals[i];
-          const isCollapsed = collapsedAnimals[prevAnimal.id] ?? true; // Default to collapsed
-          cumulativeHeight += isCollapsed ? 100 : 290; // More accurate heights
-        }
-        
-        // Position the animal at the top (no offset)
-        const scrollY = cumulativeHeight;
-        
-        console.log('📜 Scrolling to animal at index:', animalIndex, 'calculated scrollY:', scrollY);
-        animalsScrollViewRef.current.scrollTo({
-          y: Math.max(0, scrollY),
-          animated: true
-        });
-      }
-      
-      // Try scrolling again after a short delay to account for any layout changes
-      setTimeout(() => {
-        const storedPosition = animalItemPositions.current[animalId];
-        if (storedPosition !== undefined && animalsScrollViewRef.current) {
-          animalsScrollViewRef.current.scrollTo({
-            y: Math.max(0, storedPosition),
-            animated: true
-          });
-        }
-      }, 200);
-    }, 500); // Increased delay to ensure tab switch and layout are complete
+    if (!animalsScrollViewRef.current) return;
+    
+    // Use stored position if available (most reliable)
+    const storedPosition = animalItemPositions.current[animalId];
+    if (storedPosition !== undefined) {
+      console.log('📜 Scrolling to animal ID:', animalId, 'at stored position:', storedPosition);
+      animalsScrollViewRef.current.scrollTo({
+        y: Math.max(0, storedPosition - 20), // 20px offset from top
+        animated: true
+      });
+      return;
+    }
+    
+    // Fallback to calculation
+    scrollToAnimalFallback(animalId);
+  };
+
+  const scrollToAnimalFallback = (animalId) => {
+    if (!animalsScrollViewRef.current) return;
+    
+    // Find the animal in the sorted list
+    const animalIndex = sortedAnimals.findIndex(a => a.id === animalId || a.id == animalId);
+    
+    if (animalIndex === -1) {
+      console.log('⚠️ Animal not found in sorted list');
+      return;
+    }
+    
+    // Calculate approximate position based on index
+    // QuickStats: ~120px, ViewModeToggle: ~60px, section header: ~60px, sort dropdown: ~50px
+    const headerHeight = 120 + 60 + 60 + 50;
+    let cumulativeHeight = headerHeight;
+    
+    // Calculate cumulative height of all previous animals
+    for (let i = 0; i < animalIndex; i++) {
+      const prevAnimal = sortedAnimals[i];
+      const isCollapsed = collapsedAnimals[prevAnimal.id] ?? true;
+      cumulativeHeight += isCollapsed ? 100 : 290;
+    }
+    
+    console.log('📜 Scrolling to animal at index:', animalIndex, 'calculated scrollY:', cumulativeHeight);
+    animalsScrollViewRef.current.scrollTo({
+      y: Math.max(0, cumulativeHeight - 20), // 20px offset from top
+      animated: true
+    });
   };
 
   const handleAnimalLayout = (animalId, event) => {
-    // Measure the position - y is relative to the parent View, but we need cumulative from ScrollView start
-    const { y } = event.nativeEvent.layout;
+    // Measure the actual position - y is relative to parent, but we need cumulative from ScrollView start
+    const { y, height } = event.nativeEvent.layout;
     
     // Find the index to calculate cumulative height from start of ScrollView
     const animalIndex = sortedAnimals.findIndex(a => a.id === animalId || a.id == animalId);
     if (animalIndex !== -1) {
-        // Calculate cumulative height: header components + previous cards
-        // QuickStats (reduced): ~120px, ViewModeToggle: ~60px, section header: ~60px, sort dropdown: ~50px
-        const headerHeight = 120 + 60 + 60 + 50;
+      // Calculate cumulative height: header components + previous cards
+      // QuickStats: ~120px, ViewModeToggle: ~60px, section header: ~60px, sort dropdown: ~50px
+      const headerHeight = 120 + 60 + 60 + 50;
       let cumulativeHeight = headerHeight;
       
       // Add heights of previous animals (more accurate estimates)
       for (let i = 0; i < animalIndex; i++) {
         const prevAnimal = sortedAnimals[i];
-        const isCollapsed = collapsedAnimals[prevAnimal.id] ?? true; // Default to collapsed
-        // Card height: collapsed ~90px, expanded ~280px (including margins)
+        const isCollapsed = collapsedAnimals[prevAnimal.id] ?? true;
         cumulativeHeight += isCollapsed ? 100 : 290;
       }
       
       // Store the position
       animalItemPositions.current[animalId] = cumulativeHeight;
-      console.log('📍 Stored position for', animalId, 'at index', animalIndex, ':', cumulativeHeight);
+      
+      // If this is the animal we need to scroll to, do it now with the stored position
+      if (scrollToAnimalIdRef.current === animalId) {
+        // Use requestAnimationFrame for immediate scroll after layout
+        requestAnimationFrame(() => {
+          scrollToAnimal(animalId);
+          scrollToAnimalIdRef.current = null;
+        });
+      }
     }
   };
 
@@ -1009,6 +1024,11 @@ export default function EtableScreen({ navigation, route }) {
         {viewMode === 'all' && sortedAnimals.map((animal, index) => (
           <View
             key={`${animal.id}-${animalSortOrder}-${index}`}
+            ref={(ref) => {
+              if (ref) {
+                animalItemRefs.current[animal.id] = ref;
+              }
+            }}
             onLayout={(event) => handleAnimalLayout(animal.id, event)}
           >
             <AnimalItem 
@@ -1034,6 +1054,11 @@ export default function EtableScreen({ navigation, route }) {
           return (
             <View
               key={`${animal.id}-${animalSortOrder}-${index}`}
+              ref={(ref) => {
+                if (ref) {
+                  animalItemRefs.current[animal.id] = ref;
+                }
+              }}
               onLayout={(event) => handleAnimalLayout(animal.id, event)}
             >
               <AnimalItem 
@@ -1860,6 +1885,13 @@ export default function EtableScreen({ navigation, route }) {
               <Calendar
                 onDayPress={handleDateSelect}
                 maxDate={calendarField === 'birthDate' || calendarField === 'entryDate' ? getTodayISO() : undefined}
+                hideArrows={false}
+                enableSwipeMonths={true}
+                monthFormat={'MMMM yyyy'}
+                onMonthChange={(month) => {
+                  // Optional: handle month change if needed
+                  console.log('Month changed to:', month);
+                }}
                 theme={{
                   backgroundColor: '#ffffff',
                   calendarBackground: '#ffffff',
@@ -2606,6 +2638,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+    backgroundColor: 'white',
   },
   textArea: {
     height: 80,
@@ -2713,7 +2746,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   datePickerButton: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: 'white',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,

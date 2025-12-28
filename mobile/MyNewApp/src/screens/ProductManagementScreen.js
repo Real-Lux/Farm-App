@@ -30,6 +30,8 @@ export default function ProductManagementScreen({ navigation, route }) {
   const [pricingGrids, setPricingGrids] = useState({});
   const [newAnimalTypeModal, setNewAnimalTypeModal] = useState(false);
   const [newAnimalTypeName, setNewAnimalTypeName] = useState('');
+  const [copyGridModal, setCopyGridModal] = useState(false);
+  const [copyFromAnimalType, setCopyFromAnimalType] = useState(null);
   const [products, setProducts] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -520,17 +522,55 @@ export default function ProductManagementScreen({ navigation, route }) {
     
     const animalTypeKey = newAnimalTypeName.toLowerCase().replace(/\s+/g, '_');
     const newGrids = { ...pricingGrids };
-    newGrids[animalTypeKey] = [];
+    
+    // If copying from existing grid, copy the data
+    if (copyFromAnimalType && pricingGrids[copyFromAnimalType]) {
+      // Deep copy the grid data
+      newGrids[animalTypeKey] = pricingGrids[copyFromAnimalType].map(item => ({
+        ...item
+      }));
+    } else {
+      newGrids[animalTypeKey] = [];
+    }
+    
     setPricingGrids(newGrids);
     setSelectedAnimalType(animalTypeKey);
     setNewAnimalTypeModal(false);
     setNewAnimalTypeName('');
+    setCopyFromAnimalType(null);
     
     // Save to database
     try {
-      await database.savePricingGrid(animalTypeKey, []);
+      await database.savePricingGrid(animalTypeKey, newGrids[animalTypeKey]);
+      if (copyFromAnimalType) {
+        Alert.alert('Succès', `Grille tarifaire créée à partir de ${copyFromAnimalType}`);
+      }
     } catch (error) {
       console.error('Error saving new animal type:', error);
+    }
+  };
+
+  const copyPricingGrid = async (fromType, toType) => {
+    if (!pricingGrids[fromType] || pricingGrids[fromType].length === 0) {
+      Alert.alert('Erreur', 'La grille source est vide');
+      return;
+    }
+    
+    const newGrids = { ...pricingGrids };
+    // Deep copy the grid data
+    newGrids[toType] = pricingGrids[fromType].map(item => ({
+      ...item
+    }));
+    
+    setPricingGrids(newGrids);
+    
+    // Save to database
+    try {
+      await database.savePricingGrid(toType, newGrids[toType]);
+      Alert.alert('Succès', `Grille tarifaire copiée depuis ${fromType}`);
+    } catch (error) {
+      console.error('Error copying pricing grid:', error);
+      Alert.alert('Erreur', 'Impossible de copier la grille tarifaire');
     }
   };
 
@@ -1372,14 +1412,17 @@ export default function ProductManagementScreen({ navigation, route }) {
         
         <View style={styles.pricingHeaderButtons}>
           <TouchableOpacity 
-            style={styles.configurePricingButton}
+            style={[styles.addButton, styles.configurePricingButton]}
             onPress={openTemplateSettings}
           >
-            <Text style={styles.configurePricingButtonText}>⚙️ Configurer Prix</Text>
+            <Text style={styles.addButtonText}>⚙️ Configurer Prix</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.addAnimalTypeButton}
-            onPress={() => setNewAnimalTypeModal(true)}
+            onPress={() => {
+              setCopyFromAnimalType(null);
+              setNewAnimalTypeModal(true);
+            }}
           >
             <Text style={styles.addAnimalTypeButtonText}>+ Nouveau Type</Text>
           </TouchableOpacity>
@@ -1579,7 +1622,7 @@ export default function ProductManagementScreen({ navigation, route }) {
     return (
       <View style={styles.tabContent}>
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>👥 Gestion Client</Text>
+          <Text style={styles.sectionTitle}>👥 Messagerie</Text>
           <Text style={styles.sectionDescription}>
             Messages modèles pour communiquer avec vos clients : adoptions, activités, commandes
           </Text>
@@ -1763,7 +1806,7 @@ export default function ProductManagementScreen({ navigation, route }) {
             }}
           >
             <Text style={[styles.tabText, activeTab === 'client' && styles.activeTabText]}>
-              👥 Client
+              👥 Messagerie
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -2100,83 +2143,110 @@ export default function ProductManagementScreen({ navigation, route }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>⚙️ Configuration Grille Tarifaire</Text>
-              
-              <Text style={styles.templateDescription}>
-                Modifiez la grille tarifaire pour {selectedAnimalType} :
-              </Text>
-              
-              <ScrollView style={styles.settingsScrollView} showsVerticalScrollIndicator={false}>
-                {(pricingGrids[selectedAnimalType] || []).map((item, index) => (
-                  <View key={index} style={styles.settingsRow}>
-                    <View style={styles.settingsInputGroup}>
-                      <Text style={styles.settingsLabel}>Âge (mois):</Text>
-                      <TextInput
-                        style={styles.settingsInput}
-                        value={item.ageMonths ? item.ageMonths.toString() : ''}
-                        onChangeText={(text) => updatePricingGrid(index, 'ageMonths', parseFloat(text) || 0)}
-                        keyboardType="numeric"
-                        placeholder="Ex: 1, 2, 3"
-                        placeholderTextColor="#999"
-                      />
-                    </View>
-                    <View style={styles.settingsInputGroup}>
-                      <Text style={styles.settingsLabel}>Âge (semaines):</Text>
-                      <TextInput
-                        style={styles.settingsInput}
-                        value={item.ageWeeks ? item.ageWeeks.toString() : ''}
-                        onChangeText={(text) => updatePricingGrid(index, 'ageWeeks', parseFloat(text) || 0)}
-                        keyboardType="numeric"
-                        placeholder="Ex: 1, 2, 4"
-                        placeholderTextColor="#999"
-                      />
-                    </View>
-                    <View style={styles.settingsInputGroup}>
-                      <Text style={styles.settingsLabel}>Prix (€):</Text>
-                      <TextInput
-                        style={styles.settingsInput}
-                        value={item.price.toString()}
-                        onChangeText={(text) => updatePricingGrid(index, 'price', parseFloat(text) || 0)}
-                        keyboardType="numeric"
-                        placeholder="0"
-                        placeholderTextColor="#999"
-                      />
-                    </View>
-                    <View style={styles.settingsInputGroup}>
-                      <Text style={styles.settingsLabel}>Sexe:</Text>
-                      <View style={styles.sexSelector}>
-                        {['Tous', 'Femelle', 'Mâle'].map((sex) => (
-                          <TouchableOpacity
-                            key={sex}
-                            style={[
-                              styles.sexOption,
-                              item.sex === sex && styles.sexOptionSelected
-                            ]}
-                            onPress={() => updatePricingGrid(index, 'sex', sex)}
-                          >
-                            <Text style={[
-                              styles.sexOptionText,
-                              item.sex === sex && styles.sexOptionTextSelected
-                            ]}>
-                              {sex}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
+              <View style={styles.pricingModalHeader}>
+                <View style={styles.pricingModalHeaderTop}>
+                  <Text style={styles.modalTitle}>⚙️ Configuration Grille Tarifaire</Text>
+                  {Object.keys(pricingGrids).length > 1 && (
                     <TouchableOpacity 
-                      style={styles.removeRowButton}
-                      onPress={() => removePricingRow(index)}
+                      style={styles.copyGridButton}
+                      onPress={() => setCopyGridModal(true)}
                     >
-                      <Text style={styles.removeRowButtonText}>🗑️</Text>
+                      <Text style={styles.copyGridButtonText}>📋 Copier</Text>
                     </TouchableOpacity>
-                  </View>
-                ))}
-                
+                  )}
+                </View>
+                <Text style={styles.templateDescription}>
+                  Modifiez la grille tarifaire pour <Text style={styles.animalTypeHighlight}>{selectedAnimalType}</Text> :
+                </Text>
+              </View>
+              
+              <View style={styles.pricingTableContainer}>
+                <View style={styles.pricingTableHeader}>
+                  <View style={styles.pricingTableHeaderCellFixed}><Text style={styles.pricingTableHeaderText}>Mois</Text></View>
+                  <View style={styles.pricingTableHeaderCellFixed}><Text style={styles.pricingTableHeaderText}>Sem.</Text></View>
+                  <View style={styles.pricingTableHeaderCellFixed}><Text style={styles.pricingTableHeaderText}>Prix</Text></View>
+                  <View style={styles.pricingTableHeaderCellSex}><Text style={styles.pricingTableHeaderText}>Sexe</Text></View>
+                  <View style={styles.pricingTableHeaderCellDelete}></View>
+                </View>
+                <ScrollView style={styles.settingsScrollView} showsVerticalScrollIndicator={false}>
+                  {(!pricingGrids[selectedAnimalType] || pricingGrids[selectedAnimalType].length === 0) ? (
+                    <View style={styles.emptyPricingTableRow}>
+                      <Text style={styles.emptyPricingTableText}>Aucune ligne</Text>
+                    </View>
+                  ) : (
+                    (pricingGrids[selectedAnimalType] || []).map((item, index) => (
+                      <View key={index} style={styles.pricingTableRow}>
+                        <View style={styles.pricingTableCellFixed}>
+                          <TextInput
+                            style={styles.pricingTableInput}
+                            value={item.ageMonths ? item.ageMonths.toString() : ''}
+                            onChangeText={(text) => updatePricingGrid(index, 'ageMonths', parseFloat(text) || 0)}
+                            keyboardType="numeric"
+                            placeholder="0"
+                            placeholderTextColor="#999"
+                          />
+                        </View>
+                        <View style={styles.pricingTableCellFixed}>
+                          <TextInput
+                            style={styles.pricingTableInput}
+                            value={item.ageWeeks ? item.ageWeeks.toString() : ''}
+                            onChangeText={(text) => updatePricingGrid(index, 'ageWeeks', parseFloat(text) || 0)}
+                            keyboardType="numeric"
+                            placeholder="0"
+                            placeholderTextColor="#999"
+                          />
+                        </View>
+                        <View style={styles.pricingTableCellFixed}>
+                          <TextInput
+                            style={styles.pricingTableInput}
+                            value={item.price.toString()}
+                            onChangeText={(text) => updatePricingGrid(index, 'price', parseFloat(text) || 0)}
+                            keyboardType="decimal-pad"
+                            placeholder="0"
+                            placeholderTextColor="#999"
+                          />
+                        </View>
+                        <View style={styles.pricingTableCellSex}>
+                          <View style={styles.pricingTableSexContainer}>
+                            {['Tous', 'F', 'M'].map((sex) => {
+                              const fullSex = sex === 'F' ? 'Femelle' : sex === 'M' ? 'Mâle' : 'Tous';
+                              const isSelected = item.sex === fullSex;
+                              return (
+                                <TouchableOpacity
+                                  key={sex}
+                                  style={[
+                                    styles.pricingTableSexOption,
+                                    isSelected && styles.pricingTableSexOptionSelected
+                                  ]}
+                                  onPress={() => updatePricingGrid(index, 'sex', fullSex)}
+                                >
+                                  <Text style={[
+                                    styles.pricingTableSexText,
+                                    isSelected && styles.pricingTableSexTextSelected
+                                  ]}>
+                                    {sex}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </View>
+                        <View style={styles.pricingTableCellDelete}>
+                          <TouchableOpacity 
+                            style={styles.pricingTableDeleteButton}
+                            onPress={() => removePricingRow(index)}
+                          >
+                            <Text style={styles.pricingTableDeleteText}>🗑️</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
                 <TouchableOpacity style={styles.addRowButton} onPress={addPricingRow}>
-                  <Text style={styles.addRowButtonText}>+ Ajouter une ligne</Text>
+                  <Text style={styles.addRowButtonText}>+ Ajouter</Text>
                 </TouchableOpacity>
-              </ScrollView>
+              </View>
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
@@ -2447,11 +2517,57 @@ export default function ProductManagementScreen({ navigation, route }) {
                 
                 <TextInput
                   style={styles.input}
-                placeholder="Ex: Canards, Oies, Chèvres, Lapins..."
-                placeholderTextColor="#999"
-                value={newAnimalTypeName}
-                onChangeText={setNewAnimalTypeName}
-              />
+                  placeholder="Ex: Canards, Oies, Chèvres, Lapins..."
+                  placeholderTextColor="#999"
+                  value={newAnimalTypeName}
+                  onChangeText={setNewAnimalTypeName}
+                />
+
+                {Object.keys(pricingGrids).length > 0 && (
+                  <>
+                    <Text style={styles.inputLabel}>Ou copier depuis une grille existante (optionnel) :</Text>
+                    <ScrollView 
+                      style={styles.copyFromSelector}
+                      nestedScrollEnabled={true}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.copyFromOption,
+                          !copyFromAnimalType && styles.copyFromOptionSelected
+                        ]}
+                        onPress={() => setCopyFromAnimalType(null)}
+                      >
+                        <Text style={[
+                          styles.copyFromOptionText,
+                          !copyFromAnimalType && styles.copyFromOptionTextSelected
+                        ]}>
+                          Créer une grille vide
+                        </Text>
+                      </TouchableOpacity>
+                      {Object.keys(pricingGrids)
+                        .filter(type => type !== selectedAnimalType && pricingGrids[type] && pricingGrids[type].length > 0)
+                        .map((animalType) => (
+                          <TouchableOpacity
+                            key={animalType}
+                            style={[
+                              styles.copyFromOption,
+                              copyFromAnimalType === animalType && styles.copyFromOptionSelected
+                            ]}
+                            onPress={() => setCopyFromAnimalType(animalType)}
+                          >
+                            <Text style={[
+                              styles.copyFromOptionText,
+                              copyFromAnimalType === animalType && styles.copyFromOptionTextSelected
+                            ]}>
+                              📋 Copier depuis {animalType.charAt(0).toUpperCase() + animalType.slice(1)}
+                              {pricingGrids[animalType] && ` (${pricingGrids[animalType].length} lignes)`}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                  </>
+                )}
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
@@ -2475,6 +2591,66 @@ export default function ProductManagementScreen({ navigation, route }) {
               </ScrollView>
             </View>
           </KeyboardAvoidingView>
+        </Modal>
+
+        {/* Copy Grid Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={copyGridModal}
+          onRequestClose={() => setCopyGridModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>📋 Copier une Grille Tarifaire</Text>
+              
+              <Text style={styles.templateDescription}>
+                Sélectionnez une grille à copier vers {selectedAnimalType} :
+              </Text>
+              
+              <ScrollView 
+                style={styles.copyGridSelector}
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+              >
+                {Object.keys(pricingGrids)
+                  .filter(type => type !== selectedAnimalType && pricingGrids[type] && pricingGrids[type].length > 0)
+                  .map((animalType) => (
+                    <TouchableOpacity
+                      key={animalType}
+                      style={styles.copyGridOption}
+                      onPress={async () => {
+                        await copyPricingGrid(animalType, selectedAnimalType);
+                        setCopyGridModal(false);
+                      }}
+                    >
+                      <Text style={styles.copyGridOptionText}>
+                        📋 {animalType.charAt(0).toUpperCase() + animalType.slice(1)}
+                      </Text>
+                      <Text style={styles.copyGridOptionSubtext}>
+                        {pricingGrids[animalType].length} ligne{pricingGrids[animalType].length > 1 ? 's' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                {Object.keys(pricingGrids).filter(type => type !== selectedAnimalType && pricingGrids[type] && pricingGrids[type].length > 0).length === 0 && (
+                  <View style={styles.emptyCopyGridState}>
+                    <Text style={styles.emptyCopyGridText}>
+                      Aucune grille disponible à copier
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalBtn, styles.cancelBtn]}
+                  onPress={() => setCopyGridModal(false)}
+                >
+                  <Text style={styles.modalBtnText}>Annuler</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
         </Modal>
 
         {/* Generate Message Modal */}
@@ -3323,6 +3499,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+    backgroundColor: 'white',
   },
   textArea: {
     minHeight: 80,
@@ -3372,25 +3549,20 @@ const styles = StyleSheet.create({
   },
   configurePricingButton: {
     backgroundColor: '#FF9800',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  configurePricingButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 12,
+    flex: 1,
   },
   addAnimalTypeButton: {
     backgroundColor: '#4CAF50',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    flex: 1,
   },
   addAnimalTypeButtonText: {
     color: 'white',
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 14,
   },
   animalTypeSelector: {
     marginBottom: 12,
@@ -3524,52 +3696,150 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   settingsScrollView: {
-    maxHeight: 300,
-    marginBottom: 15,
-  },
-  settingsRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    maxHeight: 250,
     marginBottom: 10,
-    gap: 6,
-    flexWrap: 'wrap',
   },
-  settingsInputGroup: {
-    minWidth: '22%',
-    flex: 1,
+  pricingTableContainer: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    overflow: 'hidden',
   },
-  settingsLabel: {
+  pricingTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f8f9fa',
+    borderBottomWidth: 2,
+    borderBottomColor: '#005F6B',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  pricingTableHeaderCellFixed: {
+    width: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricingTableHeaderCellSex: {
+    width: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricingTableHeaderCellDelete: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricingTableHeaderText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#666',
-    marginBottom: 2,
+    color: '#005F6B',
+    textAlign: 'center',
   },
-  settingsInput: {
+  pricingTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    minHeight: 44,
+  },
+  pricingTableCellFixed: {
+    width: 60,
+    paddingHorizontal: 2,
+  },
+  pricingTableCellSex: {
+    width: 100,
+    paddingHorizontal: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricingTableCellDelete: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  pricingTableInput: {
+    width: '100%',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 4,
-    padding: 6,
+    padding: 8,
     fontSize: 12,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: 'white',
+    textAlign: 'center',
   },
-  sexSelector: {
+  pricingTableSexContainer: {
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: 4,
+    alignItems: 'center',
   },
-  sexOption: {
-    paddingHorizontal: 8,
+  pricingTableSexOption: {
+    paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 4,
     backgroundColor: '#f0f0f0',
     borderWidth: 1,
     borderColor: '#ddd',
+    minWidth: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricingTableSexOptionSelected: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  pricingTableSexText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+  },
+  pricingTableSexTextSelected: {
+    color: 'white',
+  },
+  pricingTableDeleteButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pricingTableDeleteText: {
+    fontSize: 14,
+    color: '#F44336',
+  },
+  emptyPricingTableRow: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyPricingTableText: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  sexSelector: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  sexOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    minWidth: 70,
+    alignItems: 'center',
   },
   sexOptionSelected: {
     backgroundColor: '#005F6B',
     borderColor: '#005F6B',
   },
   sexOptionText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '600',
     color: '#666',
   },
@@ -3578,23 +3848,23 @@ const styles = StyleSheet.create({
   },
   removeRowButton: {
     backgroundColor: '#F44336',
-    borderRadius: 4,
-    padding: 6,
+    borderRadius: 8,
+    padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
   },
   removeRowButtonText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 14,
   },
   addRowButton: {
     backgroundColor: '#4CAF50',
     borderRadius: 6,
     padding: 10,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   addRowButtonText: {
     color: 'white',
@@ -4245,5 +4515,108 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     backgroundColor: '#4CAF50',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    flexWrap: 'wrap',
+  },
+  pricingModalHeader: {
+    marginBottom: 20,
+  },
+  pricingModalHeaderTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  animalTypeHighlight: {
+    fontWeight: 'bold',
+    color: '#005F6B',
+    textTransform: 'capitalize',
+  },
+  copyGridButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  copyGridButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  copyFromSelector: {
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 15,
+  },
+  copyFromOption: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  copyFromOptionSelected: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#2196F3',
+    borderWidth: 2,
+  },
+  copyFromOptionText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  copyFromOptionTextSelected: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  copyGridSelector: {
+    maxHeight: 300,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 15,
+  },
+  copyGridOption: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  copyGridOptionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  copyGridOptionSubtext: {
+    fontSize: 12,
+    color: '#666',
+  },
+  emptyCopyGridState: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyCopyGridText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
 }); 

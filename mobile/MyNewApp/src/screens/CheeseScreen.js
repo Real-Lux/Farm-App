@@ -1245,6 +1245,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+    backgroundColor: 'white',
   },
   textArea: {
     height: 80,
@@ -1355,7 +1356,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   datePickerButton: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: 'white',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,

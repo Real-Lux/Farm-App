@@ -38,9 +38,15 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [sortBy, setSortBy] = useState('date'); // 'date', 'status'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
-  const [selectedOrderType, setSelectedOrderType] = useState('Tous'); // 'Tous', 'Adoption', 'Autres produits', 'Mixte'
+  const [selectedOrderTypes, setSelectedOrderTypes] = useState(['Tous']); // Multi-select: 'Tous', 'Adoption', 'Autres produits', 'Mixte'
+  const [selectedStatuses, setSelectedStatuses] = useState([]); // Multi-select: 'En attente', 'Confirmée', 'Livrée', 'Annulées'
+  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'old', 'new'
   const [showStatusChangeModal, setShowStatusChangeModal] = useState(false);
   const [selectedOrderForStatusChange, setSelectedOrderForStatusChange] = useState(null);
+  const [showOrderTypeDropdown, setShowOrderTypeDropdown] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const [showStatsModal, setShowStatsModal] = useState(false);
   const flatListRef = useRef(null);
 
   const orderStatuses = ORDER_STATUSES;
@@ -374,16 +380,114 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
 
   const stats = getOrderStats();
 
-  const toggleStatusFilter = (status) => {
-    setActiveFilters(prev => {
+  const toggleOrderType = (type) => {
+    setSelectedOrderTypes(prev => {
+      if (type === 'Tous') {
+        return ['Tous'];
+      }
+      const newSelection = prev.includes(type)
+        ? prev.filter(t => t !== type)
+        : [...prev.filter(t => t !== 'Tous'), type];
+      return newSelection.length === 0 ? ['Tous'] : newSelection;
+    });
+  };
+
+  const toggleStatus = (status) => {
+    setSelectedStatuses(prev => {
       if (prev.includes(status)) {
-        // Remove filter
-        return prev.filter(f => f !== status);
+        return prev.filter(s => s !== status);
       } else {
-        // Add filter
         return [...prev, status];
       }
     });
+  };
+
+  const getOrderStatistics = () => {
+    const stats = {
+      byStatus: {
+        'En attente': 0,
+        'Confirmée': 0,
+        'Livrée': 0,
+        'Annulées': 0
+      },
+      byCustomer: {},
+      byProduct: {},
+      byMonth: {},
+      totalRevenue: 0,
+      averagePrice: 0,
+      priceRange: { min: Infinity, max: 0 }
+    };
+
+    orders.forEach(order => {
+      // Status counts
+      if (stats.byStatus.hasOwnProperty(order.status)) {
+        stats.byStatus[order.status]++;
+      }
+
+      // Customer frequency
+      const customerName = order.customerName || 'Inconnu';
+      if (!stats.byCustomer[customerName]) {
+        stats.byCustomer[customerName] = { count: 0, totalSpent: 0, orders: [] };
+      }
+      stats.byCustomer[customerName].count++;
+      stats.byCustomer[customerName].totalSpent += order.totalPrice || 0;
+      stats.byCustomer[customerName].orders.push(order);
+
+      // Product/Animal type frequency
+      if (order.orderType === 'Adoption' && order.animalDetails) {
+        Object.keys(order.animalDetails).forEach(animalType => {
+          const detail = order.animalDetails[animalType];
+          if (detail.races) {
+            detail.races.forEach(raceConfig => {
+              const key = `${animalType} - ${raceConfig.race}`;
+              stats.byProduct[key] = (stats.byProduct[key] || 0) + (raceConfig.quantity || 0);
+            });
+          }
+        });
+      } else if (order.product) {
+        stats.byProduct[order.product] = (stats.byProduct[order.product] || 0) + (order.quantity || 1);
+      }
+
+      // Monthly demand
+      const orderDate = new Date(order.orderDate);
+      const monthKey = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, '0')}`;
+      stats.byMonth[monthKey] = (stats.byMonth[monthKey] || 0) + 1;
+
+      // Price statistics
+      const price = order.totalPrice || 0;
+      stats.totalRevenue += price;
+      if (price > 0) {
+        stats.priceRange.min = Math.min(stats.priceRange.min, price);
+        stats.priceRange.max = Math.max(stats.priceRange.max, price);
+      }
+    });
+
+    // Calculate average
+    const ordersWithPrice = orders.filter(o => o.totalPrice > 0);
+    stats.averagePrice = ordersWithPrice.length > 0
+      ? stats.totalRevenue / ordersWithPrice.length
+      : 0;
+
+    // Sort customers by frequency
+    const sortedCustomers = Object.entries(stats.byCustomer)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10);
+
+    // Sort products by frequency
+    const sortedProducts = Object.entries(stats.byProduct)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+
+    // Sort months
+    const sortedMonths = Object.entries(stats.byMonth)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+
+    return {
+      ...stats,
+      topCustomers: sortedCustomers,
+      topProducts: sortedProducts,
+      monthlyData: sortedMonths
+    };
   };
 
   // Generate search suggestions from orders
@@ -461,9 +565,29 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const getFilteredAndSortedOrders = () => {
     let filtered = orders;
 
-    // Apply order type filter
-    if (selectedOrderType !== 'Tous') {
-      filtered = filtered.filter(order => order.orderType === selectedOrderType);
+    // Apply order type filter (multi-select)
+    if (!selectedOrderTypes.includes('Tous') && selectedOrderTypes.length > 0) {
+      filtered = filtered.filter(order => selectedOrderTypes.includes(order.orderType));
+    }
+
+    // Apply date filter (old/new)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (dateFilter === 'old') {
+      filtered = filtered.filter(order => {
+        const orderDate = new Date(order.orderDate);
+        orderDate.setHours(0, 0, 0, 0);
+        return orderDate < yesterday;
+      });
+    } else if (dateFilter === 'new') {
+      filtered = filtered.filter(order => {
+        const orderDate = new Date(order.orderDate);
+        orderDate.setHours(0, 0, 0, 0);
+        return orderDate >= yesterday;
+      });
     }
 
     // Apply search filter (includes name, location, race, animal type, product)
@@ -521,9 +645,9 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       });
     }
 
-    // Apply status filters
-    if (activeFilters.length > 0) {
-      filtered = filtered.filter(order => activeFilters.includes(order.status));
+    // Apply status filters (multi-select dropdown)
+    if (selectedStatuses.length > 0) {
+      filtered = filtered.filter(order => selectedStatuses.includes(order.status));
     }
 
     // Apply sorting
@@ -614,8 +738,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             <Text style={styles.orderCount}>({filteredOrders.length})</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
-              <Text style={styles.addButtonText}>+ Nouvelle</Text>
+            <TouchableOpacity style={styles.statsButton} onPress={() => setShowStatsModal(true)}>
+              <Text style={styles.statsButtonText}>📊 Stats</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -683,28 +807,131 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           </View>
         )}
         
-        {/* Order Type Filter Chips - Smaller */}
-        <View style={styles.orderTypeFilterContainer}>
-          {['Tous', 'Adoption', 'Autres produits', 'Mixte'].map((type) => (
+        {/* Filter Dropdowns Row */}
+        <View style={styles.filterDropdownsRow}>
+          {/* Order Type Dropdown */}
+          <View style={styles.dropdownContainer}>
             <TouchableOpacity
-              key={type}
-              style={[
-                styles.orderTypeChip,
-                selectedOrderType === type && styles.orderTypeChipActive
-              ]}
-              onPress={() => setSelectedOrderType(type)}
+              style={styles.dropdownButton}
+              onPress={() => {
+                setShowOrderTypeDropdown(!showOrderTypeDropdown);
+                setShowStatusDropdown(false);
+                setShowDateDropdown(false);
+              }}
             >
-              <Text style={[
-                styles.orderTypeChipText,
-                selectedOrderType === type && styles.orderTypeChipTextActive
-              ]}>
-                {type === 'Tous' ? '📋' : type === 'Adoption' ? '🦆' : type === 'Autres produits' ? '📦' : '🔄'} {type === 'Autres produits' ? 'Produits' : type}
+              <Text style={styles.dropdownButtonText}>
+                {selectedOrderTypes.includes('Tous') || selectedOrderTypes.length === 0
+                  ? '📋 Tous'
+                  : selectedOrderTypes.length === 1
+                  ? `📋 ${selectedOrderTypes[0] === 'Autres produits' ? 'Produits' : selectedOrderTypes[0]}`
+                  : `📋 ${selectedOrderTypes.length} types`}
               </Text>
+              <Text style={styles.dropdownArrow}>{showOrderTypeDropdown ? '▲' : '▼'}</Text>
             </TouchableOpacity>
-          ))}
+            {showOrderTypeDropdown && (
+              <View style={styles.dropdownMenu}>
+                {['Tous', 'Adoption', 'Autres produits', 'Mixte'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      toggleOrderType(type);
+                      setShowOrderTypeDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownItemText}>
+                      {selectedOrderTypes.includes(type) ? '✓ ' : '  '}
+                      {type === 'Tous' ? '📋' : type === 'Adoption' ? '🦆' : type === 'Autres produits' ? '📦' : '🔄'} {type === 'Autres produits' ? 'Produits' : type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Status Dropdown */}
+          <View style={styles.dropdownContainer}>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => {
+                setShowStatusDropdown(!showStatusDropdown);
+                setShowOrderTypeDropdown(false);
+                setShowDateDropdown(false);
+              }}
+            >
+              <Text style={styles.dropdownButtonText}>
+                {selectedStatuses.length === 0
+                  ? '🏷️ Statut'
+                  : selectedStatuses.length === 1
+                  ? `🏷️ ${selectedStatuses[0]}`
+                  : `🏷️ ${selectedStatuses.length} statuts`}
+              </Text>
+              <Text style={styles.dropdownArrow}>{showStatusDropdown ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {showStatusDropdown && (
+              <View style={styles.dropdownMenu}>
+                {['En attente', 'Confirmée', 'Livrée', 'Annulées'].map((status) => {
+                  const statusDef = getStatusDefinition(status);
+                  return (
+                    <TouchableOpacity
+                      key={status}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        toggleStatus(status);
+                      }}
+                    >
+                      <Text style={styles.dropdownItemText}>
+                        {selectedStatuses.includes(status) ? '✓ ' : '  '}
+                        {statusDef.icon} {status}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          {/* Date Filter Dropdown */}
+          <View style={styles.dropdownContainer}>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => {
+                setShowDateDropdown(!showDateDropdown);
+                setShowOrderTypeDropdown(false);
+                setShowStatusDropdown(false);
+              }}
+            >
+              <Text style={styles.dropdownButtonText}>
+                {dateFilter === 'all' ? '📅 Toutes' : dateFilter === 'old' ? '📅 Anciennes' : '📅 Récentes'}
+              </Text>
+              <Text style={styles.dropdownArrow}>{showDateDropdown ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {showDateDropdown && (
+              <View style={styles.dropdownMenu}>
+                {[
+                  { value: 'all', label: '📅 Toutes les dates' },
+                  { value: 'old', label: '📅 Anciennes (avant hier)' },
+                  { value: 'new', label: '📅 Récentes (depuis hier)' }
+                ].map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setDateFilter(option.value);
+                      setShowDateDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownItemText}>
+                      {dateFilter === option.value ? '✓ ' : '  '}
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
       </View>
-
 
       {/* Status Change Modal */}
       <Modal
@@ -774,45 +1001,6 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
       </Modal>
 
 
-      {/* Simplified Status Overview - Scrollable horizontally */}
-      <View style={styles.simplifiedStatusContainer}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.simplifiedStatusRow}
-        >
-          {['En attente', 'Confirmée', 'Livrée'].map((status) => {
-            const statusCount = stats[status] || 0;
-            const statusDef = getStatusDefinition(status);
-            const isActive = activeFilters.includes(status);
-            
-            return (
-              <TouchableOpacity
-                key={status}
-                style={[
-                  styles.simplifiedStatusChip,
-                  { borderColor: statusDef.color },
-                  isActive && { backgroundColor: statusDef.color }
-                ]}
-                onPress={() => {
-                  if (isActive) {
-                    setActiveFilters([]);
-                  } else {
-                    setActiveFilters([status]);
-                  }
-                }}
-              >
-                <Text style={[
-                  styles.simplifiedStatusText,
-                  isActive && { color: 'white' }
-                ]}>
-                  {statusDef.icon} {statusCount}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
 
       <FlatList
         ref={flatListRef}
@@ -828,7 +1016,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
-              {activeFilters.length > 0 
+              {selectedStatuses.length > 0 || selectedOrderTypes.length > 0 || dateFilter !== 'all'
                 ? '🔍 Aucune commande ne correspond aux filtres sélectionnés'
                 : '📋 Aucune commande pour le moment'
               }
@@ -872,6 +1060,143 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           }}
         />
       </Modal>
+
+      {/* Statistics Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showStatsModal}
+        onRequestClose={() => setShowStatsModal(false)}
+      >
+        <View style={styles.statsModalOverlay}>
+          <View style={styles.statsModalContent}>
+            <View style={styles.statsModalHeader}>
+              <Text style={styles.statsModalTitle}>📊 Statistiques</Text>
+              <TouchableOpacity
+                style={styles.closeStatsModalBtn}
+                onPress={() => setShowStatsModal(false)}
+              >
+                <Text style={styles.closeStatsModalText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.statsModalBody} showsVerticalScrollIndicator={true}>
+              {(() => {
+                const statistics = getOrderStatistics();
+                const maxMonthValue = Math.max(...statistics.monthlyData.map(([, count]) => count), 1);
+                
+                return (
+                  <>
+                    {/* Status Overview */}
+                    <View style={styles.statsSection}>
+                      <Text style={styles.statsSectionTitle}>Statuts des Commandes</Text>
+                      <View style={styles.statusStatsGrid}>
+                        {Object.entries(statistics.byStatus).map(([status, count]) => {
+                          const statusDef = getStatusDefinition(status);
+                          return (
+                            <View key={status} style={styles.statusStatCard}>
+                              <Text style={[styles.statusStatIcon, { color: statusDef.color }]}>
+                                {statusDef.icon}
+                              </Text>
+                              <Text style={styles.statusStatCount}>{count}</Text>
+                              <Text style={styles.statusStatLabel}>{status}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    {/* Revenue Stats */}
+                    <View style={styles.statsSection}>
+                      <Text style={styles.statsSectionTitle}>Revenus</Text>
+                      <View style={styles.revenueStats}>
+                        <View style={styles.revenueStatItem}>
+                          <Text style={styles.revenueStatLabel}>Total</Text>
+                          <Text style={styles.revenueStatValue}>{statistics.totalRevenue.toFixed(2)}€</Text>
+                        </View>
+                        <View style={styles.revenueStatItem}>
+                          <Text style={styles.revenueStatLabel}>Moyenne</Text>
+                          <Text style={styles.revenueStatValue}>{statistics.averagePrice.toFixed(2)}€</Text>
+                        </View>
+                        <View style={styles.revenueStatItem}>
+                          <Text style={styles.revenueStatLabel}>Min - Max</Text>
+                          <Text style={styles.revenueStatValue}>
+                            {statistics.priceRange.min !== Infinity 
+                              ? `${statistics.priceRange.min.toFixed(2)}€ - ${statistics.priceRange.max.toFixed(2)}€`
+                              : 'N/A'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Monthly Demand Chart */}
+                    <View style={styles.statsSection}>
+                      <Text style={styles.statsSectionTitle}>Demande Mensuelle</Text>
+                      <View style={styles.chartContainer}>
+                        {statistics.monthlyData.map(([monthKey, count]) => {
+                          const [year, month] = monthKey.split('-');
+                          const monthName = new Date(year, parseInt(month) - 1).toLocaleDateString('fr-FR', { month: 'short' });
+                          const barHeight = (count / maxMonthValue) * 100;
+                          return (
+                            <View key={monthKey} style={styles.chartBarContainer}>
+                              <View style={styles.chartBarWrapper}>
+                                <View style={[styles.chartBar, { height: `${barHeight}%` }]} />
+                              </View>
+                              <Text style={styles.chartBarLabel}>{monthName}</Text>
+                              <Text style={styles.chartBarValue}>{count}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    {/* Top Customers */}
+                    <View style={styles.statsSection}>
+                      <Text style={styles.statsSectionTitle}>Top Clients</Text>
+                      {statistics.topCustomers.map(([customer, data], index) => (
+                        <View key={customer} style={styles.customerStatRow}>
+                          <Text style={styles.customerStatRank}>#{index + 1}</Text>
+                          <View style={styles.customerStatInfo}>
+                            <Text style={styles.customerStatName}>{customer}</Text>
+                            <Text style={styles.customerStatDetails}>
+                              {data.count} commande{data.count > 1 ? 's' : ''} • {data.totalSpent.toFixed(2)}€
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                      {statistics.topCustomers.length === 0 && (
+                        <Text style={styles.noDataText}>Aucun client trouvé</Text>
+                      )}
+                    </View>
+
+                    {/* Top Products */}
+                    <View style={styles.statsSection}>
+                      <Text style={styles.statsSectionTitle}>Produits/Animaux les Plus Demandés</Text>
+                      {statistics.topProducts.map(([product, count], index) => (
+                        <View key={product} style={styles.productStatRow}>
+                          <Text style={styles.productStatName}>{product}</Text>
+                          <Text style={styles.productStatCount}>{count}</Text>
+                        </View>
+                      ))}
+                      {statistics.topProducts.length === 0 && (
+                        <Text style={styles.noDataText}>Aucun produit trouvé</Text>
+                      )}
+                    </View>
+                  </>
+                );
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Floating Add Button */}
+      <TouchableOpacity
+        style={styles.floatingAddButton}
+        onPress={openAddModal}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.floatingAddButtonText}>+</Text>
+      </TouchableOpacity>
 
       </SafeAreaView>
     </View>
@@ -942,15 +1267,37 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
   },
-  addButton: {
+  statsButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 8,
     paddingHorizontal: 15,
     paddingVertical: 8,
   },
-  addButtonText: {
+  statsButtonText: {
     color: 'white',
     fontWeight: '600',
+  },
+  floatingAddButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 1000,
+  },
+  floatingAddButtonText: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: 'bold',
   },
   // Compact controls styles
   controlsContainer: {
@@ -1075,11 +1422,65 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  orderTypeFilterContainer: {
+  filterDropdownsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 10,
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  dropdownContainer: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 10,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  dropdownButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+  },
+  dropdownArrow: {
+    fontSize: 10,
+    color: '#666',
+    marginLeft: 8,
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginTop: 4,
+    maxHeight: 200,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    zIndex: 1000,
+  },
+  dropdownItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: '#333',
   },
   orderTypeChip: {
     backgroundColor: '#f5f5f5',
@@ -1738,5 +2139,206 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
     lineHeight: 16,
+  },
+  // Statistics Modal Styles
+  statsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statsModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '90%',
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  statsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  statsModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeStatsModalBtn: {
+    padding: 5,
+  },
+  closeStatsModalText: {
+    fontSize: 20,
+    color: '#666',
+  },
+  statsModalBody: {
+    padding: 20,
+  },
+  statsSection: {
+    marginBottom: 25,
+  },
+  statsSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  statusStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  statusStatCard: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  statusStatIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  statusStatCount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  statusStatLabel: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  revenueStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 10,
+  },
+  revenueStatItem: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  revenueStatLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  revenueStatValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  chartContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-around',
+    height: 150,
+    paddingVertical: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+  },
+  chartBarContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    height: '100%',
+  },
+  chartBarWrapper: {
+    width: '80%',
+    height: '80%',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  chartBar: {
+    width: '100%',
+    backgroundColor: '#005F6B',
+    borderRadius: 4,
+    minHeight: 4,
+  },
+  chartBarLabel: {
+    fontSize: 10,
+    color: '#666',
+    marginTop: 4,
+  },
+  chartBarValue: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 2,
+  },
+  customerStatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  customerStatRank: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#005F6B',
+    marginRight: 12,
+    minWidth: 30,
+  },
+  customerStatInfo: {
+    flex: 1,
+  },
+  customerStatName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  customerStatDetails: {
+    fontSize: 12,
+    color: '#666',
+  },
+  productStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  productStatName: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+  },
+  productStatCount: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    padding: 20,
   },
 }); 

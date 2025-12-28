@@ -986,7 +986,11 @@ export default function CalendarScreen({ navigation }) {
                 <Text style={styles.dayNavArrowText}>›</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.eventsList}>
+            <ScrollView 
+              style={styles.eventsList}
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+            >
               {selectedDateEvents.length === 0 ? (
                 <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
               ) : (
@@ -1010,7 +1014,7 @@ export default function CalendarScreen({ navigation }) {
           </TouchableOpacity>
                 ))
               )}
-            </View>
+            </ScrollView>
           </View>
 
         <ViewModeSelector />
@@ -1085,7 +1089,11 @@ export default function CalendarScreen({ navigation }) {
                 <Text style={styles.dayNavArrowText}>›</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.eventsList}>
+            <ScrollView 
+              style={styles.eventsList}
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+            >
               {selectedDateEvents.length === 0 ? (
                 <Text style={styles.noEventsText}>Aucun événement ce jour</Text>
               ) : (
@@ -1109,7 +1117,7 @@ export default function CalendarScreen({ navigation }) {
                   </TouchableOpacity>
                 ))
               )}
-            </View>
+            </ScrollView>
           </View>
 
           <ViewModeSelector />
@@ -1123,7 +1131,11 @@ export default function CalendarScreen({ navigation }) {
             <Text style={styles.selectedDateTitle}>
                 Événements du mois ({new Date(selectedDate).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}):
             </Text>
-              <View style={styles.monthEventsList}>
+              <ScrollView 
+                style={styles.monthEventsList}
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+              >
                 {monthEvents.length === 0 ? (
                   <Text style={styles.noEventsText}>Aucun événement ce mois</Text>
                 ) : (
@@ -1144,7 +1156,7 @@ export default function CalendarScreen({ navigation }) {
                   </TouchableOpacity>
                 ))
               )}
-            </View>
+            </ScrollView>
           </View>
         )}
 
@@ -1667,7 +1679,7 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   eventsList: {
-    maxHeight: 150,
+    maxHeight: 200,
   },
   monthEventsSection: {
     backgroundColor: 'white',
@@ -1682,45 +1694,46 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   monthEventsList: {
+    maxHeight: 300,
     paddingBottom: 10,
   },
   eventItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    borderLeftWidth: 4,
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 6,
+    borderLeftWidth: 3,
   },
   eventIcon: {
-    fontSize: 16,
-    marginRight: 12,
+    fontSize: 14,
+    marginRight: 8,
   },
   eventDetails: {
     flex: 1,
   },
   eventTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 'bold',
     color: '#333',
   },
   eventType: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
   },
   eventDate: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#999',
     fontStyle: 'italic',
   },
   eventProduct: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
     marginTop: 2,
   },
   eventNotes: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
     fontStyle: 'italic',
     marginTop: 2,
@@ -1759,6 +1772,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+    backgroundColor: 'white',
   },
   notesInput: {
     height: 80,

@@ -539,6 +539,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+    backgroundColor: 'white',
   },
   notesInput: {
     height: 80,

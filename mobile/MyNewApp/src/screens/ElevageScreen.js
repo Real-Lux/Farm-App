@@ -98,6 +98,7 @@ export default function ElevageScreen({ navigation, route }) {
     unsexed: '',
     notes: ''
   });
+  const [updateModalLot, setUpdateModalLot] = useState(null); // Store lot data for update modal
 
   // Update currentAnimalType when route params change
   useEffect(() => {
@@ -353,7 +354,7 @@ export default function ElevageScreen({ navigation, route }) {
       rejected_count: '',
       hatched_count: '',
       hatched_by_race: {},
-      estimated_success_rate: '',
+      estimated_success_rate: '80', // Default 80% to avoid NaN values
       races: {},
       status: 'Actif',
       notes: ''
@@ -427,7 +428,8 @@ export default function ElevageScreen({ navigation, route }) {
       rejected_count: lot.rejected_count?.toString() || '',
       hatched_count: lot.hatched_count?.toString() || '',
       hatched_by_race: hatchedByRace,
-      estimated_success_rate: lot.estimated_success_rate?.toString() || '',
+      // Set default to 80% if not provided and lot is still in estimation phase (no hatched/fertilized counts)
+      estimated_success_rate: lot.estimated_success_rate?.toString() || ((lot.eggs_count > 0 && (!lot.hatched_count || lot.hatched_count === 0) && (!lot.fertilized_count || lot.fertilized_count === 0)) ? '80' : ''),
       races: lot.races,
       status: lot.status,
       notes: lot.notes
@@ -515,6 +517,7 @@ export default function ElevageScreen({ navigation, route }) {
 
   const openUpdateModal = async (lot, race) => {
     setModalType('update');
+    setUpdateModalLot(lot); // Store lot for checking éclosion status
     
     // Load existing notes for this lot and race
     let existingNotes = '';
@@ -624,7 +627,17 @@ export default function ElevageScreen({ navigation, route }) {
       finalLotForm.fertilized_count = parseInt(finalLotForm.fertilized_count) || 0;
       finalLotForm.rejected_count = parseInt(finalLotForm.rejected_count) || 0;
       finalLotForm.hatched_count = parseInt(finalLotForm.hatched_count) || 0;
-      finalLotForm.estimated_success_rate = parseFloat(finalLotForm.estimated_success_rate) || null;
+      // Set default to 80% if not provided and we have eggs_count but no hatched/fertilized counts
+      const parsedRate = parseFloat(finalLotForm.estimated_success_rate);
+      if (!parsedRate || isNaN(parsedRate)) {
+        if (finalLotForm.eggs_count > 0 && finalLotForm.hatched_count === 0 && finalLotForm.fertilized_count === 0) {
+          finalLotForm.estimated_success_rate = 80; // Default 80% to avoid NaN values
+        } else {
+          finalLotForm.estimated_success_rate = null;
+        }
+      } else {
+        finalLotForm.estimated_success_rate = parsedRate;
+      }
 
       // Calculate initial quantities based on progression: hatched_by_race > fertilized_by_race > hatched_count > fertilized_count > estimated_success_rate
       if (Object.keys(finalLotForm.races).length > 0) {
@@ -637,7 +650,10 @@ export default function ElevageScreen({ navigation, route }) {
             finalLotForm.races[raceName] = {
               ...finalLotForm.races[raceName],
               initial: count,
-              current: count
+              current: count,
+              males: 0,
+              females: 0,
+              unsexed: count
             };
           });
         }
@@ -648,7 +664,10 @@ export default function ElevageScreen({ navigation, route }) {
             finalLotForm.races[raceName] = {
               ...finalLotForm.races[raceName],
               initial: count,
-              current: count
+              current: count,
+              males: 0,
+              females: 0,
+              unsexed: count
             };
           });
         }
@@ -670,7 +689,10 @@ export default function ElevageScreen({ navigation, route }) {
               finalLotForm.races[raceName] = {
                 ...finalLotForm.races[raceName],
                 initial: count,
-                current: count
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
               };
             });
           } else {
@@ -681,7 +703,10 @@ export default function ElevageScreen({ navigation, route }) {
               finalLotForm.races[raceName] = {
                 ...finalLotForm.races[raceName],
                 initial: count,
-                current: count
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
               };
             });
           }
@@ -704,7 +729,10 @@ export default function ElevageScreen({ navigation, route }) {
               finalLotForm.races[raceName] = {
                 ...finalLotForm.races[raceName],
                 initial: count,
-                current: count
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
               };
             });
           } else {
@@ -715,7 +743,10 @@ export default function ElevageScreen({ navigation, route }) {
               finalLotForm.races[raceName] = {
                 ...finalLotForm.races[raceName],
                 initial: count,
-                current: count
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
               };
             });
           }
@@ -738,7 +769,10 @@ export default function ElevageScreen({ navigation, route }) {
               finalLotForm.races[raceName] = {
                 ...finalLotForm.races[raceName],
                 initial: count,
-                current: count
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
               };
             });
           } else {
@@ -749,7 +783,10 @@ export default function ElevageScreen({ navigation, route }) {
               finalLotForm.races[raceName] = {
                 ...finalLotForm.races[raceName],
                 initial: count,
-                current: count
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
               };
             });
           }
@@ -825,24 +862,71 @@ export default function ElevageScreen({ navigation, route }) {
         raceNames.forEach((raceName) => {
           const currentRaceData = updatedLot.races[raceName];
           let count = 0;
+          const hasHatchedByRace = updatedLot.hatched_by_race && updatedLot.hatched_by_race[raceName] !== undefined;
+          const hasHatchedCount = updatedLot.hatched_count && updatedLot.hatched_count > 0;
           
           // Priority 1: Use hatched_by_race if available (final count)
-          if (updatedLot.hatched_by_race && updatedLot.hatched_by_race[raceName] !== undefined) {
+          if (hasHatchedByRace) {
             count = updatedLot.hatched_by_race[raceName] || 0;
+            const existingMales = currentRaceData.males || 0;
+            const existingFemales = currentRaceData.females || 0;
+            const existingUnsexed = currentRaceData.unsexed || 0;
+            
+            // When éclosions are provided, update unsexed to match hatched count
+            // Only preserve gender breakdown if user has explicitly set gender (males or females > 0)
+            // If no explicit gender data exists, always update unsexed to match hatched count
+            let newUnsexed = count;
+            if (existingMales > 0 || existingFemales > 0) {
+              // Gender has been explicitly set by user - preserve existing breakdown
+              newUnsexed = existingUnsexed;
+            } else {
+              // No explicit gender data - update unsexed to match hatched count
+              newUnsexed = count;
+            }
+            
             updatedLot.races[raceName] = {
               ...currentRaceData,
               initial: count,
-              current: count
+              current: count,
+              males: existingMales || 0,
+              females: existingFemales || 0,
+              unsexed: newUnsexed
             };
           }
           // Priority 2: Use fertilized_by_race if available (after fertilization check)
+          // When fertilization check is done but éclosion hasn't happened yet, set all as unsexed
           else if (updatedLot.fertilized_by_race && updatedLot.fertilized_by_race[raceName] !== undefined) {
             count = updatedLot.fertilized_by_race[raceName] || 0;
-            updatedLot.races[raceName] = {
-              ...currentRaceData,
-              initial: count,
-              current: count
-            };
+            
+            // If éclosion has already happened (hatched_count > 0), preserve existing gender breakdown
+            // Otherwise, if this is just fertilization check, set all as unsexed
+            const hasEclosion = updatedLot.hatched_count && updatedLot.hatched_count > 0;
+            
+            if (hasEclosion) {
+              // Preserve existing gender breakdown after éclosion
+              const existingMales = currentRaceData.males || 0;
+              const existingFemales = currentRaceData.females || 0;
+              const existingUnsexed = currentRaceData.unsexed || 0;
+              
+              updatedLot.races[raceName] = {
+                ...currentRaceData,
+                initial: count,
+                current: count,
+                males: existingMales || 0,
+                females: existingFemales || 0,
+                unsexed: existingUnsexed
+              };
+            } else {
+              // Fertilization check only - set all as unsexed
+              updatedLot.races[raceName] = {
+                ...currentRaceData,
+                initial: count,
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
+              };
+            }
           }
           // Fallback: If no per-race data, use proportional distribution from totals
           else if (hatched > 0 || fertilized > 0) {
@@ -862,11 +946,47 @@ export default function ElevageScreen({ navigation, route }) {
               count = perRace + (raceIndex < remainder ? 1 : 0);
             }
             
-            updatedLot.races[raceName] = {
-              ...currentRaceData,
-              initial: count,
-              current: count
-            };
+            // If éclosion has happened (hatched_count > 0), update unsexed to match hatched count
+            // Only preserve gender breakdown if it's already been explicitly set
+            // Otherwise, if this is just fertilization check, set all as unsexed
+            const hasEclosion = hatched > 0;
+            
+            if (hasEclosion) {
+              // When éclosions are provided, update unsexed to match hatched count
+              // Only preserve gender breakdown if user has explicitly set gender (males or females > 0)
+              const existingMales = currentRaceData.males || 0;
+              const existingFemales = currentRaceData.females || 0;
+              const existingUnsexed = currentRaceData.unsexed || 0;
+              
+              // If no explicit gender data exists, always update unsexed to match hatched count
+              let newUnsexed = count;
+              if (existingMales > 0 || existingFemales > 0) {
+                // Gender has been explicitly set by user - preserve existing breakdown
+                newUnsexed = existingUnsexed;
+              } else {
+                // No explicit gender data - update unsexed to match hatched count
+                newUnsexed = count;
+              }
+              
+              updatedLot.races[raceName] = {
+                ...currentRaceData,
+                initial: count,
+                current: count,
+                males: existingMales || 0,
+                females: existingFemales || 0,
+                unsexed: newUnsexed
+              };
+            } else {
+              // Fertilization check only - set all as unsexed
+              updatedLot.races[raceName] = {
+                ...currentRaceData,
+                initial: count,
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
+              };
+            }
           }
         });
       }
@@ -1407,7 +1527,7 @@ export default function ElevageScreen({ navigation, route }) {
             {isEstimated && (
               <View style={styles.estimatedWarning}>
                 <Text style={styles.estimatedWarningText}>
-                  ⚠️ Quantités estimées: {item.eggs_count} œufs × {item.estimated_success_rate}% = {totalInitial} initiaux estimés
+                  ⚠️ Quantités estimées: {item.eggs_count} œufs × {item.estimated_success_rate || 80}% = {totalInitial} initiaux estimés
                 </Text>
               </View>
             )}
@@ -2401,7 +2521,10 @@ export default function ElevageScreen({ navigation, route }) {
         animationType="slide"
         transparent={true}
         visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={() => {
+          setModalVisible(false);
+          setUpdateModalLot(null);
+        }}
       >
         <KeyboardAvoidingView 
           style={styles.modalOverlay}
@@ -2687,10 +2810,10 @@ export default function ElevageScreen({ navigation, route }) {
                             onChangeText={(text) => setLotForm({...lotForm, estimated_success_rate: text})}
                             keyboardType="decimal-pad"
                           />
-                          {lotForm.eggs_count && lotForm.estimated_success_rate && (
+                          {lotForm.eggs_count && (
                             <View style={styles.estimatedCalculation}>
                               <Text style={styles.estimatedCalculationText}>
-                                💡 Estimation: {lotForm.eggs_count} œufs × {lotForm.estimated_success_rate}% = {Math.round(parseInt(lotForm.eggs_count) * (parseFloat(lotForm.estimated_success_rate) / 100))} initiaux estimés
+                                💡 Estimation: {lotForm.eggs_count} œufs × {(lotForm.estimated_success_rate || '80')}% = {Math.round(parseInt(lotForm.eggs_count) * (parseFloat(lotForm.estimated_success_rate || '80') / 100))} initiaux estimés
                               </Text>
                             </View>
                           )}
@@ -3293,7 +3416,11 @@ export default function ElevageScreen({ navigation, route }) {
                 </>
               )}
 
-              {modalType === 'update' && (
+              {modalType === 'update' && (() => {
+                // Check if éclosion has happened (hatched_count > 0)
+                const hasEclosion = updateModalLot && updateModalLot.hatched_count && updateModalLot.hatched_count > 0;
+                
+                return (
                 <>
                   <Text style={styles.modalTitle}>
                     Mettre à jour {updateForm.race}
@@ -3326,6 +3453,13 @@ export default function ElevageScreen({ navigation, route }) {
                         />
                       </View>
                     </View>
+                    {!hasEclosion && (
+                      <View style={styles.warningMessage}>
+                        <Text style={styles.warningText}>
+                          ⚠️ Les modifications de sexe ne sont disponibles qu'après l'éclosion
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {/* Add Deaths Section */}
@@ -3333,25 +3467,42 @@ export default function ElevageScreen({ navigation, route }) {
                     <Text style={styles.actionSectionTitle}>➕ Ajouter un décès</Text>
                     <View style={styles.actionButtonsRow}>
                       <TouchableOpacity 
-                        style={[styles.actionButton, styles.deathButton]}
+                        style={[
+                          styles.actionButton, 
+                          styles.deathButton,
+                          !hasEclosion && styles.actionButtonDisabled
+                        ]}
                         onPress={() => addDeath('males')}
-                        disabled={parseInt(updateForm.males) === 0}
+                        disabled={!hasEclosion || parseInt(updateForm.males) === 0}
                       >
-                        <Text style={styles.actionButtonText}>♂️ Mâle</Text>
+                        <Text style={[
+                          styles.actionButtonText,
+                          (!hasEclosion || parseInt(updateForm.males) === 0) && styles.actionButtonTextDisabled
+                        ]}>♂️ Mâle</Text>
                       </TouchableOpacity>
                       <TouchableOpacity 
-                        style={[styles.actionButton, styles.deathButton]}
+                        style={[
+                          styles.actionButton, 
+                          styles.deathButton,
+                          !hasEclosion && styles.actionButtonDisabled
+                        ]}
                         onPress={() => addDeath('females')}
-                        disabled={parseInt(updateForm.females) === 0}
+                        disabled={!hasEclosion || parseInt(updateForm.females) === 0}
                       >
-                        <Text style={styles.actionButtonText}>♀️ Femelle</Text>
+                        <Text style={[
+                          styles.actionButtonText,
+                          (!hasEclosion || parseInt(updateForm.females) === 0) && styles.actionButtonTextDisabled
+                        ]}>♀️ Femelle</Text>
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={[styles.actionButton, styles.deathButton]}
                         onPress={() => addDeath('unsexed')}
                         disabled={parseInt(updateForm.unsexed) === 0}
                       >
-                        <Text style={styles.actionButtonText}>❓ Non-sexé</Text>
+                        <Text style={[
+                          styles.actionButtonText,
+                          parseInt(updateForm.unsexed) === 0 && styles.actionButtonTextDisabled
+                        ]}>❓ Non-sexé</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -3359,7 +3510,11 @@ export default function ElevageScreen({ navigation, route }) {
                   {/* Sex Correction Section */}
                   <View style={styles.actionSection}>
                     <Text style={styles.actionSectionTitle}>🔄 Corriger le sexe</Text>
-                    <Text style={styles.correctionSubtitle}>Cliquez pour transférer 1 animal d'un sexe vers un autre</Text>
+                    <Text style={styles.correctionSubtitle}>
+                      {hasEclosion 
+                        ? 'Cliquez pour transférer 1 animal d\'un sexe vers un autre'
+                        : 'Disponible uniquement après l\'éclosion'}
+                    </Text>
                     <View style={styles.correctionGrid}>
                       <View style={styles.correctionColumn}>
                         <View style={styles.correctionHeader}>
@@ -3369,22 +3524,28 @@ export default function ElevageScreen({ navigation, route }) {
                         <TouchableOpacity 
                           style={[
                             styles.correctionButtonFixed,
-                            parseInt(updateForm.males) === 0 && styles.correctionButtonDisabled
+                            (!hasEclosion || parseInt(updateForm.males) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('males', 'females')}
-                          disabled={parseInt(updateForm.males) === 0}
+                          disabled={!hasEclosion || parseInt(updateForm.males) === 0}
                         >
-                          <Text style={styles.correctionButtonText}>→ ♀️ Femelle</Text>
+                          <Text style={[
+                            styles.correctionButtonText,
+                            (!hasEclosion || parseInt(updateForm.males) === 0) && styles.correctionButtonTextDisabled
+                          ]}>→ ♀️ Femelle</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[
                             styles.correctionButtonFixed,
-                            parseInt(updateForm.males) === 0 && styles.correctionButtonDisabled
+                            (!hasEclosion || parseInt(updateForm.males) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('males', 'unsexed')}
-                          disabled={parseInt(updateForm.males) === 0}
+                          disabled={!hasEclosion || parseInt(updateForm.males) === 0}
                         >
-                          <Text style={styles.correctionButtonText}>→ ❓ Non-sexé</Text>
+                          <Text style={[
+                            styles.correctionButtonText,
+                            (!hasEclosion || parseInt(updateForm.males) === 0) && styles.correctionButtonTextDisabled
+                          ]}>→ ❓ Non-sexé</Text>
                         </TouchableOpacity>
                       </View>
                       <View style={styles.correctionColumn}>
@@ -3395,22 +3556,28 @@ export default function ElevageScreen({ navigation, route }) {
                         <TouchableOpacity 
                           style={[
                             styles.correctionButtonFixed,
-                            parseInt(updateForm.females) === 0 && styles.correctionButtonDisabled
+                            (!hasEclosion || parseInt(updateForm.females) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('females', 'males')}
-                          disabled={parseInt(updateForm.females) === 0}
+                          disabled={!hasEclosion || parseInt(updateForm.females) === 0}
                         >
-                          <Text style={styles.correctionButtonText}>→ ♂️ Mâle</Text>
+                          <Text style={[
+                            styles.correctionButtonText,
+                            (!hasEclosion || parseInt(updateForm.females) === 0) && styles.correctionButtonTextDisabled
+                          ]}>→ ♂️ Mâle</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[
                             styles.correctionButtonFixed,
-                            parseInt(updateForm.females) === 0 && styles.correctionButtonDisabled
+                            (!hasEclosion || parseInt(updateForm.females) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('females', 'unsexed')}
-                          disabled={parseInt(updateForm.females) === 0}
+                          disabled={!hasEclosion || parseInt(updateForm.females) === 0}
                         >
-                          <Text style={styles.correctionButtonText}>→ ❓ Non-sexé</Text>
+                          <Text style={[
+                            styles.correctionButtonText,
+                            (!hasEclosion || parseInt(updateForm.females) === 0) && styles.correctionButtonTextDisabled
+                          ]}>→ ❓ Non-sexé</Text>
                         </TouchableOpacity>
                       </View>
                       <View style={styles.correctionColumn}>
@@ -3421,29 +3588,35 @@ export default function ElevageScreen({ navigation, route }) {
                         <TouchableOpacity 
                           style={[
                             styles.correctionButtonFixed,
-                            parseInt(updateForm.unsexed) === 0 && styles.correctionButtonDisabled
+                            (!hasEclosion || parseInt(updateForm.unsexed) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('unsexed', 'males')}
-                          disabled={parseInt(updateForm.unsexed) === 0}
+                          disabled={!hasEclosion || parseInt(updateForm.unsexed) === 0}
                         >
-                          <Text style={styles.correctionButtonText}>→ ♂️ Mâle</Text>
+                          <Text style={[
+                            styles.correctionButtonText,
+                            (!hasEclosion || parseInt(updateForm.unsexed) === 0) && styles.correctionButtonTextDisabled
+                          ]}>→ ♂️ Mâle</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[
                             styles.correctionButtonFixed,
-                            parseInt(updateForm.unsexed) === 0 && styles.correctionButtonDisabled
+                            (!hasEclosion || parseInt(updateForm.unsexed) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('unsexed', 'females')}
-                          disabled={parseInt(updateForm.unsexed) === 0}
+                          disabled={!hasEclosion || parseInt(updateForm.unsexed) === 0}
                         >
-                          <Text style={styles.correctionButtonText}>→ ♀️ Femelle</Text>
+                          <Text style={[
+                            styles.correctionButtonText,
+                            (!hasEclosion || parseInt(updateForm.unsexed) === 0) && styles.correctionButtonTextDisabled
+                          ]}>→ ♀️ Femelle</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   </View>
 
-                  {/* Manual Input Section */}
-                  <TouchableOpacity 
+                  {/* Manual Input Section - COMMENTED OUT */}
+                  {/* <TouchableOpacity 
                     style={styles.manualInputHeader}
                     onPress={async () => {
                       const newExpanded = !isManualInputExpanded;
@@ -3533,7 +3706,7 @@ export default function ElevageScreen({ navigation, route }) {
                     </View>
                   </View>
                   </View>
-                  )}
+                  )} */}
 
                   {/* Notes Section */}
                   <Text style={styles.sectionTitle}>📝 Notes</Text>
@@ -3547,12 +3720,16 @@ export default function ElevageScreen({ navigation, route }) {
                     numberOfLines={4}
                   />
                 </>
-              )}
+                );
+              })()}
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
                   style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setModalVisible(false)}
+                  onPress={() => {
+                    setModalVisible(false);
+                    setUpdateModalLot(null);
+                  }}
                 >
                   <Text style={styles.modalBtnText}>Annuler</Text>
                 </TouchableOpacity>
@@ -3608,6 +3785,13 @@ export default function ElevageScreen({ navigation, route }) {
               <Calendar
                 onDayPress={handleDateSelect}
                 minDate={calendarField === 'date_creation' ? getTodayISO() : undefined}
+                hideArrows={false}
+                enableSwipeMonths={true}
+                monthFormat={'MMMM yyyy'}
+                onMonthChange={(month) => {
+                  // Optional: handle month change if needed
+                  console.log('Month changed to:', month);
+                }}
                 theme={{
                   backgroundColor: '#ffffff',
                   calendarBackground: '#ffffff',
@@ -4158,6 +4342,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 15,
     fontSize: 16,
+    backgroundColor: 'white',
   },
   textArea: {
     height: 80,
@@ -4573,7 +4758,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   datePickerButton: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: 'white',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
@@ -4707,6 +4892,30 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
+  },
+  actionButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
+  actionButtonTextDisabled: {
+    color: '#999',
+  },
+  warningMessage: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF9800',
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#856404',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  correctionButtonTextDisabled: {
+    color: '#999',
   },
   
   correctionSubtitle: {
@@ -5144,6 +5353,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
     maxWidth: 120,
     textAlign: 'center',
+    backgroundColor: 'white',
   },
   numberInputError: {
     borderColor: '#F44336',
