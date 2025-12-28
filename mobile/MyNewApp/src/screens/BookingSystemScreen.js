@@ -46,7 +46,6 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const [showOrderTypeDropdown, setShowOrderTypeDropdown] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
-  const [showStatsModal, setShowStatsModal] = useState(false);
   const flatListRef = useRef(null);
 
   const orderStatuses = ORDER_STATUSES;
@@ -738,7 +737,14 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             <Text style={styles.orderCount}>({filteredOrders.length})</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.statsButton} onPress={() => setShowStatsModal(true)}>
+            <TouchableOpacity 
+              style={styles.statsButton} 
+              onPress={() => {
+                if (navigation && navigation.navigate) {
+                  navigation.navigate('OrderStats', { orders });
+                }
+              }}
+            >
               <Text style={styles.statsButtonText}>📊 Stats</Text>
             </TouchableOpacity>
           </View>
@@ -819,12 +825,12 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                 setShowDateDropdown(false);
               }}
             >
-              <Text style={styles.dropdownButtonText}>
+              <Text style={styles.dropdownButtonText} numberOfLines={1}>
                 {selectedOrderTypes.includes('Tous') || selectedOrderTypes.length === 0
-                  ? '📋 Tous'
+                  ? 'Tous'
                   : selectedOrderTypes.length === 1
-                  ? `📋 ${selectedOrderTypes[0] === 'Autres produits' ? 'Produits' : selectedOrderTypes[0]}`
-                  : `📋 ${selectedOrderTypes.length} types`}
+                  ? `${selectedOrderTypes[0] === 'Autres produits' ? 'Produits' : selectedOrderTypes[0]}`
+                  : `${selectedOrderTypes.length} types`}
               </Text>
               <Text style={styles.dropdownArrow}>{showOrderTypeDropdown ? '▲' : '▼'}</Text>
             </TouchableOpacity>
@@ -839,7 +845,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                       setShowOrderTypeDropdown(false);
                     }}
                   >
-                    <Text style={styles.dropdownItemText}>
+                    <Text style={styles.dropdownItemText} numberOfLines={1}>
                       {selectedOrderTypes.includes(type) ? '✓ ' : '  '}
                       {type === 'Tous' ? '📋' : type === 'Adoption' ? '🦆' : type === 'Autres produits' ? '📦' : '🔄'} {type === 'Autres produits' ? 'Produits' : type}
                     </Text>
@@ -859,12 +865,12 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                 setShowDateDropdown(false);
               }}
             >
-              <Text style={styles.dropdownButtonText}>
+              <Text style={styles.dropdownButtonText} numberOfLines={1}>
                 {selectedStatuses.length === 0
-                  ? '🏷️ Statut'
+                  ? 'Statut'
                   : selectedStatuses.length === 1
-                  ? `🏷️ ${selectedStatuses[0]}`
-                  : `🏷️ ${selectedStatuses.length} statuts`}
+                  ? `${selectedStatuses[0]}`
+                  : `${selectedStatuses.length} statuts`}
               </Text>
               <Text style={styles.dropdownArrow}>{showStatusDropdown ? '▲' : '▼'}</Text>
             </TouchableOpacity>
@@ -880,7 +886,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                         toggleStatus(status);
                       }}
                     >
-                      <Text style={styles.dropdownItemText}>
+                      <Text style={styles.dropdownItemText} numberOfLines={1}>
                         {selectedStatuses.includes(status) ? '✓ ' : '  '}
                         {statusDef.icon} {status}
                       </Text>
@@ -901,8 +907,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                 setShowStatusDropdown(false);
               }}
             >
-              <Text style={styles.dropdownButtonText}>
-                {dateFilter === 'all' ? '📅 Toutes' : dateFilter === 'old' ? '📅 Anciennes' : '📅 Récentes'}
+              <Text style={styles.dropdownButtonText} numberOfLines={1}>
+                {dateFilter === 'all' ? 'Toutes' : dateFilter === 'old' ? 'Anciennes' : 'Récentes'}
               </Text>
               <Text style={styles.dropdownArrow}>{showDateDropdown ? '▲' : '▼'}</Text>
             </TouchableOpacity>
@@ -921,7 +927,7 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
                       setShowDateDropdown(false);
                     }}
                   >
-                    <Text style={styles.dropdownItemText}>
+                    <Text style={styles.dropdownItemText} numberOfLines={1}>
                       {dateFilter === option.value ? '✓ ' : '  '}
                       {option.label}
                     </Text>
@@ -1061,133 +1067,6 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
         />
       </Modal>
 
-      {/* Statistics Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showStatsModal}
-        onRequestClose={() => setShowStatsModal(false)}
-      >
-        <View style={styles.statsModalOverlay}>
-          <View style={styles.statsModalContent}>
-            <View style={styles.statsModalHeader}>
-              <Text style={styles.statsModalTitle}>📊 Statistiques</Text>
-              <TouchableOpacity
-                style={styles.closeStatsModalBtn}
-                onPress={() => setShowStatsModal(false)}
-              >
-                <Text style={styles.closeStatsModalText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.statsModalBody} showsVerticalScrollIndicator={true}>
-              {(() => {
-                const statistics = getOrderStatistics();
-                const maxMonthValue = Math.max(...statistics.monthlyData.map(([, count]) => count), 1);
-                
-                return (
-                  <>
-                    {/* Status Overview */}
-                    <View style={styles.statsSection}>
-                      <Text style={styles.statsSectionTitle}>Statuts des Commandes</Text>
-                      <View style={styles.statusStatsGrid}>
-                        {Object.entries(statistics.byStatus).map(([status, count]) => {
-                          const statusDef = getStatusDefinition(status);
-                          return (
-                            <View key={status} style={styles.statusStatCard}>
-                              <Text style={[styles.statusStatIcon, { color: statusDef.color }]}>
-                                {statusDef.icon}
-                              </Text>
-                              <Text style={styles.statusStatCount}>{count}</Text>
-                              <Text style={styles.statusStatLabel}>{status}</Text>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    </View>
-
-                    {/* Revenue Stats */}
-                    <View style={styles.statsSection}>
-                      <Text style={styles.statsSectionTitle}>Revenus</Text>
-                      <View style={styles.revenueStats}>
-                        <View style={styles.revenueStatItem}>
-                          <Text style={styles.revenueStatLabel}>Total</Text>
-                          <Text style={styles.revenueStatValue}>{statistics.totalRevenue.toFixed(2)}€</Text>
-                        </View>
-                        <View style={styles.revenueStatItem}>
-                          <Text style={styles.revenueStatLabel}>Moyenne</Text>
-                          <Text style={styles.revenueStatValue}>{statistics.averagePrice.toFixed(2)}€</Text>
-                        </View>
-                        <View style={styles.revenueStatItem}>
-                          <Text style={styles.revenueStatLabel}>Min - Max</Text>
-                          <Text style={styles.revenueStatValue}>
-                            {statistics.priceRange.min !== Infinity 
-                              ? `${statistics.priceRange.min.toFixed(2)}€ - ${statistics.priceRange.max.toFixed(2)}€`
-                              : 'N/A'}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Monthly Demand Chart */}
-                    <View style={styles.statsSection}>
-                      <Text style={styles.statsSectionTitle}>Demande Mensuelle</Text>
-                      <View style={styles.chartContainer}>
-                        {statistics.monthlyData.map(([monthKey, count]) => {
-                          const [year, month] = monthKey.split('-');
-                          const monthName = new Date(year, parseInt(month) - 1).toLocaleDateString('fr-FR', { month: 'short' });
-                          const barHeight = (count / maxMonthValue) * 100;
-                          return (
-                            <View key={monthKey} style={styles.chartBarContainer}>
-                              <View style={styles.chartBarWrapper}>
-                                <View style={[styles.chartBar, { height: `${barHeight}%` }]} />
-                              </View>
-                              <Text style={styles.chartBarLabel}>{monthName}</Text>
-                              <Text style={styles.chartBarValue}>{count}</Text>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    </View>
-
-                    {/* Top Customers */}
-                    <View style={styles.statsSection}>
-                      <Text style={styles.statsSectionTitle}>Top Clients</Text>
-                      {statistics.topCustomers.map(([customer, data], index) => (
-                        <View key={customer} style={styles.customerStatRow}>
-                          <Text style={styles.customerStatRank}>#{index + 1}</Text>
-                          <View style={styles.customerStatInfo}>
-                            <Text style={styles.customerStatName}>{customer}</Text>
-                            <Text style={styles.customerStatDetails}>
-                              {data.count} commande{data.count > 1 ? 's' : ''} • {data.totalSpent.toFixed(2)}€
-                            </Text>
-                          </View>
-                        </View>
-                      ))}
-                      {statistics.topCustomers.length === 0 && (
-                        <Text style={styles.noDataText}>Aucun client trouvé</Text>
-                      )}
-                    </View>
-
-                    {/* Top Products */}
-                    <View style={styles.statsSection}>
-                      <Text style={styles.statsSectionTitle}>Produits/Animaux les Plus Demandés</Text>
-                      {statistics.topProducts.map(([product, count], index) => (
-                        <View key={product} style={styles.productStatRow}>
-                          <Text style={styles.productStatName}>{product}</Text>
-                          <Text style={styles.productStatCount}>{count}</Text>
-                        </View>
-                      ))}
-                      {statistics.topProducts.length === 0 && (
-                        <Text style={styles.noDataText}>Aucun produit trouvé</Text>
-                      )}
-                    </View>
-                  </>
-                );
-              })()}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
       {/* Floating Add Button */}
       <TouchableOpacity
@@ -1385,7 +1264,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 12,
+    marginBottom: 6,
   },
   searchBarContainer: {
     flex: 1,
@@ -1402,7 +1281,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     fontSize: 16,
     color: '#333',
   },
@@ -1418,15 +1297,15 @@ const styles = StyleSheet.create({
   simplifiedControlsContainer: {
     backgroundColor: 'white',
     paddingHorizontal: 15,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
   filterDropdownsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-    marginBottom: 8,
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 4,
   },
   dropdownContainer: {
     flex: 1,
@@ -1438,22 +1317,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+    minHeight: 32,
   },
   dropdownButtonText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     color: '#333',
     flex: 1,
+    flexShrink: 1,
   },
   dropdownArrow: {
     fontSize: 10,
     color: '#666',
-    marginLeft: 8,
+    marginLeft: 4,
+    flexShrink: 0,
   },
   dropdownMenu: {
     position: 'absolute',
@@ -1474,13 +1356,18 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   dropdownItem: {
-    padding: 12,
+    padding: 10,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   dropdownItemText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#333',
+    flex: 1,
+    flexShrink: 1,
   },
   orderTypeChip: {
     backgroundColor: '#f5f5f5',
@@ -2139,206 +2026,5 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
     lineHeight: 16,
-  },
-  // Statistics Modal Styles
-  statsModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statsModalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    width: '90%',
-    maxHeight: '85%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  statsModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  statsModalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  closeStatsModalBtn: {
-    padding: 5,
-  },
-  closeStatsModalText: {
-    fontSize: 20,
-    color: '#666',
-  },
-  statsModalBody: {
-    padding: 20,
-  },
-  statsSection: {
-    marginBottom: 25,
-  },
-  statsSectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  statusStatsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  statusStatCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  statusStatIcon: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
-  statusStatCount: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  statusStatLabel: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
-  revenueStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    gap: 10,
-  },
-  revenueStatItem: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  revenueStatLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  revenueStatValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-  },
-  chartContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
-    height: 150,
-    paddingVertical: 10,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    paddingHorizontal: 5,
-  },
-  chartBarContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    height: '100%',
-  },
-  chartBarWrapper: {
-    width: '80%',
-    height: '80%',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  chartBar: {
-    width: '100%',
-    backgroundColor: '#005F6B',
-    borderRadius: 4,
-    minHeight: 4,
-  },
-  chartBarLabel: {
-    fontSize: 10,
-    color: '#666',
-    marginTop: 4,
-  },
-  chartBarValue: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 2,
-  },
-  customerStatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  customerStatRank: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#005F6B',
-    marginRight: 12,
-    minWidth: 30,
-  },
-  customerStatInfo: {
-    flex: 1,
-  },
-  customerStatName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 2,
-  },
-  customerStatDetails: {
-    fontSize: 12,
-    color: '#666',
-  },
-  productStatRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  productStatName: {
-    fontSize: 14,
-    color: '#333',
-    flex: 1,
-  },
-  productStatCount: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#005F6B',
-  },
-  noDataText: {
-    fontSize: 14,
-    color: '#999',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    padding: 20,
   },
 }); 

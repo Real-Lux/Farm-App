@@ -5,9 +5,11 @@ import { View, Text, StatusBar, Platform } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardScreen from './src/screens/DashboardScreen';
 import ProductManagementScreen from './src/screens/ProductManagementScreen';
+import AnimauxScreen from './src/screens/AnimauxScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import BookingSystemScreen from './src/screens/BookingSystemScreen';
 import AddOrderScreen from './src/screens/AddOrderScreen';
+import OrderStatsScreen from './src/screens/OrderStatsScreen';
 import ElevageScreen from './src/screens/ElevageScreen';
 import EtableScreen from './src/screens/EtableScreen';
 import CheeseScreen from './src/screens/CheeseScreen';
@@ -21,6 +23,7 @@ function OrdersNavigator({ route, navigation: tabNavigation }) {
   const [orders, setOrders] = useState([]);
   const [highlightOrderId, setHighlightOrderId] = useState(null);
   const [customerName, setCustomerName] = useState(null);
+  const [statsOrders, setStatsOrders] = useState([]);
 
   // Handle navigation parameters from other tabs
   React.useEffect(() => {
@@ -57,16 +60,25 @@ function OrdersNavigator({ route, navigation: tabNavigation }) {
     navigate: (screenName, params) => {
       if (screenName === 'AddOrder') {
         navigateToAddOrder(params?.editingOrder);
-      } else if (screenName === 'Gestion') {
-        // Use the actual tab navigation to switch to Gestion tab
+      } else if (screenName === 'OrderStats') {
+        setStatsOrders(params?.orders || orders);
+        setCurrentScreen('OrderStats');
+      } else if (screenName === 'Gestion' || screenName === 'Calendrier' || screenName === 'Animaux' || screenName === 'Accueil') {
+        // Use the actual tab navigation to switch to other tabs
         if (tabNavigation && tabNavigation.navigate) {
-          tabNavigation.navigate('Gestion', params || {});
+          tabNavigation.navigate(screenName, params || {});
         }
       } else {
         navigateToBookingSystem();
       }
     },
-    goBack: navigateToBookingSystem,
+    goBack: () => {
+      if (currentScreen === 'OrderStats' || currentScreen === 'AddOrder') {
+        setCurrentScreen('BookingSystem');
+      } else {
+        navigateToBookingSystem();
+      }
+    },
     getParent: () => tabNavigation
   };
 
@@ -84,6 +96,19 @@ function OrdersNavigator({ route, navigation: tabNavigation }) {
     );
   }
 
+  if (currentScreen === 'OrderStats') {
+    return (
+      <OrderStatsScreen 
+        navigation={mockNavigation}
+        route={{
+          params: {
+            orders: statsOrders.length > 0 ? statsOrders : orders
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <BookingSystemScreen 
       navigation={mockNavigation}
@@ -95,31 +120,31 @@ function OrdersNavigator({ route, navigation: tabNavigation }) {
   );
 }
 
-// Create a navigator component that handles ProductManagement, Elevage, and Caprin screens
-function GestionNavigator({ route }) {
-  const [currentScreen, setCurrentScreen] = useState('ProductManagement');
+// Create a navigator component that handles Animaux, Elevage, and Etable screens
+function AnimauxNavigator({ route }) {
+  const [currentScreen, setCurrentScreen] = useState('Animaux');
   const [screenParams, setScreenParams] = useState({});
 
   // Handle route parameters for highlighting specific animals or lots, or initialTab
   React.useEffect(() => {
     if (route?.params?.highlightAnimalId) {
-      console.log('🐐 GestionNavigator: Received highlightAnimalId:', route.params.highlightAnimalId);
+      console.log('🐐 AnimauxNavigator: Received highlightAnimalId:', route.params.highlightAnimalId);
       setCurrentScreen('Etable');
       setScreenParams(route.params);
     } else if (route?.params?.highlightLotId) {
-      console.log('🐓 GestionNavigator: Received highlightLotId:', route.params.highlightLotId);
+      console.log('🐓 AnimauxNavigator: Received highlightLotId:', route.params.highlightLotId);
       setCurrentScreen('Elevage');
       setScreenParams(route.params);
     } else if (route?.params?.initialTab) {
       // If initialTab is for Elevage (lots, races, historique, statistiques), go to Elevage
-      // Otherwise, stay on ProductManagement (elevage, etable, productions, etc.)
+      // Otherwise, stay on Animaux (elevage, etable, traitements)
       const elevageTabs = ['lots', 'races', 'historique', 'statistiques'];
       if (elevageTabs.includes(route.params.initialTab)) {
-        console.log('🐓 GestionNavigator: Received initialTab for Elevage:', route.params.initialTab);
+        console.log('🐓 AnimauxNavigator: Received initialTab for Elevage:', route.params.initialTab);
         setCurrentScreen('Elevage');
       } else {
-        console.log('📦 GestionNavigator: Received initialTab for ProductManagement:', route.params.initialTab);
-        setCurrentScreen('ProductManagement');
+        console.log('🐾 AnimauxNavigator: Received initialTab for Animaux:', route.params.initialTab);
+        setCurrentScreen('Animaux');
       }
       setScreenParams(route.params);
     }
@@ -135,30 +160,27 @@ function GestionNavigator({ route }) {
     setScreenParams(params);
   };
 
-  const navigateToProductManagement = (params = {}) => {
-    setCurrentScreen('ProductManagement');
-    setScreenParams(params);
-  };
-
-  const navigateToCheese = (params = {}) => {
-    setCurrentScreen('Cheese');
+  const navigateToAnimaux = (params = {}) => {
+    setCurrentScreen('Animaux');
     setScreenParams(params);
   };
 
   const mockNavigation = {
     navigate: (screenName, params = {}) => {
-      console.log('🧭 Navigation:', screenName, 'with params:', params);
+      console.log('🧭 AnimauxNavigator Navigation:', screenName, 'with params:', params);
       if (screenName === 'ElevageScreen') {
         navigateToElevage(params);
       } else if (screenName === 'EtableScreen') {
         navigateToEtable(params);
       } else if (screenName === 'CheeseScreen') {
-        navigateToCheese(params);
+        // Navigate to Gestion tab for CheeseScreen
+        // This would need to be handled by the parent tab navigator
+        navigateToAnimaux(params);
       } else {
-        navigateToProductManagement(params);
+        navigateToAnimaux(params);
       }
     },
-    goBack: navigateToProductManagement
+    goBack: navigateToAnimaux
   };
 
   // Create a route object with params for child screens
@@ -183,6 +205,81 @@ function GestionNavigator({ route }) {
       />
     );
   }
+
+  return (
+    <AnimauxScreen 
+      navigation={mockNavigation}
+      route={createRoute()}
+    />
+  );
+}
+
+// Create a navigator component that handles ProductManagement, Elevage, and Caprin screens
+function GestionNavigator({ route }) {
+  const [currentScreen, setCurrentScreen] = useState('ProductManagement');
+  const [screenParams, setScreenParams] = useState({});
+
+  // Handle route parameters for highlighting specific animals or lots, or initialTab
+  React.useEffect(() => {
+    if (route?.params?.highlightAnimalId) {
+      console.log('🐐 GestionNavigator: Received highlightAnimalId:', route.params.highlightAnimalId);
+      setCurrentScreen('Etable');
+      setScreenParams(route.params);
+    } else if (route?.params?.highlightLotId) {
+      console.log('🐓 GestionNavigator: Received highlightLotId:', route.params.highlightLotId);
+      setCurrentScreen('Elevage');
+      setScreenParams(route.params);
+    } else if (route?.params?.initialTab) {
+      // If initialTab is for Elevage (lots, races, historique, statistiques), go to Elevage
+      // If initialTab is for Animaux (elevage, etable, traitements), navigate to Animaux tab
+      // Otherwise, stay on ProductManagement (productions, activites, client)
+      const elevageTabs = ['lots', 'races', 'historique', 'statistiques'];
+      const animauxTabs = ['elevage', 'etable', 'traitements'];
+      if (elevageTabs.includes(route.params.initialTab)) {
+        console.log('🐓 GestionNavigator: Received initialTab for Elevage:', route.params.initialTab);
+        setCurrentScreen('Elevage');
+      } else if (animauxTabs.includes(route.params.initialTab)) {
+        console.log('🐾 GestionNavigator: Received initialTab for Animaux, should navigate to Animaux tab');
+        // Note: Navigation to another tab would need to be handled by parent navigator
+        setCurrentScreen('ProductManagement');
+      } else {
+        console.log('📦 GestionNavigator: Received initialTab for ProductManagement:', route.params.initialTab);
+        setCurrentScreen('ProductManagement');
+      }
+      setScreenParams(route.params);
+    }
+  }, [route?.params]);
+
+  const navigateToProductManagement = (params = {}) => {
+    setCurrentScreen('ProductManagement');
+    setScreenParams(params);
+  };
+
+  const navigateToCheese = (params = {}) => {
+    setCurrentScreen('Cheese');
+    setScreenParams(params);
+  };
+
+  const mockNavigation = {
+    navigate: (screenName, params = {}) => {
+      console.log('🧭 GestionNavigator Navigation:', screenName, 'with params:', params);
+      if (screenName === 'ElevageScreen' || screenName === 'EtableScreen') {
+        // These should navigate to Animaux tab - would need parent navigator
+        // For now, just stay on ProductManagement
+        navigateToProductManagement(params);
+      } else if (screenName === 'CheeseScreen') {
+        navigateToCheese(params);
+      } else {
+        navigateToProductManagement(params);
+      }
+    },
+    goBack: navigateToProductManagement
+  };
+
+  // Create a route object with params for child screens
+  const createRoute = (params = {}) => ({
+    params: { ...route?.params, ...screenParams, ...params }
+  });
 
   if (currentScreen === 'Cheese') {
     return (
@@ -209,7 +306,7 @@ function TabNavigatorWithSafeArea() {
   // For devices with gesture navigation, insets.bottom will be > 0
   // For devices with button navigation, insets.bottom will be 0 or small
   const bottomPadding = Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 10);
-  const tabBarHeight = 60 + bottomPadding; // Base height + safe area
+  const tabBarHeight = 55 + bottomPadding; // Reduced base height + safe area
   
   return (
     <Tab.Navigator
@@ -222,12 +319,17 @@ function TabNavigatorWithSafeArea() {
           borderTopWidth: 1,
           borderTopColor: '#e0e0e0',
           paddingBottom: bottomPadding,
-          paddingTop: 8,
+          paddingTop: 4,
+          paddingHorizontal: 4,
           height: tabBarHeight,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 10,
           fontWeight: '600',
+          marginTop: -2,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 2,
         }
       }}
     >
@@ -236,7 +338,17 @@ function TabNavigatorWithSafeArea() {
               component={({ navigation }) => <DashboardScreen navigation={navigation} />}
               options={{
                 tabBarIcon: ({ color }) => (
-                  <Text style={{ fontSize: 20, color }}>🏠</Text>
+                  <Text style={{ fontSize: 18, color }}>🏠</Text>
+                ),
+              }}
+            />
+            
+            <Tab.Screen 
+              name="Animaux" 
+              component={AnimauxNavigator}
+              options={{
+                tabBarIcon: ({ color }) => (
+                  <Text style={{ fontSize: 18, color }}>🐾</Text>
                 ),
               }}
             />
@@ -246,7 +358,7 @@ function TabNavigatorWithSafeArea() {
               component={GestionNavigator}
               options={{
                 tabBarIcon: ({ color }) => (
-                  <Text style={{ fontSize: 20, color }}>📦</Text>
+                  <Text style={{ fontSize: 18, color }}>📦</Text>
                 ),
               }}
             />
@@ -255,7 +367,7 @@ function TabNavigatorWithSafeArea() {
               component={CalendarScreen}
               options={{
                 tabBarIcon: ({ color }) => (
-                  <Text style={{ fontSize: 20, color }}>📅</Text>
+                  <Text style={{ fontSize: 18, color }}>📅</Text>
                 ),
               }}
             />
@@ -264,7 +376,7 @@ function TabNavigatorWithSafeArea() {
               component={({ navigation, route }) => <OrdersNavigator navigation={navigation} route={route} />}
               options={{
                 tabBarIcon: ({ color }) => (
-                  <Text style={{ fontSize: 20, color }}>🛒</Text>
+                  <Text style={{ fontSize: 18, color }}>🛒</Text>
                 ),
               }}
             />

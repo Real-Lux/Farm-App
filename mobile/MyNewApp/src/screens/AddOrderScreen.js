@@ -18,6 +18,14 @@ import database from '../services/database';
 import configService from '../services/configService';
 import { toISODate, getTodayISO, formatForCalendar } from '../utils/dateUtils';
 import { ORDER_STATUSES, getStatusColor, getStatusIcon } from '../../constants/StatusConstants';
+import { MONTHS_FR } from '../../constants/DateConstants';
+
+const toLocalISO = (date) => {
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
 
 export default function AddOrderScreen({ navigation, route }) {
   const { editingOrder, onSaveOrder } = route.params || {};
@@ -32,6 +40,10 @@ export default function AddOrderScreen({ navigation, route }) {
   const [lotSelections, setLotSelections] = useState({}); // Track lot selections per race
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarEvents, setCalendarEvents] = useState([]);
+  const [calendarMonth, setCalendarMonth] = useState(getTodayISO());
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [raceConfigModal, setRaceConfigModal] = useState(false);
   const [selectedAnimalForConfig, setSelectedAnimalForConfig] = useState(null);
   const [currentRaceConfig, setCurrentRaceConfig] = useState({
@@ -394,7 +406,59 @@ export default function AddOrderScreen({ navigation, route }) {
     if (calendarEvents.length === 0) {
       await loadCalendarEvents();
     }
+    // Set calendar month to selected date or today
+    const initialDate = orderForm.deliveryDate || getTodayISO();
+    setCalendarMonth(initialDate);
     setCalendarModal(true);
+  };
+
+  const getCurrentMonth = () => {
+    return new Date(calendarMonth).getMonth();
+  };
+
+  const getCurrentYear = () => {
+    return new Date(calendarMonth).getFullYear();
+  };
+
+  const navigateMonth = async (direction) => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+    try {
+      const current = new Date(calendarMonth);
+      const target = new Date(current.getFullYear(), current.getMonth() + direction, 15);
+      const dateStr = toLocalISO(target);
+      setCalendarMonth(dateStr);
+    } catch (error) {
+      console.error('Error navigating month:', error);
+    } finally {
+      setTimeout(() => setIsNavigating(false), 350);
+    }
+  };
+
+  const jumpToMonth = async (monthIndex) => {
+    setMonthPickerVisible(false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const current = new Date(calendarMonth);
+    const target = new Date(current.getFullYear(), monthIndex, 1);
+    const dateStr = toLocalISO(target);
+    setCalendarMonth(dateStr);
+  };
+
+  const jumpToYear = async (year) => {
+    const current = new Date(calendarMonth);
+    const target = new Date(year, current.getMonth(), 1);
+    const dateStr = toLocalISO(target);
+    setCalendarMonth(dateStr);
+    setYearPickerVisible(false);
+  };
+
+  const getYearRange = () => {
+    const currentYear = getCurrentYear();
+    const years = [];
+    for (let i = currentYear - 10; i <= currentYear + 10; i++) {
+      years.push(i);
+    }
+    return years;
   };
 
   const loadAvailableStock = async () => {
@@ -1928,12 +1992,54 @@ export default function AddOrderScreen({ navigation, route }) {
               Les points verts indiquent des événements du calendrier
             </Text>
             
+            {/* Custom Header with separate Month and Year */}
+            <View style={styles.customCalendarHeader}>
+              <TouchableOpacity 
+                style={styles.monthNavArrowButton}
+                onPress={() => navigateMonth(-1)}
+                activeOpacity={0.7}
+                disabled={isNavigating}
+              >
+                <Text style={styles.navArrow}>‹</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.monthYearContainer}>
+                <TouchableOpacity 
+                  style={styles.monthYearButton}
+                  onPress={() => setMonthPickerVisible(true)}
+                >
+                  <Text style={styles.monthYearText}>{MONTHS_FR[getCurrentMonth()]}</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.monthYearButton}
+                  onPress={() => setYearPickerVisible(true)}
+                >
+                  <Text style={styles.monthYearText}>{getCurrentYear()}</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.monthNavArrowButton}
+                onPress={() => navigateMonth(1)}
+                activeOpacity={0.7}
+                disabled={isNavigating}
+              >
+                <Text style={styles.navArrow}>›</Text>
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.calendarWrapper}>
               <Calendar
+                key={`calendar-${calendarMonth}`}
+                current={calendarMonth}
                 onDayPress={handleDateSelect}
                 markedDates={getMarkedDates()}
                 markingType={'multi-dot'}
                 minDate={getTodayISO()}
+                hideArrows={true}
+                hideExtraDays={true}
+                disableMonthChange={true}
                 theme={{
                   backgroundColor: '#ffffff',
                   calendarBackground: '#ffffff',
@@ -1945,15 +2051,25 @@ export default function AddOrderScreen({ navigation, route }) {
                   textDisabledColor: '#d9e1e8',
                   dotColor: '#4CAF50',
                   selectedDotColor: '#ffffff',
-                  arrowColor: '#005F6B',
-                  monthTextColor: '#005F6B',
+                  arrowColor: 'transparent',
+                  monthTextColor: 'transparent',
                   indicatorColor: '#005F6B',
                   textDayFontWeight: '300',
                   textMonthFontWeight: 'bold',
                   textDayHeaderFontWeight: '300',
                   textDayFontSize: 16,
-                  textMonthFontSize: 16,
-                  textDayHeaderFontSize: 13
+                  textDayHeaderFontSize: 13,
+                  'stylesheet.calendar.header': {
+                    week: {
+                      marginTop: 0,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingTop: 0,
+                      paddingBottom: 0,
+                      height: 0,
+                      opacity: 0,
+                    }
+                  }
                 }}
               />
             </View>
@@ -1977,6 +2093,99 @@ export default function AddOrderScreen({ navigation, route }) {
                 <Text style={styles.calendarCancelBtnText}>Annuler</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Month Picker Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={monthPickerVisible}
+        onRequestClose={() => setMonthPickerVisible(false)}
+      >
+        <View style={styles.pickerModalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Sélectionner le mois</Text>
+              <TouchableOpacity 
+                onPress={() => setMonthPickerVisible(false)}
+                style={styles.pickerModalClose}
+              >
+                <Text style={styles.pickerModalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView 
+              style={styles.pickerScrollView}
+              nestedScrollEnabled={true}
+              contentContainerStyle={styles.pickerScrollContent}
+            >
+              {MONTHS_FR.map((month, index) => {
+                const isSelected = index === getCurrentMonth();
+                return (
+                  <TouchableOpacity
+                    key={`month-${index}`}
+                    style={[
+                      styles.pickerItem,
+                      isSelected && styles.pickerItemSelected
+                    ]}
+                    onPress={() => jumpToMonth(index)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.pickerItemText,
+                      isSelected && styles.pickerItemTextSelected
+                    ]}>
+                      {month}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Year Picker Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={yearPickerVisible}
+        onRequestClose={() => setYearPickerVisible(false)}
+      >
+        <View style={styles.pickerModalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Sélectionner l'année</Text>
+              <TouchableOpacity 
+                onPress={() => setYearPickerVisible(false)}
+                style={styles.pickerModalClose}
+              >
+                <Text style={styles.pickerModalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerScrollView}>
+              {getYearRange().map((year) => {
+                const isSelected = year === getCurrentYear();
+                return (
+                  <TouchableOpacity
+                    key={year}
+                    style={[
+                      styles.pickerItem,
+                      isSelected && styles.pickerItemSelected
+                    ]}
+                    onPress={() => jumpToYear(year)}
+                  >
+                    <Text style={[
+                      styles.pickerItemText,
+                      isSelected && styles.pickerItemTextSelected
+                    ]}>
+                      {year}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -3761,6 +3970,119 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#2196F3',
+  },
+  // Custom calendar header styles
+  customCalendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    width: '100%',
+  },
+  monthYearContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  monthYearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    minWidth: 80,
+    maxWidth: 120,
+    alignItems: 'center',
+  },
+  monthYearText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  monthNavArrowButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+    padding: 4,
+    minWidth: 32,
+    minHeight: 32,
+    zIndex: 10,
+  },
+  navArrow: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  // Picker modal styles
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '80%',
+    maxHeight: '70%',
+    overflow: 'hidden',
+  },
+  pickerModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pickerModalClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalCloseText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerScrollContent: {
+    padding: 8,
+  },
+  pickerItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerItemSelected: {
+    backgroundColor: '#005F6B',
+  },
+  pickerItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  pickerItemTextSelected: {
+    color: 'white',
+    fontWeight: 'bold',
   },
 });
 

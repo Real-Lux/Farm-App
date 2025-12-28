@@ -48,6 +48,7 @@ class ConfigService {
       ELEVAGE_COLLAPSED_LOTS: 'elevage_collapsed_lots',
       PRODUCT_MANAGEMENT_ACTIVE_TAB: 'product_management_active_tab',
       PRODUCT_MANAGEMENT_SELECTED_ANIMAL_TYPE: 'product_management_selected_animal_type',
+      ANIMAUX_ACTIVE_TAB: 'animaux_active_tab',
       CALENDAR_VIEW_MODE: 'calendar_view_mode',
       DASHBOARD_STATS_EXPANDED: 'dashboard_stats_expanded',
       ADD_ORDER_EXPANDED_ANIMALS: 'add_order_expanded_animals',
@@ -126,6 +127,15 @@ class ConfigService {
 
   async loadProductManagementSelectedAnimalType() {
     return await this.loadConfig(this.configKeys.PRODUCT_MANAGEMENT_SELECTED_ANIMAL_TYPE, 'poussins');
+  }
+
+  // Animaux Screen Configs
+  async saveAnimauxActiveTab(tab) {
+    await this.saveConfig(this.configKeys.ANIMAUX_ACTIVE_TAB, tab);
+  }
+
+  async loadAnimauxActiveTab() {
+    return await this.loadConfig(this.configKeys.ANIMAUX_ACTIVE_TAB, 'elevage');
   }
 
   // Add Order Screen Configs

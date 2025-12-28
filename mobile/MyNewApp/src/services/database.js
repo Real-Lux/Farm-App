@@ -2,6 +2,27 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { toISODate, getTodayISO, getNowISO } from '../utils/dateUtils';
 
+// Import data event service for real-time updates
+let dataEventService;
+try {
+  dataEventService = require('./dataEventService').default;
+} catch (error) {
+  console.warn('⚠️ dataEventService not available, events will not be emitted');
+  dataEventService = {
+    emitProductChange: () => {},
+    emitOrderChange: () => {},
+    emitLotChange: () => {},
+    emitHerdAnimalChange: () => {},
+    emitRaceChange: () => {},
+    emitAnimalTypeChange: () => {},
+    emitHerdTypeChange: () => {},
+    emitEventChange: () => {},
+    emitActivityChange: () => {},
+    emitMessageChange: () => {},
+    emitCheeseChange: () => {},
+  };
+}
+
 // AsyncStorage for persistence
 let AsyncStorage;
 try {
@@ -1686,6 +1707,7 @@ class SimpleTestDatabaseService {
         }
       ]
     },
+      egg_production: {}, // { date: { animalType: count } }
       template_messages: [
         {
           id: 1,
@@ -1781,6 +1803,7 @@ class SimpleTestDatabaseService {
           herd_settings: parsedData.herd_settings !== undefined ? parsedData.herd_settings : this.storage.herd_settings,
           saved_formulas: parsedData.saved_formulas !== undefined ? parsedData.saved_formulas : this.storage.saved_formulas,
           order_pricing: parsedData.order_pricing !== undefined ? parsedData.order_pricing : this.storage.order_pricing,
+          egg_production: parsedData.egg_production !== undefined ? parsedData.egg_production : (this.storage.egg_production || {}),
           template_messages: parsedData.template_messages !== undefined ? parsedData.template_messages : this.storage.template_messages,
           pricing_grids: parsedData.pricing_grids !== undefined ? parsedData.pricing_grids : this.storage.pricing_grids,
           cheese_productions: parsedData.cheese_productions !== undefined ? parsedData.cheese_productions : (this.storage.cheese_productions || []),
@@ -1854,6 +1877,7 @@ class SimpleTestDatabaseService {
     const newProduct = { id: Date.now(), ...product };
     this.storage.products.push(newProduct);
     await this.saveToStorage();
+    dataEventService.emitProductChange(newProduct);
     return { insertId: newProduct.id };
   }
 
@@ -1869,6 +1893,7 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.products[index] = { ...this.storage.products[index], ...product };
       await this.saveToStorage();
+      dataEventService.emitProductChange({ id, ...product });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -1880,6 +1905,7 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.products.splice(index, 1);
       await this.saveToStorage();
+      dataEventService.emitProductChange({ id, deleted: true });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -1901,6 +1927,7 @@ class SimpleTestDatabaseService {
     }
     
     await this.saveToStorage();
+    dataEventService.emitOrderChange(newOrder);
     return { insertId: newOrder.id };
   }
 
@@ -1926,6 +1953,7 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.orders[index] = { ...this.storage.orders[index], ...order };
       await this.saveToStorage();
+      dataEventService.emitOrderChange({ id, ...order });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -1941,6 +1969,7 @@ class SimpleTestDatabaseService {
       await this.saveToStorage();
       // Sync with calendar after deletion
       await this.syncOrdersWithCalendar();
+      dataEventService.emitOrderChange({ id, deleted: true });
       return { rowsAffected: 1 };
     }
     console.log(`⚠️ Order with id ${id} not found`);
@@ -1953,6 +1982,7 @@ class SimpleTestDatabaseService {
     const newEvent = { id: Date.now(), ...event };
     this.storage.calendar_events.push(newEvent);
     await this.saveToStorage();
+    dataEventService.emitEventChange(newEvent);
     return { insertId: newEvent.id };
   }
 
@@ -2846,6 +2876,7 @@ class SimpleTestDatabaseService {
     const newLot = { id: Date.now(), ...lot };
     this.storage.elevage_lots.push(newLot);
     await this.saveToStorage();
+    dataEventService.emitLotChange(newLot);
     return { insertId: newLot.id };
   }
 
@@ -2868,6 +2899,7 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.elevage_lots[index] = { ...this.storage.elevage_lots[index], ...lot };
       await this.saveToStorage();
+      dataEventService.emitLotChange({ id, ...lot });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2879,6 +2911,7 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.elevage_lots.splice(index, 1);
       await this.saveToStorage();
+      dataEventService.emitLotChange({ id, deleted: true });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -2898,6 +2931,7 @@ class SimpleTestDatabaseService {
     const newRace = { id: Date.now(), ...race, order };
     this.storage.elevage_races.push(newRace);
     await this.saveToStorage();
+    dataEventService.emitRaceChange(newRace);
     return { insertId: newRace.id };
   }
 
@@ -3103,12 +3137,12 @@ class SimpleTestDatabaseService {
       caprin: {
         name: 'Caprin',
         icon: '🐐',
-        color: '#8B4513',
-        species: ['chèvre', 'brebis'],
+        color: '#87CEEB', // bleu ciel moins fort (sky blue)
+        species: ['chèvre', 'bouc'],
         defaultSpecies: 'chèvre',
         animalLabel: 'Chèvres',
-        emoji: { 'chèvre': '🐐', 'brebis': '🐑' },
-        description: 'Gestion des chèvres et brebis'
+        emoji: { 'chèvre': '🐐', 'bouc': '🐐' },
+        description: 'Gestion des chèvres et boucs'
       },
       ovin: {
         name: 'Ovin',
@@ -3123,7 +3157,7 @@ class SimpleTestDatabaseService {
       bovin: {
         name: 'Bovin',
         icon: '🐄',
-        color: '#654321',
+        color: '#CD5C5C', // rouge moins fort (indian red)
         species: ['vache', 'taureau'],
         defaultSpecies: 'vache',
         animalLabel: 'Vaches',
@@ -3570,6 +3604,7 @@ class SimpleTestDatabaseService {
     };
     this.storage.herd_animals[herdType].push(newAnimal);
     await this.saveToStorage();
+    dataEventService.emitHerdAnimalChange({ herdType, ...newAnimal });
     return { insertId: newAnimal.id };
   }
 
@@ -3589,7 +3624,7 @@ class SimpleTestDatabaseService {
     }
     const index = this.storage.herd_animals[herdType].findIndex(a => a.id == id);
     if (index !== -1) {
-      this.storage.herd_animals[herdType][index] = { 
+      const updatedAnimal = { 
         ...this.storage.herd_animals[herdType][index], 
         ...animal,
         parents: { 
@@ -3597,7 +3632,9 @@ class SimpleTestDatabaseService {
           father: animal.father || this.storage.herd_animals[herdType][index].parents?.father || '' 
         }
       };
+      this.storage.herd_animals[herdType][index] = updatedAnimal;
       await this.saveToStorage();
+      dataEventService.emitHerdAnimalChange({ herdType, id, ...updatedAnimal });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -3612,6 +3649,7 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.herd_animals[herdType].splice(index, 1);
       await this.saveToStorage();
+      dataEventService.emitHerdAnimalChange({ herdType, id, deleted: true });
       return { rowsAffected: 1 };
     }
     return { rowsAffected: 0 };
@@ -3640,6 +3678,7 @@ class SimpleTestDatabaseService {
       if (!this.storage.herd_animals[herdType]) {
         this.storage.herd_animals[herdType] = [];
       }
+      dataEventService.emitHerdTypeChange(herdType);
       // Initialize herd-specific settings
       if (!this.storage.herd_settings) {
         this.storage.herd_settings = {};
@@ -3677,6 +3716,7 @@ class SimpleTestDatabaseService {
     if (!normalizedExisting.includes(normalizedNew)) {
       this.storage.elevage_animal_types.push(animalType);
       await this.saveToStorage();
+      dataEventService.emitAnimalTypeChange(animalType);
     } else {
       console.log(`⚠️ Animal type ${animalType} already exists (normalized check)`);
     }
@@ -3831,7 +3871,9 @@ class SimpleTestDatabaseService {
         deaths_unsexed: newDeathsUnsexed
       };
       
+      const lot = this.storage.elevage_lots[lotIndex];
       await this.saveToStorage();
+      dataEventService.emitLotChange({ id: lotId, ...lot });
       
       // Ajouter à l'historique avec détails par sexe
       const maleDeaths = newDeathsMales - (currentRace.deaths_males || 0);
@@ -4077,6 +4119,48 @@ class SimpleTestDatabaseService {
     });
 
     return availableStock;
+  }
+
+  // Egg production methods
+  async saveEggProduction(date, animalType, count) {
+    try {
+      if (!this.storage.egg_production) {
+        this.storage.egg_production = {};
+      }
+      if (!this.storage.egg_production[date]) {
+        this.storage.egg_production[date] = {};
+      }
+      this.storage.egg_production[date][animalType] = count;
+      await this.saveToStorage();
+      
+      // Emit event for data refresh
+      if (dataEventService && dataEventService.emitEggProductionChange) {
+        dataEventService.emitEggProductionChange({ date, animalType, count });
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error saving egg production:', error);
+      throw error;
+    }
+  }
+
+  async getEggProduction() {
+    try {
+      return this.storage.egg_production || {};
+    } catch (error) {
+      console.error('Error getting egg production:', error);
+      return {};
+    }
+  }
+
+  async getEggProductionForDate(date) {
+    try {
+      return (this.storage.egg_production && this.storage.egg_production[date]) || {};
+    } catch (error) {
+      console.error('Error getting egg production for date:', error);
+      return {};
+    }
   }
 }
 

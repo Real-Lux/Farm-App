@@ -18,13 +18,31 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import database from '../services/database';
 import configService from '../services/configService';
-import { toFrenchDate } from '../utils/dateUtils';
+import { toFrenchDate, getTodayISO, toISODate } from '../utils/dateUtils';
+import { useDataRefresh } from '../hooks/useDataRefresh';
+import { Calendar } from 'react-native-calendars';
+import { MONTHS_FR } from '../../constants/DateConstants';
+
+const toLocalISO = (date) => {
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
+
+const EGG_ANIMAL_TYPES = [
+  { key: 'poules', label: 'Poules', icon: '🐔' },
+  { key: 'canards', label: 'Canards', icon: '🦆' },
+  { key: 'oies', label: 'Oies', icon: '🪿' },
+  { key: 'dindes', label: 'Dindes', icon: '🦃' },
+  { key: 'paons', label: 'Paons', icon: '🦚' }
+];
 
 export default function ProductManagementScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   // Get initialTab and selectedAnimalType from route params if provided
   const { initialTab, selectedAnimalType: routeSelectedAnimalType } = route?.params || {};
-  const [activeTab, setActiveTab] = useState(initialTab || 'elevage');
+  const [activeTab, setActiveTab] = useState(initialTab || 'productions'); // 'productions' = egg production, 'ventes' = sales, 'activites', 'messagerie'
   const [templateSettingsModal, setTemplateSettingsModal] = useState(false);
   const [selectedAnimalType, setSelectedAnimalType] = useState(routeSelectedAnimalType || 'poussins');
   const [pricingGrids, setPricingGrids] = useState({});
@@ -44,7 +62,7 @@ export default function ProductManagementScreen({ navigation, route }) {
     description: ''
   });
   
-  // Client template messages state
+  // Messagerie template messages state
   const [templateMessages, setTemplateMessages] = useState([]);
   const [messageModalVisible, setMessageModalVisible] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -59,62 +77,39 @@ export default function ProductManagementScreen({ navigation, route }) {
   const [selectedOrderForGeneration, setSelectedOrderForGeneration] = useState(null);
   const [generatedMessagePreview, setGeneratedMessagePreview] = useState('');
   const [orders, setOrders] = useState([]);
-
-  // Treatments state
-  const [treatmentModal, setTreatmentModal] = useState(false);
-  const [treatmentType, setTreatmentType] = useState('dosage'); // 'dosage' or 'formula'
-  const [dosageForm, setDosageForm] = useState({
-    animalWeight: '',
-    dosagePerKg: '',
-    concentration: ''
-  });
-  const [formulaForm, setFormulaForm] = useState({
-    formula: '',
-    variables: {}
-  });
-  const [animals, setAnimals] = useState([
-    { id: 1, name: 'Animal 1', weight: '' }
-  ]);
-  const [savedFormulas, setSavedFormulas] = useState([
-    {
-      id: 1,
-      name: 'Dosage Standard',
-      formula: '0.1*X',
-      description: 'Calcul dosage standard 0.1ml/kg',
-      example: 'X = 25 kg → 2.5 ml'
-    },
-    {
-      id: 2,
-      name: 'Concentration',
-      formula: '0.21*12/X',
-      description: 'Calcul de concentration',
-      example: 'X = 5 ml → 0.504'
-    }
-  ]);
-  const [saveFormulaModal, setSaveFormulaModal] = useState(false);
-  const [formulaName, setFormulaName] = useState('');
   
-  // Elevage statistics state
-  const [elevageStats, setElevageStats] = useState({
-    activeLots: 0,
-    totalLivingAnimals: 0,
-    uniqueRaces: 0,
-    deathsThisWeek: 0
-  });
+  // Egg production state
+  const [eggProduction, setEggProduction] = useState({}); // { date: { animalType: count } }
+  const [selectedProductionDate, setSelectedProductionDate] = useState(getTodayISO());
+  const [productionDateMonth, setProductionDateMonth] = useState(getTodayISO());
+  const [productionMonthPickerVisible, setProductionMonthPickerVisible] = useState(false);
+  const [productionYearPickerVisible, setProductionYearPickerVisible] = useState(false);
+  const [isNavigatingProduction, setIsNavigatingProduction] = useState(false);
+  const [expandedEggTypes, setExpandedEggTypes] = useState({}); // Track which egg type status bars are expanded
+  const [productionModalVisible, setProductionModalVisible] = useState(false);
+  const [productionForm, setProductionForm] = useState({});
+  const [singleAnimalModalVisible, setSingleAnimalModalVisible] = useState(false);
+  const [singleAnimalType, setSingleAnimalType] = useState(null);
+  const [singleAnimalCount, setSingleAnimalCount] = useState('');
+  const [productionInfoModalVisible, setProductionInfoModalVisible] = useState(false);
 
   useEffect(() => {
     loadProducts();
-    loadSavedFormulas();
     loadPricingGrids();
     loadConfigs();
     // loadTemplateMessages(); // Load on demand when Client tab is accessed
-    loadElevageStatistics();
     loadOrders();
   }, []);
 
+  // Automatically refresh products when they change anywhere in the app
+  useDataRefresh('products', loadProducts);
+  useDataRefresh('orders', loadOrders);
+  useDataRefresh('messages', loadTemplateMessages);
+  useDataRefresh('egg_production', loadEggProduction);
+
   // Handle initial tab from route params - this should take precedence over saved config
   useEffect(() => {
-    if (initialTab && ['elevage', 'etable', 'productions', 'activites', 'traitements', 'client'].includes(initialTab)) {
+    if (initialTab && ['productions', 'ventes', 'activites', 'messagerie'].includes(initialTab)) {
       console.log('📦 ProductManagement: Setting activeTab from initialTab:', initialTab);
       setActiveTab(initialTab);
     }
@@ -122,18 +117,21 @@ export default function ProductManagementScreen({ navigation, route }) {
 
   // Load template messages when client tab is accessed
   useEffect(() => {
-    if (activeTab === 'client' && templateMessages.length === 0) {
+    if (activeTab === 'messagerie' && templateMessages.length === 0) {
       loadTemplateMessages();
+    }
+    
+    if (activeTab === 'productions') {
+      loadEggProduction();
     }
   }, [activeTab]);
 
-  // Reload statistics when screen comes into focus and check for initialTab and selectedAnimalType
+  // Reload when screen comes into focus and check for initialTab and selectedAnimalType
   useFocusEffect(
     React.useCallback(() => {
-      loadElevageStatistics();
       // Check route params when screen comes into focus to ensure initialTab is respected
       const routeInitialTab = route?.params?.initialTab;
-      if (routeInitialTab && ['elevage', 'etable', 'productions', 'activites', 'traitements', 'client'].includes(routeInitialTab)) {
+      if (routeInitialTab && ['productions', 'ventes', 'activites', 'messagerie'].includes(routeInitialTab)) {
         console.log('📦 ProductManagement: Setting activeTab from route params on focus:', routeInitialTab);
         setActiveTab(routeInitialTab);
       }
@@ -155,7 +153,7 @@ export default function ProductManagementScreen({ navigation, route }) {
       // Only set activeTab from saved config if no initialTab was provided via route params
       // initialTab takes precedence over saved config - check route params directly
       const routeInitialTab = route?.params?.initialTab;
-      if (!routeInitialTab && savedActiveTab) {
+      if (!routeInitialTab && savedActiveTab && ['productions', 'ventes', 'activites', 'messagerie'].includes(savedActiveTab)) {
         setActiveTab(savedActiveTab);
       }
       
@@ -190,7 +188,7 @@ export default function ProductManagementScreen({ navigation, route }) {
   // Initialize pricing grid for selectedAnimalType if it doesn't exist (only when coming from route params)
   useEffect(() => {
     const routeSelectedAnimalType = route?.params?.selectedAnimalType;
-    if (activeTab === 'productions' && routeSelectedAnimalType && !pricingGrids[routeSelectedAnimalType]) {
+    if (activeTab === 'ventes' && routeSelectedAnimalType && !pricingGrids[routeSelectedAnimalType]) {
       // Initialize empty pricing grid for this animal type if it came from route params
       const newGrids = { ...pricingGrids };
       newGrids[routeSelectedAnimalType] = [];
@@ -218,14 +216,250 @@ export default function ProductManagementScreen({ navigation, route }) {
     }
   };
 
-  const loadElevageStatistics = async () => {
+  const loadEggProduction = async () => {
     try {
-      const stats = await database.getElevageStatistics();
-      setElevageStats(stats);
+      // Load egg production data from database
+      const productionData = await database.getEggProduction();
+      setEggProduction(productionData || {});
     } catch (error) {
-      console.error('Error loading elevage statistics:', error);
+      console.error('Error loading egg production:', error);
+      setEggProduction({});
     }
   };
+
+  const saveEggProduction = async (date, animalType, count) => {
+    try {
+      await database.saveEggProduction(date, animalType, count);
+      await loadEggProduction();
+    } catch (error) {
+      console.error('Error saving egg production:', error);
+      Alert.alert('Erreur', 'Impossible de sauvegarder la production');
+    }
+  };
+
+  const getCurrentProductionMonth = () => {
+    return new Date(productionDateMonth).getMonth();
+  };
+
+  const getCurrentProductionYear = () => {
+    return new Date(productionDateMonth).getFullYear();
+  };
+
+  const navigateProductionMonth = async (direction) => {
+    if (isNavigatingProduction) return;
+    setIsNavigatingProduction(true);
+    try {
+      const current = new Date(productionDateMonth);
+      const target = new Date(current.getFullYear(), current.getMonth() + direction, 15);
+      const dateStr = toLocalISO(target);
+      setProductionDateMonth(dateStr);
+      setSelectedProductionDate(dateStr);
+    } catch (error) {
+      console.error('Error navigating production month:', error);
+    } finally {
+      setTimeout(() => setIsNavigatingProduction(false), 350);
+    }
+  };
+
+  const jumpToProductionMonth = async (monthIndex) => {
+    setProductionMonthPickerVisible(false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const current = new Date(productionDateMonth);
+    const target = new Date(current.getFullYear(), monthIndex, 1);
+    const dateStr = toLocalISO(target);
+    setProductionDateMonth(dateStr);
+    setSelectedProductionDate(dateStr);
+  };
+
+  const jumpToProductionYear = async (year) => {
+    const current = new Date(productionDateMonth);
+    const target = new Date(year, current.getMonth(), 1);
+    const dateStr = toLocalISO(target);
+    setProductionDateMonth(dateStr);
+    setSelectedProductionDate(dateStr);
+    setProductionYearPickerVisible(false);
+  };
+
+  const getProductionYearRange = () => {
+    const currentYear = getCurrentProductionYear();
+    const years = [];
+    for (let i = currentYear - 5; i <= currentYear + 1; i++) {
+      years.push(i);
+    }
+    return years;
+  };
+
+  const getEggProductionForDate = (date) => {
+    return eggProduction[date] || {};
+  };
+
+  const getTotalProductionForDate = (date) => {
+    const dayData = getEggProductionForDate(date);
+    return Object.values(dayData).reduce((sum, count) => sum + (count || 0), 0);
+  };
+
+  const getBestDay = () => {
+    let bestDate = null;
+    let bestTotal = 0;
+    Object.keys(eggProduction).forEach(date => {
+      const total = getTotalProductionForDate(date);
+      if (total > bestTotal) {
+        bestTotal = total;
+        bestDate = date;
+      }
+    });
+    return bestDate ? { date: bestDate, total: bestTotal } : null;
+  };
+
+  const getYearlyTotal = (year) => {
+    let total = 0;
+    Object.keys(eggProduction).forEach(date => {
+      if (new Date(date).getFullYear() === year) {
+        total += getTotalProductionForDate(date);
+      }
+    });
+    return total;
+  };
+
+  const getBestMonth = () => {
+    const currentYear = getCurrentProductionYear();
+    let bestMonth = null;
+    let bestTotal = 0;
+    for (let i = 0; i < 12; i++) {
+      const monthTotal = getMonthlyTotal(currentYear, i);
+      if (monthTotal > bestTotal) {
+        bestTotal = monthTotal;
+        bestMonth = i;
+      }
+    }
+    return bestMonth !== null ? { month: bestMonth, monthName: MONTHS_FR[bestMonth], total: bestTotal } : null;
+  };
+
+  const getMonthlyTotal = (year, month) => {
+    let total = 0;
+    Object.keys(eggProduction).forEach(date => {
+      const dateObj = new Date(date);
+      if (dateObj.getFullYear() === year && dateObj.getMonth() === month) {
+        total += getTotalProductionForDate(date);
+      }
+    });
+    return total;
+  };
+
+  const getMonthlyStats = () => {
+    const currentYear = getCurrentProductionYear();
+    const stats = [];
+    for (let i = 0; i < 12; i++) {
+      const monthTotal = getMonthlyTotal(currentYear, i);
+      stats.push({
+        month: i,
+        monthName: MONTHS_FR[i],
+        total: monthTotal
+      });
+    }
+    return stats;
+  };
+
+  // Per-animal-type statistics
+  const getAnimalTypeTotalForDate = (date, animalType) => {
+    const dayData = getEggProductionForDate(date);
+    return dayData[animalType] || 0;
+  };
+
+  const getAnimalTypeBestDay = (animalType) => {
+    let bestDate = null;
+    let bestTotal = 0;
+    Object.keys(eggProduction).forEach(date => {
+      const count = getAnimalTypeTotalForDate(date, animalType);
+      if (count > bestTotal) {
+        bestTotal = count;
+        bestDate = date;
+      }
+    });
+    return bestDate ? { date: bestDate, total: bestTotal } : null;
+  };
+
+  const getAnimalTypeYearlyTotal = (year, animalType) => {
+    let total = 0;
+    Object.keys(eggProduction).forEach(date => {
+      if (new Date(date).getFullYear() === year) {
+        total += getAnimalTypeTotalForDate(date, animalType);
+      }
+    });
+    return total;
+  };
+
+  const getAnimalTypeBestMonth = (animalType) => {
+    const currentYear = getCurrentProductionYear();
+    let bestMonth = null;
+    let bestTotal = 0;
+    for (let i = 0; i < 12; i++) {
+      let monthTotal = 0;
+      Object.keys(eggProduction).forEach(date => {
+        const dateObj = new Date(date);
+        if (dateObj.getFullYear() === currentYear && dateObj.getMonth() === i) {
+          monthTotal += getAnimalTypeTotalForDate(date, animalType);
+        }
+      });
+      if (monthTotal > bestTotal) {
+        bestTotal = monthTotal;
+        bestMonth = i;
+      }
+    }
+    return bestMonth !== null ? { month: bestMonth, monthName: MONTHS_FR[bestMonth], total: bestTotal } : null;
+  };
+
+  const getAnimalTypeMonthlyStats = (animalType) => {
+    const currentYear = getCurrentProductionYear();
+    const stats = [];
+    for (let i = 0; i < 12; i++) {
+      let monthTotal = 0;
+      Object.keys(eggProduction).forEach(date => {
+        const dateObj = new Date(date);
+        if (dateObj.getFullYear() === currentYear && dateObj.getMonth() === i) {
+          monthTotal += getAnimalTypeTotalForDate(date, animalType);
+        }
+      });
+      stats.push({
+        month: i,
+        monthName: MONTHS_FR[i],
+        total: monthTotal
+      });
+    }
+    return stats;
+  };
+
+  const getAnimalTypeLast7Days = (animalType) => {
+    const today = new Date(selectedProductionDate);
+    const last7Days = [];
+    for (let i = 0; i <= 6; i++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateISO = toISODate(date.toISOString().split('T')[0]);
+      const count = getAnimalTypeTotalForDate(dateISO, animalType);
+      last7Days.push({ date: dateISO, count });
+    }
+    return last7Days;
+  };
+
+  const toggleEggTypeExpansion = (animalType) => {
+    setExpandedEggTypes(prev => ({
+      ...prev,
+      [animalType]: !prev[animalType]
+    }));
+  };
+
+  const openProductionModal = (date) => {
+    const dayData = getEggProductionForDate(date);
+    const formData = {};
+    EGG_ANIMAL_TYPES.forEach(type => {
+      formData[type.key] = (dayData[type.key] || 0).toString();
+    });
+    setProductionForm(formData);
+    setSelectedProductionDate(date);
+    setProductionModalVisible(true);
+  };
+
 
   const loadProducts = async () => {
     try {
@@ -287,7 +521,8 @@ export default function ProductManagementScreen({ navigation, route }) {
       }
 
       setModalVisible(false);
-      loadProducts(); // Reload the list
+      // Note: loadProducts() is called automatically via useDataRefresh hook
+      // when database.addProduct/updateProduct emits the 'products' event
     } catch (error) {
       console.error('Error saving product:', error);
       Alert.alert('Erreur', `Impossible de ${editingProduct ? 'mettre à jour' : 'ajouter'} le produit`);
@@ -303,7 +538,7 @@ export default function ProductManagementScreen({ navigation, route }) {
         { text: 'Supprimer', style: 'destructive', onPress: async () => {
           try {
             await database.deleteProduct(id);
-            loadProducts(); // Reload the list
+            // Note: loadProducts() is called automatically via useDataRefresh hook
           } catch (error) {
             console.error('Error deleting product:', error);
             Alert.alert('Erreur', 'Impossible de supprimer le produit');
@@ -574,155 +809,6 @@ export default function ProductManagementScreen({ navigation, route }) {
     }
   };
 
-  // Treatment functions
-  const openTreatmentModal = (type) => {
-    setTreatmentType(type);
-    setTreatmentModal(true);
-    if (type === 'dosage') {
-      setDosageForm({
-        animalWeight: '',
-        dosagePerKg: '',
-        concentration: ''
-      });
-    } else {
-      setFormulaForm({
-        formula: '',
-        variables: {}
-      });
-    }
-  };
-
-  const addAnimal = () => {
-    const newAnimal = {
-      id: Date.now(),
-      name: `Animal ${animals.length + 1}`,
-      weight: ''
-    };
-    setAnimals([...animals, newAnimal]);
-  };
-
-  const removeAnimal = (id) => {
-    if (animals.length > 1) {
-      setAnimals(animals.filter(animal => animal.id !== id));
-    }
-  };
-
-  const updateAnimal = (id, field, value) => {
-    setAnimals(animals.map(animal => 
-      animal.id === id ? { ...animal, [field]: value } : animal
-    ));
-  };
-
-  const calculateDosage = () => {
-    const results = animals.map(animal => {
-      const weight = parseFloat(animal.weight) || 0;
-      const dosagePerKg = parseFloat(dosageForm.dosagePerKg) || 0;
-      const concentration = parseFloat(dosageForm.concentration) || 1;
-      
-      const totalDosage = weight * dosagePerKg;
-      const volumeNeeded = totalDosage / concentration;
-      
-      return {
-        ...animal,
-        totalDosage: totalDosage.toFixed(2),
-        volumeNeeded: volumeNeeded.toFixed(2)
-      };
-    });
-    
-    return results;
-  };
-
-  const calculateFormula = () => {
-    try {
-      const { formula, variables } = formulaForm;
-      let processedFormula = formula;
-      
-      // Replace variables in formula
-      Object.keys(variables).forEach(variable => {
-        const value = parseFloat(variables[variable]) || 0;
-        processedFormula = processedFormula.replace(new RegExp(variable, 'g'), value);
-      });
-      
-      // Evaluate the formula (basic math operations)
-      const result = eval(processedFormula);
-      return isNaN(result) ? 'Erreur de calcul' : result.toFixed(2);
-    } catch (error) {
-      return 'Erreur de formule';
-    }
-  };
-
-  const updateFormulaVariable = (variable, value) => {
-    setFormulaForm({
-      ...formulaForm,
-      variables: {
-        ...formulaForm.variables,
-        [variable]: value
-      }
-    });
-  };
-
-  const loadSavedFormulas = async () => {
-    try {
-      const formulas = await database.getSavedFormulas();
-      setSavedFormulas(formulas);
-    } catch (error) {
-      console.error('Error loading saved formulas:', error);
-    }
-  };
-
-  const saveFormula = async () => {
-    if (!formulaName.trim() || !formulaForm.formula.trim()) {
-      Alert.alert('Erreur', 'Veuillez remplir le nom et la formule');
-      return;
-    }
-
-    try {
-      const newFormula = {
-        id: Date.now(),
-        name: formulaName.trim(),
-        formula: formulaForm.formula,
-        description: `Formule personnalisée: ${formulaName.trim()}`,
-        example: `Variables: ${Object.keys(formulaForm.variables).map(v => `${v} = ${formulaForm.variables[v] || '?'}`).join(', ')}`
-      };
-
-      await database.saveFormula(newFormula);
-      setSavedFormulas(prev => [...prev, newFormula]);
-      setSaveFormulaModal(false);
-      setFormulaName('');
-      Alert.alert('Succès', 'Formule sauvegardée avec succès!');
-    } catch (error) {
-      console.error('Error saving formula:', error);
-      Alert.alert('Erreur', 'Impossible de sauvegarder la formule');
-    }
-  };
-
-  const loadFormula = (formula) => {
-    setFormulaForm({
-      formula: formula.formula,
-      variables: {}
-    });
-    setTreatmentModal(false);
-    setTreatmentModal(true);
-  };
-
-  const deleteFormula = (id) => {
-    Alert.alert(
-      'Supprimer la formule',
-      'Êtes-vous sûr de vouloir supprimer cette formule?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: async () => {
-          try {
-            await database.deleteFormula(id);
-            setSavedFormulas(prev => prev.filter(f => f.id !== id));
-          } catch (error) {
-            console.error('Error deleting formula:', error);
-            Alert.alert('Erreur', 'Impossible de supprimer la formule');
-          }
-        }}
-      ]
-    );
-  };
 
   const ProductItem = ({ item }) => {
     const isCheeseProduct = item.type === 'cheese';
@@ -883,509 +969,10 @@ export default function ProductManagementScreen({ navigation, route }) {
   const [newElevageAnimalTypeName, setNewElevageAnimalTypeName] = useState('');
   const [animalTypeStats, setAnimalTypeStats] = useState({});
 
-  useEffect(() => {
-    loadAnimalTypes();
-  }, []);
-
-  useEffect(() => {
-    loadAnimalTypeStats();
-  }, [animalTypes]);
-
-  const loadAnimalTypes = async () => {
-    try {
-      const types = await database.getAnimalTypes();
-      setAnimalTypes(types);
-    } catch (error) {
-      console.error('Error loading animal types:', error);
-    }
-  };
-
-  const loadAnimalTypeStats = async () => {
-    try {
-      const stats = {};
-      for (const animalType of animalTypes) {
-        const lots = await database.getLots(animalType);
-        const races = await database.getRaces(animalType);
-        
-        const activeLots = lots.filter(lot => lot.status === 'Actif');
-        const totalLivingAnimals = lots.reduce((total, lot) => {
-          return total + Object.values(lot.races || {}).reduce((lotTotal, race) => lotTotal + (race.current || 0), 0);
-        }, 0);
-        
-        stats[animalType] = {
-          activeLots: activeLots.length,
-          totalLivingAnimals,
-          uniqueRaces: races.length
-        };
-      }
-      
-      setAnimalTypeStats(stats);
-    } catch (error) {
-      console.error('Error loading animal type stats:', error);
-    }
-  };
-
-  const deleteAnimalType = async (animalType) => {
-    Alert.alert(
-      'Supprimer le type d\'animal',
-      `Êtes-vous sûr de vouloir supprimer le type "${getElevageTypeName(animalType)}"? Cette action ne supprime pas les données, mais masque simplement ce type de la liste.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { 
-          text: 'Supprimer', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              await database.deleteAnimalType(animalType);
-              setAnimalTypes(prev => prev.filter(t => t !== animalType));
-              await loadAnimalTypeStats();
-            } catch (error) {
-              console.error('Error deleting animal type:', error);
-              Alert.alert('Erreur', 'Impossible de supprimer le type d\'animal');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const addElevageAnimalType = async () => {
-    if (!newElevageAnimalTypeName.trim()) {
-      Alert.alert('Erreur', 'Veuillez sélectionner un type d\'animal');
-      return;
-    }
-    
-    // Available animal types with their keys
-    const availableAnimalTypes = {
-      'Poussins/Poules': 'poussins',
-      'Cailles': 'cailles',
-      'Canards': 'canards',
-      'Oies': 'oies',
-      'Paons': 'paons',
-      'Dindes': 'dindes',
-      'Lapins': 'lapins'
-    };
-    
-    const animalTypeKey = availableAnimalTypes[newElevageAnimalTypeName] || newElevageAnimalTypeName.toLowerCase();
-    
-    // Check if already exists
-    if (animalTypes.includes(animalTypeKey)) {
-      Alert.alert('Erreur', 'Ce type d\'animal est déjà configuré');
-      return;
-    }
-    
-    try {
-      await database.addAnimalType(animalTypeKey);
-      setAnimalTypes(prev => [...prev, animalTypeKey]);
-      setAddAnimalTypeModal(false);
-      setNewElevageAnimalTypeName('');
-      await loadAnimalTypeStats();
-      Alert.alert('Succès', `Type d'animal "${newElevageAnimalTypeName}" ajouté avec succès!`);
-    } catch (error) {
-      console.error('Error adding animal type:', error);
-      Alert.alert('Erreur', 'Impossible d\'ajouter le type d\'animal');
-    }
-  };
-
-  const getElevageTypeIcon = (animalType) => {
-    const config = database.getElevageConfig(animalType);
-    return config.icon || '🐾';
-  };
-
-  const getElevageTypeName = (animalType) => {
-    const config = database.getElevageConfig(animalType);
-    return config.name || animalType;
-  };
-
-  const renderElevageAvicole = () => (
+  const renderVentes = () => (
     <View style={styles.tabContent}>
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>🐓 Élevage Avicole</Text>
-        <Text style={styles.sectionDescription}>
-          Gestion complète de vos volailles et lapins par type
-        </Text>
-        
-        {/* Animal Types List */}
-        <View style={styles.animalTypesContainer}>
-          {animalTypes.length > 0 ? (
-            animalTypes.map((animalType) => {
-              const stats = animalTypeStats[animalType] || { activeLots: 0, totalLivingAnimals: 0, uniqueRaces: 0 };
-              const config = database.getElevageConfig(animalType);
-              
-              return (
-                <TouchableOpacity 
-                  key={animalType}
-                  style={styles.animalTypeCard}
-                  onPress={() => navigation.navigate('ElevageScreen', { animalType })}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.animalTypeCardContent}>
-                    <View style={styles.animalTypeCardLeft}>
-                      <Text style={styles.animalTypeIcon}>{config.icon}</Text>
-                      <View style={styles.animalTypeInfo}>
-                        <Text style={styles.animalTypeName}>{config.name}</Text>
-                        <Text style={styles.animalTypeCount}>
-                          {stats.activeLots} lots • {stats.totalLivingAnimals} animaux • {stats.uniqueRaces} races
-                        </Text>
-                      </View>
-                    </View>
-                    <TouchableOpacity 
-                      style={styles.deleteAnimalTypeButton}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        deleteAnimalType(animalType);
-                      }}
-                    >
-                      <Text style={styles.deleteAnimalTypeButtonText}>🗑️</Text>
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              );
-            })
-          ) : (
-            <View style={styles.noAnimalTypesCard}>
-              <Text style={styles.noAnimalTypesText}>Aucun type d'animal configuré</Text>
-              <Text style={styles.noAnimalTypesSubtext}>
-                Appuyez sur le bouton + pour ajouter un type d'animal
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-      
-      <View style={styles.quickStats}>
-        <Text style={styles.quickStatsTitle}>Statistiques Globales</Text>
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{elevageStats.activeLots}</Text>
-            <Text style={styles.statLabel}>Lots Actifs</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{elevageStats.totalLivingAnimals}</Text>
-            <Text style={styles.statLabel}>Animaux Vivants</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{elevageStats.uniqueRaces}</Text>
-            <Text style={styles.statLabel}>Races Gérées</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{elevageStats.deathsThisWeek}</Text>
-            <Text style={styles.statLabel}>Morts Cette Semaine</Text>
-          </View>
-        </View>
-      </View>
-      
-      {/* Add Animal Type Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={addAnimalTypeModal}
-        onRequestClose={() => setAddAnimalTypeModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Ajouter un type d'animal</Text>
-            <Text style={styles.modalSubtitle}>
-              Sélectionnez le type d'animal à ajouter à votre élevage
-            </Text>
-            
-            <View style={styles.animalTypeOptions}>
-              {[
-                { key: 'poussins', label: 'Poussins/Poules', icon: '🐓' },
-                { key: 'cailles', label: 'Cailles', icon: '🐦' },
-                { key: 'canards', label: 'Canards', icon: '🦆' },
-                { key: 'oies', label: 'Oies', icon: '🪿' },
-                { key: 'paons', label: 'Paons', icon: '🦚' },
-                { key: 'dindes', label: 'Dindes', icon: '🦃' },
-                { key: 'lapins', label: 'Lapins', icon: '🐰' }
-              ].filter(option => !animalTypes.includes(option.key)).map((option) => (
-                <TouchableOpacity
-                  key={option.key}
-                  style={[
-                    styles.animalTypeOption,
-                    newElevageAnimalTypeName === option.label && styles.animalTypeOptionSelected
-                  ]}
-                  onPress={() => setNewElevageAnimalTypeName(option.label)}
-                >
-                  <Text style={styles.animalTypeOptionIcon}>{option.icon}</Text>
-                  <Text style={[
-                    styles.animalTypeOptionText,
-                    newElevageAnimalTypeName === option.label && styles.animalTypeOptionTextSelected
-                  ]}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            
-            {animalTypes.length >= 7 && (
-              <View style={styles.noMoreTypesContainer}>
-                <Text style={styles.noMoreTypesText}>
-                  Tous les types d'animaux disponibles sont déjà configurés
-                </Text>
-              </View>
-            )}
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={() => {
-                  setAddAnimalTypeModal(false);
-                  setNewElevageAnimalTypeName('');
-                }}
-              >
-                <Text style={styles.modalBtnText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.saveBtn]}
-                onPress={addElevageAnimalType}
-              >
-                <Text style={[styles.modalBtnText, { color: 'white' }]}>
-                  Ajouter
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
-
-  const [herdTypes, setHerdTypes] = useState([]);
-  const [addHerdTypeModal, setAddHerdTypeModal] = useState(false);
-  const [newHerdTypeName, setNewHerdTypeName] = useState('');
-  const [herdTypeStats, setHerdTypeStats] = useState({});
-
-  useEffect(() => {
-    loadHerdTypes();
-  }, []);
-
-  useEffect(() => {
-    loadHerdTypeStats();
-  }, [herdTypes]);
-
-  const loadHerdTypes = async () => {
-    try {
-      const types = await database.getHerdTypes();
-      setHerdTypes(types);
-    } catch (error) {
-      console.error('Error loading herd types:', error);
-    }
-  };
-
-  const loadHerdTypeStats = async () => {
-    try {
-      const stats = {};
-      for (const herdType of herdTypes) {
-        const animals = await database.getHerdAnimals(herdType);
-        stats[herdType] = animals.length;
-      }
-      setHerdTypeStats(stats);
-    } catch (error) {
-      console.error('Error loading herd type stats:', error);
-    }
-  };
-
-  const deleteHerdType = async (herdType) => {
-    Alert.alert(
-      'Supprimer le troupeau',
-      `Êtes-vous sûr de vouloir supprimer le troupeau ${getHerdTypeName(herdType)}? Cette action est irréversible.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { 
-          text: 'Supprimer', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              // Get current types and filter out the one to delete
-              const types = await database.getHerdTypes();
-              const updatedTypes = types.filter(t => t !== herdType);
-              
-              // Update storage directly (since there's no deleteHerdType method yet)
-              // Access the storage through the database instance
-              const dbInstance = database;
-              if (dbInstance.storage && dbInstance.storage.herd_types) {
-                dbInstance.storage.herd_types = updatedTypes;
-                // Also clean up related data
-                if (dbInstance.storage.herd_animals && dbInstance.storage.herd_animals[herdType]) {
-                  delete dbInstance.storage.herd_animals[herdType];
-                }
-                if (dbInstance.storage.herd_settings && dbInstance.storage.herd_settings[herdType]) {
-                  delete dbInstance.storage.herd_settings[herdType];
-                }
-                await dbInstance.saveToStorage();
-              }
-              
-              setHerdTypes(updatedTypes);
-              await loadHerdTypeStats(); // Reload stats after deletion
-              Alert.alert('Succès', `Troupeau ${getHerdTypeName(herdType)} supprimé`);
-            } catch (error) {
-              console.error('Error deleting herd type:', error);
-              Alert.alert('Erreur', 'Impossible de supprimer le troupeau');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const addHerdType = async () => {
-    if (!newHerdTypeName.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer un nom pour le type de troupeau');
-      return;
-    }
-    
-    // Map display names to database keys (preserve accents)
-    const herdTypeMap = {
-      'Caprin': 'caprin',
-      'Ovin': 'ovin',
-      'Bovin': 'bovin',
-      'Équin': 'équin',
-      'Porcin': 'porcin'
-    };
-    
-    const herdTypeKey = herdTypeMap[newHerdTypeName] || newHerdTypeName.toLowerCase().replace(/\s+/g, '_');
-    
-    // Check if already exists (case-insensitive and accent-insensitive)
-    const normalizedExisting = herdTypes.map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
-    const normalizedNew = herdTypeKey.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    
-    if (normalizedExisting.includes(normalizedNew)) {
-      Alert.alert('Erreur', 'Ce type de troupeau existe déjà');
-      return;
-    }
-    
-    try {
-      await database.addHerdType(herdTypeKey);
-      setHerdTypes(prev => [...prev, herdTypeKey]);
-      setAddHerdTypeModal(false);
-      setNewHerdTypeName('');
-      await loadHerdTypeStats(); // Reload stats after adding
-      Alert.alert('Succès', `Type de troupeau "${newHerdTypeName}" ajouté avec succès!`);
-    } catch (error) {
-      console.error('Error adding herd type:', error);
-      Alert.alert('Erreur', 'Impossible d\'ajouter le type de troupeau');
-    }
-  };
-
-  const getHerdTypeIcon = (herdType) => {
-    const icons = {
-      'caprin': '🐐',
-      'ovin': '🐑',
-      'bovin': '🐄',
-      'équin': '🐴',
-      'porcin': '🐷'
-    };
-    return icons[herdType] || '🐾';
-  };
-
-  const getHerdTypeName = (herdType) => {
-    const names = {
-      'caprin': 'Caprin',
-      'ovin': 'Ovin',
-      'bovin': 'Bovin',
-      'équin': 'Équin',
-      'porcin': 'Porcin'
-    };
-    return names[herdType] || herdType.charAt(0).toUpperCase() + herdType.slice(1);
-  };
-
-  const getAnimalLabel = (herdType) => {
-    const labels = {
-      'caprin': 'Chèvres',
-      'ovin': 'Brebis',
-      'bovin': 'Vaches',
-      'équin': 'Chevaux',
-      'porcin': 'Porcs'
-    };
-    return labels[herdType] || 'Animaux';
-  };
-
-  const renderElevageEtable = () => (
-    <View style={styles.tabContent}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>🏠 Étable - Gestion des Troupeaux</Text>
-        <Text style={styles.sectionDescription}>
-          Gestion complète de tous vos troupeaux : naissances, production, généalogie
-        </Text>
-        
-        {/* Herd Types List */}
-        <View style={styles.herdTypesContainer}>
-          {herdTypes.length > 0 ? (
-            herdTypes.map((herdType) => (
-              <TouchableOpacity 
-                key={herdType}
-                style={styles.herdTypeCard}
-                onPress={() => navigation.navigate('EtableScreen', { herdType })}
-                activeOpacity={0.7}
-              >
-                <View style={styles.herdTypeCardContent}>
-                  <View style={styles.herdTypeCardLeft}>
-                    <Text style={styles.herdTypeIcon}>{getHerdTypeIcon(herdType)}</Text>
-                    <View style={styles.herdTypeInfo}>
-                      <Text style={styles.herdTypeName}>{getHerdTypeName(herdType)}</Text>
-                      <Text style={styles.herdTypeCount}>
-                        {herdTypeStats[herdType] || 0} {getAnimalLabel(herdType)}
-                      </Text>
-                    </View>
-                  </View>
-                  <TouchableOpacity 
-                    style={styles.deleteHerdTypeButton}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      deleteHerdType(herdType);
-                    }}
-                  >
-                    <Text style={styles.deleteHerdTypeButtonText}>🗑️</Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.noHerdTypesCard}>
-              <Text style={styles.noHerdTypesText}>Aucun troupeau configuré</Text>
-              <Text style={styles.noHerdTypesSubtext}>
-                Appuyez sur le bouton + pour ajouter un troupeau
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-      
-      <TouchableOpacity 
-        style={styles.sectionCard}
-        onPress={() => navigation.navigate('CheeseScreen')}
-        activeOpacity={0.7}
-      >
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleContainer}>
-            <Text style={styles.sectionTitle}>🧀 Production Fromage</Text>
-            <Text style={styles.sectionDescription}>
-              Gestion de la transformation laitière : recettes, affinage, stockage
-            </Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.infoButton}
-            onPress={(e) => {
-              e.stopPropagation();
-              Alert.alert(
-                'Fonctionnalités Production Fromage',
-                '• 📝 Gestion des recettes\n• ⏰ Suivi d\'affinage\n• 📦 Contrôle de stockage\n• 📊 Statistiques de production\n• 🏷️ Étiquetage et traçabilité',
-                [{ text: 'OK' }]
-              );
-            }}
-          >
-            <Text style={styles.infoButtonText}>ℹ️</Text>
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderProductions = () => (
-    <View style={styles.tabContent}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>🥚 Productions</Text>
+        <Text style={styles.sectionTitle}>💰 Ventes</Text>
         <Text style={styles.sectionDescription}>
           Gestion des produits de la ferme : œufs, adoptions, fromages
         </Text>
@@ -1554,61 +1141,6 @@ export default function ProductManagementScreen({ navigation, route }) {
     </View>
   );
 
-  const renderTraitements = () => (
-    <View style={styles.tabContent}>
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>💊 Calculs de Traitements</Text>
-        <Text style={styles.sectionDescription}>
-          Calculatrices pour dosages vétérinaires et formules personnalisées
-        </Text>
-        <View style={styles.buttonRow}>
-          <TouchableOpacity 
-            style={styles.addButton} 
-            onPress={() => openTreatmentModal('dosage')}
-          >
-            <Text style={styles.addButtonText}>💉 Calcul Dosage</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.templateButton} 
-            onPress={() => openTreatmentModal('formula')}
-          >
-            <Text style={styles.templateButtonText}>🧮 Formule Perso</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-      
-      <View style={styles.calculationExamples}>
-        <Text style={styles.examplesTitle}>💡 Formules Sauvegardées :</Text>
-        {savedFormulas.map((formula) => (
-          <View key={formula.id} style={styles.exampleCard}>
-            <View style={styles.formulaCardHeader}>
-              <Text style={styles.exampleTitle}>{formula.name}</Text>
-              <View style={styles.formulaCardActions}>
-                <TouchableOpacity 
-                  style={styles.loadFormulaButton}
-                  onPress={() => loadFormula(formula)}
-                >
-                  <Text style={styles.loadFormulaButtonText}>📥 Charger</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.deleteFormulaButton}
-                  onPress={() => deleteFormula(formula.id)}
-                >
-                  <Text style={styles.deleteFormulaButtonText}>🗑️</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            <Text style={styles.exampleText}>
-              • Formule: {formula.formula}{'\n'}
-              • {formula.example}
-            </Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-
-
   const getFilteredMessages = () => {
     if (!selectedCategoryFilter) {
       return templateMessages;
@@ -1616,7 +1148,276 @@ export default function ProductManagementScreen({ navigation, route }) {
     return templateMessages.filter(msg => msg?.category === selectedCategoryFilter);
   };
 
-  const renderClient = () => {
+  const renderProductions = () => {
+    const dayData = getEggProductionForDate(selectedProductionDate);
+    const totalForDay = getTotalProductionForDate(selectedProductionDate);
+    const bestDay = getBestDay();
+    const bestMonth = getBestMonth();
+    const currentYear = getCurrentProductionYear();
+    const yearlyTotal = getYearlyTotal(currentYear);
+    const monthlyStats = getMonthlyStats();
+    const selectedDateObj = new Date(selectedProductionDate);
+    const isToday = selectedProductionDate === getTodayISO();
+    
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.sectionCard}>
+          <View style={styles.productionHeaderRow}>
+            <View style={styles.productionTitleSection}>
+              <View style={styles.productionTitleRow}>
+                <Text style={styles.sectionTitle}>🥚 Production d'Œufs</Text>
+                <TouchableOpacity 
+                  style={styles.productionInfoButton}
+                  onPress={() => setProductionInfoModalVisible(true)}
+                >
+                  <Text style={styles.productionInfoIcon}>ℹ️</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.sectionDescription}>
+                Gestion quotidienne de la production d'œufs par type d'animal
+              </Text>
+            </View>
+          </View>
+
+          {/* Compact Date Navigation */}
+          <View style={styles.compactDateRow}>
+            <TouchableOpacity 
+              style={styles.compactNavButton}
+              onPress={() => {
+                const prevDay = new Date(selectedProductionDate);
+                prevDay.setDate(prevDay.getDate() - 1);
+                setSelectedProductionDate(toISODate(prevDay.toISOString().split('T')[0]));
+              }}
+            >
+              <Text style={styles.compactNavText}>‹</Text>
+            </TouchableOpacity>
+            
+            <View style={styles.compactDateDisplay}>
+              <TouchableOpacity 
+                style={styles.compactDateButton}
+                onPress={() => setProductionMonthPickerVisible(true)}
+              >
+                <Text style={styles.compactDateText}>
+                  {MONTHS_FR[selectedDateObj.getMonth()]}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.compactDateButton}
+                onPress={() => setProductionYearPickerVisible(true)}
+              >
+                <Text style={styles.compactDateText}>
+                  {selectedDateObj.getFullYear()}
+                </Text>
+              </TouchableOpacity>
+              <Text style={styles.compactDateDay}>
+                {selectedDateObj.getDate()} {selectedDateObj.toLocaleDateString('fr-FR', { weekday: 'short' })}
+              </Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.compactNavButton}
+              onPress={() => {
+                const nextDay = new Date(selectedProductionDate);
+                nextDay.setDate(nextDay.getDate() + 1);
+                const nextDayISO = toISODate(nextDay.toISOString().split('T')[0]);
+                if (nextDayISO <= getTodayISO()) {
+                  setSelectedProductionDate(nextDayISO);
+                }
+              }}
+              disabled={!isToday && selectedProductionDate >= getTodayISO()}
+            >
+              <Text style={[styles.compactNavText, (!isToday && selectedProductionDate >= getTodayISO()) && styles.compactNavTextDisabled]}>›</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {!isToday && (
+            <TouchableOpacity 
+              style={styles.compactTodayButton}
+              onPress={() => setSelectedProductionDate(getTodayISO())}
+            >
+              <Text style={styles.compactTodayButtonText}>📅 Aujourd'hui</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Compact Statistics */}
+          <View style={styles.compactStatsRow}>
+            <View style={styles.compactStatItem}>
+              <Text style={styles.compactStatLabel}>Total du jour</Text>
+              <Text style={styles.compactStatValue}>{totalForDay}</Text>
+            </View>
+            {bestDay && (
+              <View style={styles.compactStatItem}>
+                <Text style={styles.compactStatLabel}>Meilleur jour</Text>
+                <Text style={styles.compactStatValue}>{bestDay.total}</Text>
+                <Text style={styles.compactStatSubtext}>{toFrenchDate(bestDay.date)}</Text>
+              </View>
+            )}
+            {bestMonth && (
+              <View style={styles.compactStatItem}>
+                <Text style={styles.compactStatLabel}>Meilleur mois</Text>
+                <Text style={styles.compactStatValue}>{bestMonth.total}</Text>
+                <Text style={styles.compactStatSubtext}>{bestMonth.monthName}</Text>
+              </View>
+            )}
+            <View style={styles.compactStatItem}>
+              <Text style={styles.compactStatLabel}>Total annuel</Text>
+              <Text style={styles.compactStatValue}>{yearlyTotal}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Status Bar for Each Egg Type */}
+        <View style={styles.eggTypesStatusContainer}>
+          {EGG_ANIMAL_TYPES.map(type => {
+            const count = dayData[type.key] || 0;
+            const isExpanded = expandedEggTypes[type.key];
+            const last7Days = getAnimalTypeLast7Days(type.key);
+            const animalTypeMonthlyStats = getAnimalTypeMonthlyStats(type.key);
+            const animalTypeBestDay = getAnimalTypeBestDay(type.key);
+            const animalTypeBestMonth = getAnimalTypeBestMonth(type.key);
+            const animalTypeYearlyTotal = getAnimalTypeYearlyTotal(currentYear, type.key);
+            const animalTypeTotalForDay = getAnimalTypeTotalForDate(selectedProductionDate, type.key);
+            
+            return (
+              <View key={type.key} style={styles.eggTypeStatusCard}>
+                <View style={styles.eggTypeStatusHeader}>
+                  <TouchableOpacity 
+                    style={styles.eggTypeStatusLeft}
+                    onPress={() => toggleEggTypeExpansion(type.key)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.eggTypeIcon}>{type.icon}</Text>
+                    <Text style={styles.eggTypeLabel}>{type.label}</Text>
+                  </TouchableOpacity>
+                  <View style={styles.eggTypeStatusRight}>
+                    <Text style={styles.eggTypeCount}>{count} œufs</Text>
+                    <TouchableOpacity 
+                      style={styles.eggTypeAddButton}
+                      onPress={() => {
+                        setSingleAnimalType(type.key);
+                        setSingleAnimalCount('');
+                        setSingleAnimalModalVisible(true);
+                      }}
+                    >
+                      <Text style={styles.eggTypeAddButtonText}>+</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      onPress={() => toggleEggTypeExpansion(type.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.eggTypeExpandIcon}>
+                        {isExpanded ? '▼' : '▶'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                
+                {isExpanded && (
+                  <View style={styles.eggTypeStatusDetails}>
+                    {/* Individual Stats for this animal type */}
+                    <View style={styles.eggTypeStatsRow}>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Du jour</Text>
+                        <Text style={styles.eggTypeStatValue}>{animalTypeTotalForDay}</Text>
+                      </View>
+                      {animalTypeBestDay && (
+                        <View style={styles.eggTypeStatItem}>
+                          <Text style={styles.eggTypeStatLabel}>Meilleur jour</Text>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeBestDay.total}</Text>
+                        </View>
+                      )}
+                      {animalTypeBestMonth && (
+                        <View style={styles.eggTypeStatItem}>
+                          <Text style={styles.eggTypeStatLabel}>Meilleur mois</Text>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeBestMonth.total}</Text>
+                          <Text style={styles.eggTypeStatSubtext}>{animalTypeBestMonth.monthName}</Text>
+                        </View>
+                      )}
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Annuel</Text>
+                        <Text style={styles.eggTypeStatValue}>{animalTypeYearlyTotal}</Text>
+                      </View>
+                    </View>
+
+                    {/* Last 7 Days History */}
+                    <Text style={styles.eggTypeHistoryTitle}>Historique récents (7 derniers jours):</Text>
+                    <View style={styles.eggTypeHistoryList}>
+                      {last7Days.map(item => (
+                        <View key={item.date} style={styles.eggTypeHistoryItem}>
+                          <Text style={styles.eggTypeHistoryDate}>
+                            {toFrenchDate(item.date)}
+                          </Text>
+                          <Text style={styles.eggTypeHistoryCount}>
+                            {item.count} œufs
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+
+                    {/* Monthly Stats for this animal type */}
+                    <Text style={styles.eggTypeHistoryTitle}>Production par mois ({currentYear}):</Text>
+                    <View style={styles.monthlyBarChartContainer}>
+                      {(() => {
+                        const maxValue = Math.max(...animalTypeMonthlyStats.map(s => s.total), 1);
+                        const valueTextHeight = 20; // Space reserved for value text at top
+                        const chartHeight = 100; // Bar area height (below value text)
+                        return animalTypeMonthlyStats.map((stat, index) => {
+                          const barHeight = maxValue > 0 ? (stat.total / maxValue) * chartHeight : 0;
+                          const hasLargeNumber = stat.total >= 1000;
+                          const isEven = index % 2 === 0;
+                          return (
+                            <View key={stat.month} style={styles.monthlyBarChartItem}>
+                              <View style={styles.monthlyBarChartBarContainer}>
+                                {/* Value text - positioned to avoid overlap */}
+                                {hasLargeNumber ? (
+                                  <View style={[
+                                    styles.monthlyBarChartValueContainer,
+                                    isEven ? styles.monthlyBarChartValueLeft : styles.monthlyBarChartValueRight
+                                  ]}>
+                                    <Text 
+                                      style={styles.monthlyBarChartValueLarge}
+                                      numberOfLines={1}
+                                    >
+                                      {stat.total}
+                                    </Text>
+                                  </View>
+                                ) : (
+                                  <View style={styles.monthlyBarChartValueContainer}>
+                                    <Text 
+                                      style={styles.monthlyBarChartValue}
+                                      numberOfLines={1}
+                                    >
+                                      {stat.total}
+                                    </Text>
+                                  </View>
+                                )}
+                                {/* Bar wrapper - below value text */}
+                                <View style={styles.monthlyBarChartBarWrapper}>
+                                  <View 
+                                    style={[
+                                      styles.monthlyBarChartBar,
+                                      { height: Math.max(barHeight, 2) }
+                                    ]}
+                                  />
+                                </View>
+                              </View>
+                              <Text style={styles.monthlyBarChartMonth}>{stat.monthName.substring(0, 3)}</Text>
+                            </View>
+                          );
+                        });
+                      })()}
+                    </View>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  const renderMessagerie = () => {
     const filteredMessages = getFilteredMessages();
     
     return (
@@ -1733,7 +1534,7 @@ export default function ProductManagementScreen({ navigation, route }) {
       <View style={styles.header}>
         <View style={[styles.statusBarOverlay, { height: insets.top * 0.8 }]} />
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>🏡 Gestion de la Ferme</Text>
+          <Text style={styles.headerTitle}>📦 Gestion</Text>
         </View>
       </View>
       
@@ -1743,28 +1544,6 @@ export default function ProductManagementScreen({ navigation, route }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabScrollContent}
         >
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'elevage' && styles.activeTab]}
-          onPress={async () => {
-            setActiveTab('elevage');
-            await configService.saveProductManagementActiveTab('elevage');
-          }}
-        >
-            <Text style={[styles.tabText, activeTab === 'elevage' && styles.activeTabText]}>
-              🐓 Avicole
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'etable' && styles.activeTab]}
-            onPress={async () => {
-              setActiveTab('etable');
-              await configService.saveProductManagementActiveTab('etable');
-            }}
-          >
-            <Text style={[styles.tabText, activeTab === 'etable' && styles.activeTabText]}>
-              🏠 Étable
-            </Text>
-          </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'productions' && styles.activeTab]}
             onPress={async () => {
@@ -1774,6 +1553,17 @@ export default function ProductManagementScreen({ navigation, route }) {
           >
             <Text style={[styles.tabText, activeTab === 'productions' && styles.activeTabText]}>
               🥚 Productions
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'ventes' && styles.activeTab]}
+            onPress={async () => {
+              setActiveTab('ventes');
+              await configService.saveProductManagementActiveTab('ventes');
+            }}
+          >
+            <Text style={[styles.tabText, activeTab === 'ventes' && styles.activeTabText]}>
+              💰 Ventes
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -1788,24 +1578,13 @@ export default function ProductManagementScreen({ navigation, route }) {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            style={[styles.tab, activeTab === 'traitements' && styles.activeTab]}
+            style={[styles.tab, activeTab === 'messagerie' && styles.activeTab]}
             onPress={async () => {
-              setActiveTab('traitements');
-              await configService.saveProductManagementActiveTab('traitements');
+              setActiveTab('messagerie');
+              await configService.saveProductManagementActiveTab('messagerie');
             }}
           >
-            <Text style={[styles.tabText, activeTab === 'traitements' && styles.activeTabText]}>
-              💊 Traitements
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'client' && styles.activeTab]}
-            onPress={async () => {
-              setActiveTab('client');
-              await configService.saveProductManagementActiveTab('client');
-            }}
-          >
-            <Text style={[styles.tabText, activeTab === 'client' && styles.activeTabText]}>
+            <Text style={[styles.tabText, activeTab === 'messagerie' && styles.activeTabText]}>
               👥 Messagerie
             </Text>
           </TouchableOpacity>
@@ -1817,132 +1596,11 @@ export default function ProductManagementScreen({ navigation, route }) {
           style={styles.mainScrollView}
           showsVerticalScrollIndicator={false}
         >
-          {activeTab === 'elevage' && renderElevageAvicole()}
-          {activeTab === 'etable' && renderElevageEtable()}
           {activeTab === 'productions' && renderProductions()}
+          {activeTab === 'ventes' && renderVentes()}
           {activeTab === 'activites' && renderActivites()}
-          {activeTab === 'traitements' && renderTraitements()}
-          {activeTab === 'client' && renderClient()}
+          {activeTab === 'messagerie' && renderMessagerie()}
         </ScrollView>
-
-        {/* Floating Add Button for Herd Types */}
-        {activeTab === 'etable' && (
-          <TouchableOpacity
-            style={styles.floatingAddButton}
-            onPress={() => setAddHerdTypeModal(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.floatingAddButtonText}>+</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Floating Add Button for Animal Types */}
-        {activeTab === 'elevage' && (
-          <TouchableOpacity
-            style={styles.floatingAddButton}
-            onPress={() => setAddAnimalTypeModal(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.floatingAddButtonText}>+</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Add Herd Type Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={addHerdTypeModal}
-          onRequestClose={() => setAddHerdTypeModal(false)}
-        >
-          <KeyboardAvoidingView 
-            style={styles.modalOverlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-          >
-            <View style={styles.modalContent}>
-              <ScrollView 
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.modalScrollContent}
-              >
-                <Text style={styles.modalTitle}>🆕 Nouveau Type de Troupeau</Text>
-                
-                <Text style={styles.templateDescription}>
-                  Ajoutez un nouveau type de troupeau à gérer :
-                </Text>
-                
-                <Text style={styles.inputLabel}>Types disponibles :</Text>
-                <View style={styles.herdTypeOptions}>
-                  {['Caprin', 'Ovin', 'Bovin', 'Équin', 'Porcin'].map((type) => {
-                    // Map display names to database keys (preserve accents)
-                    const herdTypeMap = {
-                      'Caprin': 'caprin',
-                      'Ovin': 'ovin',
-                      'Bovin': 'bovin',
-                      'Équin': 'équin',
-                      'Porcin': 'porcin'
-                    };
-                    const typeKey = herdTypeMap[type] || type.toLowerCase().replace(/\s+/g, '_');
-                    const isSelected = newHerdTypeName.toLowerCase() === type.toLowerCase();
-                    // Check if exists (normalize for comparison)
-                    const normalizedExisting = herdTypes.map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
-                    const normalizedNew = typeKey.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                    const alreadyExists = normalizedExisting.includes(normalizedNew);
-                    
-                    return (
-                      <TouchableOpacity
-                        key={type}
-                        style={[
-                          styles.herdTypeOption,
-                          isSelected && styles.herdTypeOptionSelected,
-                          alreadyExists && styles.herdTypeOptionDisabled
-                        ]}
-                        onPress={() => !alreadyExists && setNewHerdTypeName(type)}
-                        disabled={alreadyExists}
-                      >
-                        <Text style={[
-                          styles.herdTypeOptionText,
-                          isSelected && styles.herdTypeOptionTextSelected,
-                          alreadyExists && styles.herdTypeOptionTextDisabled
-                        ]}>
-                          {type} {alreadyExists && '(déjà ajouté)'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ou entrez un nom personnalisé"
-                  placeholderTextColor="#999"
-                  value={newHerdTypeName}
-                  onChangeText={setNewHerdTypeName}
-                />
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => {
-                      setAddHerdTypeModal(false);
-                      setNewHerdTypeName('');
-                    }}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.saveBtn]}
-                    onPress={addHerdType}
-                  >
-                    <Text style={[styles.modalBtnText, { color: 'white' }]}>
-                      Ajouter
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
 
         <Modal
           animationType="slide"
@@ -2277,220 +1935,6 @@ export default function ProductManagementScreen({ navigation, route }) {
           </View>
         </Modal>
 
-        {/* Treatment Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={treatmentModal}
-          onRequestClose={() => setTreatmentModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                {treatmentType === 'dosage' ? '💉 Calcul de Dosage' : '🧮 Formule Personnalisée'}
-              </Text>
-
-              {treatmentType === 'dosage' ? (
-                <>
-                  <View style={styles.dosageSection}>
-                    <Text style={styles.sectionSubtitle}>Paramètres de dosage :</Text>
-                    
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Dosage par kg (ex: 0.1)"
-                      placeholderTextColor="#999"
-                      value={dosageForm.dosagePerKg}
-                      onChangeText={(text) => setDosageForm({...dosageForm, dosagePerKg: text})}
-                      keyboardType="decimal-pad"
-                    />
-                    
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Concentration (mg/ml ou %) - optionnel"
-                      placeholderTextColor="#999"
-                      value={dosageForm.concentration}
-                      onChangeText={(text) => setDosageForm({...dosageForm, concentration: text})}
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-
-                  <View style={styles.animalsSection}>
-                    <View style={styles.animalsHeader}>
-                      <Text style={styles.sectionSubtitle}>Animaux :</Text>
-                      <TouchableOpacity style={styles.addAnimalButton} onPress={addAnimal}>
-                        <Text style={styles.addAnimalButtonText}>+ Ajouter</Text>
-                      </TouchableOpacity>
-                    </View>
-                    
-                    {animals.map((animal, index) => (
-                      <View key={animal.id} style={styles.animalRow}>
-                        <TextInput
-                          style={[styles.input, styles.animalNameInput]}
-                          placeholder="Nom"
-                          placeholderTextColor="#999"
-                          value={animal.name}
-                          onChangeText={(text) => updateAnimal(animal.id, 'name', text)}
-                        />
-                        <TextInput
-                          style={[styles.input, styles.animalWeightInput]}
-                          placeholder="Poids (kg)"
-                          placeholderTextColor="#999"
-                          value={animal.weight}
-                          onChangeText={(text) => updateAnimal(animal.id, 'weight', text)}
-                          keyboardType="decimal-pad"
-                        />
-                        {animals.length > 1 && (
-                          <TouchableOpacity 
-                            style={styles.removeAnimalButton}
-                            onPress={() => removeAnimal(animal.id)}
-                          >
-                            <Text style={styles.removeAnimalButtonText}>🗑️</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-
-                  <View style={styles.resultsSection}>
-                    <Text style={styles.sectionSubtitle}>Résultats :</Text>
-                    {calculateDosage().map((result, index) => (
-                      <View key={index} style={styles.resultCard}>
-                        <Text style={styles.resultAnimalName}>{result.name}</Text>
-                        <Text style={styles.resultText}>
-                          Dosage total: {result.totalDosage} ml
-                        </Text>
-                        {dosageForm.concentration && (
-                          <Text style={styles.resultText}>
-                            Volume à administrer: {result.volumeNeeded} ml
-                          </Text>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                </>
-              ) : (
-                <>
-                  <View style={styles.formulaSection}>
-                    <Text style={styles.sectionSubtitle}>Formule :</Text>
-                    <View style={styles.formulaRow}>
-                      <TextInput
-                        style={[styles.input, styles.formulaInput]}
-                        placeholder="Ex: 0.21*12/X"
-                        placeholderTextColor="#999"
-                        value={formulaForm.formula}
-                        onChangeText={(text) => setFormulaForm({...formulaForm, formula: text})}
-                      />
-                      <View style={styles.resultInline}>
-                        <Text style={styles.resultInlineText}>
-                          = {formulaForm.formula ? calculateFormula() : '?'}
-                        </Text>
-                      </View>
-                    </View>
-                    
-                    <Text style={styles.formulaHelp}>
-                      Utilisez X, Y, Z comme variables. Exemples: +, -, *, /, (, )
-                    </Text>
-                  </View>
-
-                  <View style={styles.variablesSection}>
-                    <Text style={styles.sectionSubtitle}>Variables :</Text>
-                    {['X', 'Y', 'Z'].map(variable => (
-                      <View key={variable} style={styles.variableRow}>
-                        <Text style={styles.variableLabel}>{variable} =</Text>
-                        <TextInput
-                          style={[styles.input, styles.variableInput]}
-                          placeholder="0"
-                          placeholderTextColor="#999"
-                          value={formulaForm.variables[variable] || ''}
-                          onChangeText={(text) => updateFormulaVariable(variable, text)}
-                          keyboardType="decimal-pad"
-                        />
-                      </View>
-                    ))}
-                  </View>
-
-                  <View style={styles.saveFormulaSection}>
-                    <TouchableOpacity 
-                      style={styles.saveFormulaButton}
-                      onPress={() => setSaveFormulaModal(true)}
-                    >
-                      <Text style={styles.saveFormulaButtonText}>💾 Sauvegarder Formule</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                </>
-              )}
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setTreatmentModal(false)}
-                >
-                  <Text style={styles.modalBtnText}>Fermer</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Save Formula Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={saveFormulaModal}
-          onRequestClose={() => setSaveFormulaModal(false)}
-        >
-          <KeyboardAvoidingView 
-            style={styles.modalOverlay}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-          >
-            <View style={styles.modalContent}>
-              <ScrollView 
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.modalScrollContent}
-              >
-                <Text style={styles.modalTitle}>💾 Sauvegarder Formule</Text>
-                
-                <Text style={styles.saveFormulaDescription}>
-                  Donnez un nom à votre formule pour la retrouver facilement :
-                </Text>
-                
-                <TextInput
-                  style={styles.input}
-                placeholder="Nom de la formule (ex: Dosage Antibiotique)"
-                placeholderTextColor="#999"
-                value={formulaName}
-                onChangeText={setFormulaName}
-              />
-              
-              <View style={styles.formulaPreview}>
-                <Text style={styles.formulaPreviewTitle}>Formule à sauvegarder :</Text>
-                <Text style={styles.formulaPreviewText}>{formulaForm.formula}</Text>
-              </View>
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setSaveFormulaModal(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.saveBtn]}
-                  onPress={saveFormula}
-                >
-                  <Text style={[styles.modalBtnText, { color: 'white' }]}>
-                    Sauvegarder
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
-
         {/* New Animal Type Modal */}
         <Modal
           animationType="slide"
@@ -2792,6 +2236,307 @@ export default function ProductManagementScreen({ navigation, route }) {
               </ScrollView>
             </View>
           </KeyboardAvoidingView>
+        </Modal>
+
+        {/* Egg Production Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={productionModalVisible}
+          onRequestClose={() => setProductionModalVisible(false)}
+        >
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>
+                  Production d'Œufs - {toFrenchDate(selectedProductionDate)}
+                </Text>
+
+                {EGG_ANIMAL_TYPES.map(type => (
+                  <View key={type.key} style={styles.productionInputGroup}>
+                    <Text style={styles.inputLabel}>
+                      {type.icon} {type.label}
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Nombre d'œufs"
+                      placeholderTextColor="#999"
+                      value={productionForm[type.key] || '0'}
+                      onChangeText={(text) => setProductionForm({
+                        ...productionForm,
+                        [type.key]: text.replace(/[^0-9]/g, '')
+                      })}
+                      keyboardType="number-pad"
+                    />
+                  </View>
+                ))}
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.cancelBtn]}
+                    onPress={() => setProductionModalVisible(false)}
+                  >
+                    <Text style={styles.modalBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.saveBtn]}
+                    onPress={async () => {
+                      try {
+                        let saved = false;
+                        for (const type of EGG_ANIMAL_TYPES) {
+                          const count = parseInt(productionForm[type.key] || '0');
+                          await saveEggProduction(selectedProductionDate, type.key, count);
+                          if (count > 0) saved = true;
+                        }
+                        setProductionModalVisible(false);
+                        if (saved) {
+                          Alert.alert('Succès', 'Production enregistrée');
+                        }
+                      } catch (error) {
+                        console.error('Error saving production:', error);
+                        Alert.alert('Erreur', 'Impossible de sauvegarder la production');
+                      }
+                    }}
+                  >
+                    <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                      Sauvegarder
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* Production Month Picker Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={productionMonthPickerVisible}
+          onRequestClose={() => setProductionMonthPickerVisible(false)}
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerModalHeader}>
+                <Text style={styles.pickerModalTitle}>Sélectionner le mois</Text>
+                <TouchableOpacity 
+                  onPress={() => setProductionMonthPickerVisible(false)}
+                  style={styles.pickerModalClose}
+                >
+                  <Text style={styles.pickerModalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView 
+                style={styles.pickerScrollView}
+                nestedScrollEnabled={true}
+                contentContainerStyle={styles.pickerScrollContent}
+              >
+                {MONTHS_FR.map((month, index) => {
+                  const isSelected = index === getCurrentProductionMonth();
+                  return (
+                    <TouchableOpacity
+                      key={`month-${index}`}
+                      style={[
+                        styles.pickerItem,
+                        isSelected && styles.pickerItemSelected
+                      ]}
+                      onPress={() => jumpToProductionMonth(index)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected
+                      ]}>
+                        {month}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Production Year Picker Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={productionYearPickerVisible}
+          onRequestClose={() => setProductionYearPickerVisible(false)}
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerModalHeader}>
+                <Text style={styles.pickerModalTitle}>Sélectionner l'année</Text>
+                <TouchableOpacity 
+                  onPress={() => setProductionYearPickerVisible(false)}
+                  style={styles.pickerModalClose}
+                >
+                  <Text style={styles.pickerModalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerScrollView}>
+                {getProductionYearRange().map((year) => {
+                  const isSelected = year === getCurrentProductionYear();
+                  return (
+                    <TouchableOpacity
+                      key={year}
+                      style={[
+                        styles.pickerItem,
+                        isSelected && styles.pickerItemSelected
+                      ]}
+                      onPress={() => jumpToProductionYear(year)}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected
+                      ]}>
+                        {year}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Single Animal Production Modal */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={singleAnimalModalVisible}
+          onRequestClose={() => {
+            const count = parseInt(singleAnimalCount || '0');
+            if (count > 0) {
+              saveEggProduction(selectedProductionDate, singleAnimalType, count);
+            }
+            setSingleAnimalModalVisible(false);
+            setSingleAnimalCount('');
+            setSingleAnimalType(null);
+          }}
+        >
+          <TouchableOpacity 
+            style={styles.singleAnimalModalOverlay}
+            activeOpacity={1}
+            onPress={() => {
+              const count = parseInt(singleAnimalCount || '0');
+              if (count > 0) {
+                saveEggProduction(selectedProductionDate, singleAnimalType, count);
+              }
+              setSingleAnimalModalVisible(false);
+              setSingleAnimalCount('');
+              setSingleAnimalType(null);
+            }}
+          >
+            <TouchableOpacity 
+              style={styles.singleAnimalModalContent}
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.singleAnimalModalHeader}>
+                <Text style={styles.singleAnimalModalTitle}>
+                  {singleAnimalType && EGG_ANIMAL_TYPES.find(t => t.key === singleAnimalType)?.icon} {singleAnimalType && EGG_ANIMAL_TYPES.find(t => t.key === singleAnimalType)?.label}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.singleAnimalModalClose}
+                  onPress={() => {
+                    const count = parseInt(singleAnimalCount || '0');
+                    if (count > 0) {
+                      saveEggProduction(selectedProductionDate, singleAnimalType, count);
+                    }
+                    setSingleAnimalModalVisible(false);
+                    setSingleAnimalCount('');
+                    setSingleAnimalType(null);
+                  }}
+                >
+                  <Text style={styles.singleAnimalModalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.singleAnimalModalBody}>
+                <Text style={styles.singleAnimalInputLabel}>Nombre d'œufs</Text>
+                <TextInput
+                  style={styles.singleAnimalInput}
+                  placeholder="nombre d'oeufs"
+                  placeholderTextColor="#999"
+                  value={singleAnimalCount}
+                  onChangeText={(text) => setSingleAnimalCount(text.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  autoFocus={true}
+                />
+                
+                <TouchableOpacity 
+                  style={styles.singleAnimalOkButton}
+                  onPress={() => {
+                    const count = parseInt(singleAnimalCount || '0');
+                    if (count > 0) {
+                      saveEggProduction(selectedProductionDate, singleAnimalType, count);
+                    }
+                    setSingleAnimalModalVisible(false);
+                    setSingleAnimalCount('');
+                    setSingleAnimalType(null);
+                  }}
+                >
+                  <Text style={styles.singleAnimalOkButtonText}>Ok</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Production Info Modal */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={productionInfoModalVisible}
+          onRequestClose={() => setProductionInfoModalVisible(false)}
+        >
+          <TouchableOpacity 
+            style={styles.infoModalOverlay}
+            activeOpacity={1}
+            onPress={() => setProductionInfoModalVisible(false)}
+          >
+            <TouchableOpacity 
+              style={styles.infoModalContent}
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.infoModalHeader}>
+                <Text style={styles.infoModalTitle}>ℹ️ À propos de la Production d'Œufs</Text>
+                <TouchableOpacity 
+                  style={styles.infoModalClose}
+                  onPress={() => setProductionInfoModalVisible(false)}
+                >
+                  <Text style={styles.infoModalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.infoModalBody}>
+                <Text style={styles.infoModalText}>
+                  Cette section permet de suivre la <Text style={styles.infoModalBold}>production quotidienne d'œufs de consommation</Text> par type d'animal (poules, canards, oies, dindes, paons).
+                </Text>
+                <Text style={styles.infoModalText}>
+                  Vous pouvez enregistrer le nombre d'œufs collectés chaque jour pour chaque type d'animal et consulter les statistiques de production (totaux quotidiens, meilleurs jours, totaux annuels et mensuels).
+                </Text>
+                <View style={styles.infoModalSeparator} />
+                <Text style={styles.infoModalImportant}>
+                  ⚠️ Important :
+                </Text>
+                <Text style={styles.infoModalText}>
+                  Cette section est <Text style={styles.infoModalBold}>indépendante</Text> de la gestion des lots d'œufs fécondés. Les œufs fécondés sont gérés séparément dans la section Élevage.
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </Modal>
       </SafeAreaView>
     </View>
@@ -4618,5 +4363,588 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
+  },
+  // Egg production styles
+  productionHeaderRow: {
+    marginBottom: 12,
+  },
+  productionTitleSection: {
+    flex: 1,
+  },
+  productionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  productionInfoButton: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  productionInfoIcon: {
+    fontSize: 14,
+  },
+  compactDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingVertical: 6,
+  },
+  compactNavButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  compactNavText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  compactNavTextDisabled: {
+    color: '#ccc',
+  },
+  compactDateDisplay: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 8,
+    gap: 4,
+  },
+  compactDateButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+  },
+  compactDateText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  compactDateDay: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+    textTransform: 'capitalize',
+    marginLeft: 4,
+  },
+  compactTodayButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 6,
+    padding: 6,
+    alignItems: 'center',
+    marginBottom: 8,
+    alignSelf: 'center',
+  },
+  compactTodayButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 11,
+  },
+  compactStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    marginTop: 4,
+  },
+  compactStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  compactStatLabel: {
+    fontSize: 10,
+    color: '#666',
+    marginBottom: 4,
+  },
+  compactStatValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  compactStatSubtext: {
+    fontSize: 8,
+    color: '#999',
+    marginTop: 2,
+  },
+  monthlyStatsContainer: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  monthlyStatsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  monthlyStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  monthlyStatItem: {
+    width: '22%',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+  },
+  monthlyStatMonth: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 4,
+  },
+  monthlyStatValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  eggTypesStatusContainer: {
+    gap: 10,
+  },
+  eggTypeStatusCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  eggTypeStatusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 15,
+    minHeight: 50,
+  },
+  eggTypeStatusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  eggTypeIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  eggTypeLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  eggTypeStatusRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  eggTypeCount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  eggTypeExpandIcon: {
+    fontSize: 14,
+    color: '#666',
+    padding: 4,
+  },
+  eggTypeAddButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eggTypeAddButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  eggTypeStatusDetails: {
+    padding: 15,
+    paddingTop: 0,
+    backgroundColor: '#f8f9fa',
+  },
+  eggTypeStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  eggTypeStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  eggTypeStatLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 4,
+  },
+  eggTypeStatValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  eggTypeStatSubtext: {
+    fontSize: 9,
+    color: '#999',
+    marginTop: 2,
+  },
+  eggTypeHistoryTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+    marginTop: 10,
+  },
+  eggTypeHistoryList: {
+    marginBottom: 15,
+  },
+  eggTypeHistoryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  eggTypeHistoryDate: {
+    fontSize: 12,
+    color: '#666',
+  },
+  eggTypeHistoryCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
+  eggTypeNoHistory: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    padding: 10,
+  },
+  eggTypeMonthlyStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  eggTypeMonthlyStatItem: {
+    width: '22%',
+    backgroundColor: 'white',
+    borderRadius: 6,
+    padding: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  eggTypeMonthlyStatMonth: {
+    fontSize: 10,
+    color: '#666',
+    marginBottom: 4,
+  },
+  eggTypeMonthlyStatValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  // Monthly bar chart styles
+  monthlyBarChartContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    minHeight: 150,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  monthlyBarChartItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginHorizontal: 1,
+    minWidth: 0,
+  },
+  monthlyBarChartBarContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    height: 130,
+    marginBottom: 4,
+  },
+  monthlyBarChartValueContainer: {
+    width: '100%',
+    height: 20,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 2,
+    position: 'relative',
+  },
+  monthlyBarChartValueLeft: {
+    alignItems: 'flex-start',
+    paddingLeft: 2,
+  },
+  monthlyBarChartValueRight: {
+    alignItems: 'flex-end',
+    paddingRight: 2,
+  },
+  monthlyBarChartValue: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: '#005F6B',
+    textAlign: 'center',
+    width: '100%',
+  },
+  monthlyBarChartValueLarge: {
+    fontSize: 7,
+    fontWeight: '600',
+    color: '#005F6B',
+    textAlign: 'left',
+  },
+  monthlyBarChartBarWrapper: {
+    width: '100%',
+    height: 100,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 0,
+  },
+  monthlyBarChartBar: {
+    width: '70%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 4,
+    minHeight: 2,
+    maxHeight: 100,
+  },
+  monthlyBarChartMonth: {
+    fontSize: 9,
+    color: '#666',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  productionInputGroup: {
+    marginBottom: 15,
+  },
+  // Picker modal styles
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '80%',
+    maxHeight: '70%',
+    overflow: 'hidden',
+  },
+  pickerModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pickerModalClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalCloseText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerScrollContent: {
+    padding: 8,
+  },
+  pickerItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerItemSelected: {
+    backgroundColor: '#005F6B',
+  },
+  pickerItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  pickerItemTextSelected: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  // Single animal modal styles
+  singleAnimalModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  singleAnimalModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '80%',
+    maxWidth: 300,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  singleAnimalModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  singleAnimalModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  singleAnimalModalClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  singleAnimalModalCloseText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  singleAnimalModalBody: {
+    padding: 20,
+  },
+  singleAnimalInputLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+  },
+  singleAnimalInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 15,
+    fontSize: 14,
+    backgroundColor: 'white',
+    minHeight: 40,
+  },
+  singleAnimalOkButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  singleAnimalOkButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Production info modal styles
+  infoModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '85%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  infoModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  infoModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  infoModalClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoModalCloseText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  infoModalBody: {
+    padding: 16,
+  },
+  infoModalText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  infoModalBold: {
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  infoModalSeparator: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+  infoModalImportant: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FF9800',
+    marginBottom: 8,
   },
 }); 

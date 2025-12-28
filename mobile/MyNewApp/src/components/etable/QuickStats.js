@@ -20,14 +20,14 @@ export default function QuickStats({ animals, getHerdConfig }) {
       <View style={styles.statsGrid}>
         {/* Species row */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>
             {animals.filter(a => a.species === defaultSpecies).length}
           </Text>
           <Text style={styles.statLabel}>{defaultSpecies}</Text>
         </View>
         {secondSpecies && (
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>
+            <Text style={[styles.statNumber, { color: herdConfig.color }]}>
               {animals.filter(a => a.species === secondSpecies).length}
             </Text>
             <Text style={styles.statLabel}>{secondSpecies}</Text>
@@ -36,41 +36,41 @@ export default function QuickStats({ animals, getHerdConfig }) {
         
         {/* Mâles | Femelles */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{totalMales}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{totalMales}</Text>
           <Text style={styles.statLabel}>Mâles</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{totalFemales}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{totalFemales}</Text>
           <Text style={styles.statLabel}>Femelles</Text>
         </View>
         
         {/* Mâles Bébés | Femelles Bébés */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{babyMales}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{babyMales}</Text>
           <Text style={styles.statLabel}>Mâles Bébés</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{babyFemales}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{babyFemales}</Text>
           <Text style={styles.statLabel}>Femelles Bébés</Text>
         </View>
         
         {/* Mâles Adultes | Femelles Adultes */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{grownMales}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{grownMales}</Text>
           <Text style={styles.statLabel}>Mâles Adultes</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{grownFemales}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{grownFemales}</Text>
           <Text style={styles.statLabel}>Femelles Adultes</Text>
         </View>
         
         {/* Last row: Total | Décédés */}
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{animals.length}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{animals.length}</Text>
           <Text style={styles.statLabel}>Total</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{deceased}</Text>
+          <Text style={[styles.statNumber, { color: herdConfig.color }]}>{deceased}</Text>
           <Text style={styles.statLabel}>Décédés</Text>
         </View>
       </View>

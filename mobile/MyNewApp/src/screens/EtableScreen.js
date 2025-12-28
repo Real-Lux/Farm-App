@@ -27,6 +27,14 @@ import ViewModeToggle from '../components/etable/ViewModeToggle';
 import GroupCard from '../components/etable/GroupCard';
 import QuickStats from '../components/etable/QuickStats';
 import { getAnimalAge, getAnimalAgeForGenealogy, getTotalMilkProduction, getAverageMilkProduction, getBabyMales, getBabyFemales, getGrownMales, getDeceasedAnimals } from '../utils/animalUtils';
+import { MONTHS_FR } from '../../constants/DateConstants';
+
+const toLocalISO = (date) => {
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
 
 export default function EtableScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -40,6 +48,11 @@ export default function EtableScreen({ navigation, route }) {
   const [editingItem, setEditingItem] = useState(null);
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarField, setCalendarField] = useState('');
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date().toISOString().split('T')[0]);
+  const [calendarMonth, setCalendarMonth] = useState(new Date().toISOString().split('T')[0]);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [collapsedAnimals, setCollapsedAnimals] = useState({});
   const [caprinSettings, setCaprinSettings] = useState({
     milkRecordingMethod: 'group',
@@ -56,6 +69,9 @@ export default function EtableScreen({ navigation, route }) {
   const animalItemPositions = useRef({});
   const animalItemRefs = useRef({});
   const scrollToAnimalIdRef = useRef(null);
+  const genealogyScrollViewRef = useRef(null);
+  const genealogyNodePositions = useRef({});
+  const scrollToGenealogyAnimalIdRef = useRef(null);
   
   // Use custom hooks
   const { animals, loadAnimals, saveAnimal, deleteAnimal } = useHerdAnimals(currentHerdType);
@@ -176,6 +192,28 @@ export default function EtableScreen({ navigation, route }) {
       return () => handle.cancel();
     }
   }, [activeTab, sortedAnimals]);
+
+  // Auto-scroll when tab changes to genealogy and an animal is highlighted
+  useEffect(() => {
+    if (activeTab === 'genealogy' && scrollToGenealogyAnimalIdRef.current) {
+      // Use InteractionManager for better timing after tab switch
+      const handle = InteractionManager.runAfterInteractions(() => {
+        // Try scrolling immediately, and retry if position not yet stored
+        const tryScroll = () => {
+          if (genealogyNodePositions.current[scrollToGenealogyAnimalIdRef.current]) {
+            scrollToGenealogyAnimal(scrollToGenealogyAnimalIdRef.current);
+            scrollToGenealogyAnimalIdRef.current = null;
+          } else {
+            // Retry after a short delay if position not yet available
+            setTimeout(tryScroll, 100);
+          }
+        };
+        tryScroll();
+      });
+      
+      return () => handle.cancel();
+    }
+  }, [activeTab]);
 
   // Initialize all animals as collapsed by default
   useEffect(() => {
@@ -300,6 +338,9 @@ export default function EtableScreen({ navigation, route }) {
     setHighlightedAnimalName(animal.name);
     setActiveTab('genealogy');
     
+    // Store the animal ID to scroll to after layout
+    scrollToGenealogyAnimalIdRef.current = animal.id;
+    
     // Clear highlight after 3 seconds
     setTimeout(() => {
       setHighlightedAnimalId(null);
@@ -311,15 +352,26 @@ export default function EtableScreen({ navigation, route }) {
     // Navigate to animals tab and highlight the animal immediately
     console.log('🐐 Navigating to animals from genealogy for animal:', animal.name, 'ID:', animal.id);
     
+    // First, collapse ALL animals to ensure consistent card heights for accurate scroll calculation
+    const allCollapsed = {};
+    animals.forEach(a => {
+      allCollapsed[a.id] = true; // Set all to collapsed (arrow pointing right)
+    });
+    setCollapsedAnimals(allCollapsed);
+    
     // Set highlight and tab change immediately
     setHighlightedAnimalId(animal.id);
     setHighlightedAnimalName(animal.name);
     setActiveTab('animals');
     
-    // Expand the animal card if it's collapsed (default is collapsed)
-    if (collapsedAnimals[animal.id] ?? true) {
-      toggleAnimalCollapse(animal.id);
-    }
+    // After collapsing all, expand only the target animal
+    // Use setTimeout to ensure the collapse happens first, then expand
+    setTimeout(() => {
+      setCollapsedAnimals(prev => ({
+        ...prev,
+        [animal.id]: false // Expand the target animal (arrow pointing down)
+      }));
+    }, 50);
     
     // Store the animal ID to scroll to after layout
     scrollToAnimalIdRef.current = animal.id;
@@ -331,6 +383,34 @@ export default function EtableScreen({ navigation, route }) {
     }, 3000);
   };
 
+  const scrollToGenealogyAnimal = (animalId) => {
+    if (!genealogyScrollViewRef.current) return;
+    
+    // Use stored position if available
+    const storedPosition = genealogyNodePositions.current[animalId];
+    if (storedPosition !== undefined) {
+      console.log('🌳 Scrolling to genealogy animal ID:', animalId, 'at stored position:', storedPosition);
+      // Position already includes sectionCard height, just add offset for better visibility
+      genealogyScrollViewRef.current.scrollTo({
+        y: Math.max(0, storedPosition - 100), // 100px offset from top for better visibility
+        animated: true
+      });
+      return;
+    }
+    
+    // If position not available, try again after a short delay
+    setTimeout(() => {
+      const retryPosition = genealogyNodePositions.current[animalId];
+      if (retryPosition !== undefined && genealogyScrollViewRef.current) {
+        console.log('🌳 Retry scrolling to genealogy animal ID:', animalId, 'at position:', retryPosition);
+        genealogyScrollViewRef.current.scrollTo({
+          y: Math.max(0, retryPosition - 100),
+          animated: true
+        });
+      }
+    }, 200);
+  };
+
   const scrollToAnimal = (animalId) => {
     if (!animalsScrollViewRef.current) return;
     
@@ -338,8 +418,9 @@ export default function EtableScreen({ navigation, route }) {
     const storedPosition = animalItemPositions.current[animalId];
     if (storedPosition !== undefined) {
       console.log('📜 Scrolling to animal ID:', animalId, 'at stored position:', storedPosition);
+      // Use a consistent offset (100px from top) for better visibility
       animalsScrollViewRef.current.scrollTo({
-        y: Math.max(0, storedPosition - 20), // 20px offset from top
+        y: Math.max(0, storedPosition - 100),
         animated: true
       });
       return;
@@ -373,8 +454,9 @@ export default function EtableScreen({ navigation, route }) {
     }
     
     console.log('📜 Scrolling to animal at index:', animalIndex, 'calculated scrollY:', cumulativeHeight);
+    // Use consistent offset (100px from top) for better visibility
     animalsScrollViewRef.current.scrollTo({
-      y: Math.max(0, cumulativeHeight - 20), // 20px offset from top
+      y: Math.max(0, cumulativeHeight - 100),
       animated: true
     });
   };
@@ -429,7 +511,68 @@ export default function EtableScreen({ navigation, route }) {
 
   const openCalendarModal = (field) => {
     setCalendarField(field);
+    // Set initial date based on form field value
+    const currentDate = field === 'birthDate' ? animalForm.birthDate :
+                       field === 'entryDate' ? animalForm.entryDate :
+                       field === 'exitDate' ? animalForm.exitDate :
+                       field === 'date' ? (modalType === 'milk' ? milkForm.date : groupMilkForm.date) :
+                       getTodayISO();
+    const initialDate = currentDate || getTodayISO();
+    setSelectedCalendarDate(initialDate);
+    setCalendarMonth(initialDate);
     setCalendarModal(true);
+  };
+
+  const getCurrentMonth = () => {
+    return new Date(calendarMonth).getMonth();
+  };
+
+  const getCurrentYear = () => {
+    return new Date(calendarMonth).getFullYear();
+  };
+
+  const navigateMonth = async (direction) => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+    try {
+      const current = new Date(calendarMonth);
+      const target = new Date(current.getFullYear(), current.getMonth() + direction, 15);
+      const dateStr = toLocalISO(target);
+      setCalendarMonth(dateStr);
+      setSelectedCalendarDate(dateStr);
+    } catch (error) {
+      console.error('Error navigating month:', error);
+    } finally {
+      setTimeout(() => setIsNavigating(false), 350);
+    }
+  };
+
+  const jumpToMonth = async (monthIndex) => {
+    setMonthPickerVisible(false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const current = new Date(calendarMonth);
+    const target = new Date(current.getFullYear(), monthIndex, 1);
+    const dateStr = toLocalISO(target);
+    setCalendarMonth(dateStr);
+    setSelectedCalendarDate(dateStr);
+  };
+
+  const jumpToYear = async (year) => {
+    const current = new Date(calendarMonth);
+    const target = new Date(year, current.getMonth(), 1);
+    const dateStr = toLocalISO(target);
+    setCalendarMonth(dateStr);
+    setSelectedCalendarDate(dateStr);
+    setYearPickerVisible(false);
+  };
+
+  const getYearRange = () => {
+    const currentYear = getCurrentYear();
+    const years = [];
+    for (let i = currentYear - 10; i <= currentYear + 10; i++) {
+      years.push(i);
+    }
+    return years;
   };
 
   const handleDateSelect = (day) => {
@@ -441,6 +584,40 @@ export default function EtableScreen({ navigation, route }) {
       setGroupMilkForm({...groupMilkForm, [calendarField]: day.dateString});
     }
     setCalendarModal(false);
+  };
+
+  const handleYearMonthChange = (year, month) => {
+    const newDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    setSelectedCalendarDate(newDate);
+    setYearPickerVisible(false);
+    setMonthPickerVisible(false);
+  };
+
+  const getAvailableYears = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    // Generate years from 50 years ago to current year
+    for (let i = currentYear; i >= currentYear - 50; i--) {
+      years.push(i);
+    }
+    return years;
+  };
+
+  const getAvailableMonths = () => {
+    return [
+      { value: 1, label: 'Janvier' },
+      { value: 2, label: 'Février' },
+      { value: 3, label: 'Mars' },
+      { value: 4, label: 'Avril' },
+      { value: 5, label: 'Mai' },
+      { value: 6, label: 'Juin' },
+      { value: 7, label: 'Juillet' },
+      { value: 8, label: 'Août' },
+      { value: 9, label: 'Septembre' },
+      { value: 10, label: 'Octobre' },
+      { value: 11, label: 'Novembre' },
+      { value: 12, label: 'Décembre' }
+    ];
   };
 
   const handleSaveAnimal = async () => {
@@ -900,7 +1077,9 @@ export default function EtableScreen({ navigation, route }) {
       <ViewModeToggle 
         viewMode={viewMode} 
         onModeChange={setViewMode} 
-        groupsCount={groups.length} 
+        groupsCount={groups.length}
+        animalsCount={animals.length}
+        getHerdConfig={getHerdConfig}
       />
 
       {viewMode === 'groups' && (
@@ -969,7 +1148,7 @@ export default function EtableScreen({ navigation, route }) {
       
       <View style={styles.animalsSection}>
         <View style={styles.animalsHeader}>
-          <Text style={styles.animalsTitle}>{getHerdConfig().icon} {getHerdConfig().animalLabel || 'Animaux'}</Text>
+          <Text style={[styles.animalsTitle, { color: getHerdConfig().color }]}>{getHerdConfig().icon} {getHerdConfig().animalLabel || 'Animaux'}</Text>
         </View>
         
         <View style={styles.sortFilterContainer}>
@@ -1198,11 +1377,13 @@ export default function EtableScreen({ navigation, route }) {
     </ScrollView>
   );
 
-  const TreeNode = ({ node, isLast = false, hasSiblings = false }) => {
+  const TreeNode = ({ node, isLast = false, hasSiblings = false, cumulativeHeight = 0 }) => {
     const isDeceased = node.exitCause === 'décès';
     const age = getAnimalAgeForGenealogy(node.birthDate);
     const isHighlighted = (highlightedAnimalId === node.id || highlightedAnimalId == node.id) || 
                          (highlightedAnimalName === node.name);
+    const nodeRef = useRef(null);
+    const nodeHeightRef = useRef(0);
     
     // Debug logging for all animals when highlighting is active
     if (highlightedAnimalId || highlightedAnimalName) {
@@ -1217,8 +1398,46 @@ export default function EtableScreen({ navigation, route }) {
       console.log('🎯 Found highlighted animal in tree by name:', node.name, 'Highlighted name:', highlightedAnimalName);
     }
     
+    // Handle layout to track position for scrolling
+    const handleNodeLayout = (event) => {
+      if (!nodeRef.current || !genealogyScrollViewRef.current) return;
+      
+      // Measure position relative to ScrollView
+      nodeRef.current.measureLayout(
+        genealogyScrollViewRef.current,
+        (x, y) => {
+          genealogyNodePositions.current[node.id] = y;
+          
+          // If this is the animal we need to scroll to, do it now
+          if (scrollToGenealogyAnimalIdRef.current === node.id || scrollToGenealogyAnimalIdRef.current == node.id) {
+            requestAnimationFrame(() => {
+              scrollToGenealogyAnimal(node.id);
+              scrollToGenealogyAnimalIdRef.current = null;
+            });
+          }
+        },
+        (error) => {
+          // Fallback: use cumulative height calculation
+          const sectionCardHeight = 120;
+          const estimatedHeight = cumulativeHeight + sectionCardHeight;
+          genealogyNodePositions.current[node.id] = estimatedHeight;
+          
+          if (scrollToGenealogyAnimalIdRef.current === node.id || scrollToGenealogyAnimalIdRef.current == node.id) {
+            setTimeout(() => {
+              scrollToGenealogyAnimal(node.id);
+              scrollToGenealogyAnimalIdRef.current = null;
+            }, 100);
+          }
+        }
+      );
+    };
+    
     return (
-      <View style={styles.treeNode}>
+      <View 
+        ref={nodeRef}
+        style={styles.treeNode}
+        onLayout={handleNodeLayout}
+      >
         <View style={styles.treeNodeContent}>
           {/* Connection lines */}
           {node.level > 0 && (
@@ -1276,6 +1495,7 @@ export default function EtableScreen({ navigation, route }) {
                 node={child} 
                 isLast={index === node.children.length - 1}
                 hasSiblings={node.children.length > 1}
+                cumulativeHeight={0}
               />
             ))}
           </View>
@@ -1288,7 +1508,11 @@ export default function EtableScreen({ navigation, route }) {
     const familyTree = buildFamilyTree();
     
     return (
-      <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        ref={genealogyScrollViewRef}
+        style={styles.tabContent} 
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>🌳 Arbre Généalogique</Text>
           <Text style={styles.sectionDescription}>
@@ -1304,6 +1528,7 @@ export default function EtableScreen({ navigation, route }) {
                 node={rootNode} 
                 isLast={index === familyTree.length - 1}
                 hasSiblings={familyTree.length > 1}
+                cumulativeHeight={0}
               />
             ))
           ) : (
@@ -1881,17 +2106,52 @@ export default function EtableScreen({ navigation, route }) {
                   <Text style={styles.calendarCloseBtnText}>✕</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Custom Header with separate Month and Year */}
+              <View style={styles.customCalendarHeader}>
+                <TouchableOpacity 
+                  style={styles.monthNavArrowButton}
+                  onPress={() => navigateMonth(-1)}
+                  activeOpacity={0.7}
+                  disabled={isNavigating}
+                >
+                  <Text style={styles.navArrow}>‹</Text>
+                </TouchableOpacity>
+                
+                <View style={styles.monthYearContainer}>
+                  <TouchableOpacity 
+                    style={styles.monthYearButton}
+                    onPress={() => setMonthPickerVisible(true)}
+                  >
+                    <Text style={styles.monthYearText}>{MONTHS_FR[getCurrentMonth()]}</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.monthYearButton}
+                    onPress={() => setYearPickerVisible(true)}
+                  >
+                    <Text style={styles.monthYearText}>{getCurrentYear()}</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.monthNavArrowButton}
+                  onPress={() => navigateMonth(1)}
+                  activeOpacity={0.7}
+                  disabled={isNavigating}
+                >
+                  <Text style={styles.navArrow}>›</Text>
+                </TouchableOpacity>
+              </View>
               
               <Calendar
+                key={`calendar-${calendarMonth}`}
+                current={calendarMonth}
                 onDayPress={handleDateSelect}
                 maxDate={calendarField === 'birthDate' || calendarField === 'entryDate' ? getTodayISO() : undefined}
-                hideArrows={false}
-                enableSwipeMonths={true}
-                monthFormat={'MMMM yyyy'}
-                onMonthChange={(month) => {
-                  // Optional: handle month change if needed
-                  console.log('Month changed to:', month);
-                }}
+                hideArrows={true}
+                hideExtraDays={true}
+                disableMonthChange={true}
                 theme={{
                   backgroundColor: '#ffffff',
                   calendarBackground: '#ffffff',
@@ -1903,25 +2163,115 @@ export default function EtableScreen({ navigation, route }) {
                   textDisabledColor: '#d9e1e8',
                   dotColor: '#00adf5',
                   selectedDotColor: '#ffffff',
-                  arrowColor: '#005F6B',
-                  disabledArrowColor: '#d9e1e8',
-                  monthTextColor: '#005F6B',
+                  arrowColor: 'transparent',
+                  monthTextColor: 'transparent',
                   indicatorColor: '#005F6B',
                   textDayFontWeight: '300',
-                  textMonthFontWeight: 'bold',
                   textDayHeaderFontWeight: '300',
                   textDayFontSize: 16,
-                  textMonthFontSize: 16,
-                  textDayHeaderFontSize: 13
+                  textDayHeaderFontSize: 13,
+                  'stylesheet.calendar.header': {
+                    week: {
+                      marginTop: 0,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingTop: 0,
+                      paddingBottom: 0,
+                      height: 0,
+                      opacity: 0,
+                    }
+                  }
                 }}
               />
-              
-              <TouchableOpacity 
-                style={styles.calendarCancelBtn}
-                onPress={() => setCalendarModal(false)}
-              >
-                <Text style={styles.calendarCancelBtnText}>Annuler</Text>
-              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Year Picker Modal */}
+        <Modal
+          visible={yearPickerVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setYearPickerVisible(false)}
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <Text style={styles.pickerTitle}>Sélectionner l'année</Text>
+                <TouchableOpacity 
+                  style={styles.pickerCloseBtn}
+                  onPress={() => setYearPickerVisible(false)}
+                >
+                  <Text style={styles.pickerCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerScrollView}>
+                {getYearRange().map((year) => {
+                  const isSelected = year === getCurrentYear();
+                  return (
+                    <TouchableOpacity
+                      key={year}
+                      style={[
+                        styles.pickerItem,
+                        isSelected && styles.pickerItemSelected
+                      ]}
+                      onPress={() => jumpToYear(year)}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected
+                      ]}>
+                        {year}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Month Picker Modal */}
+        <Modal
+          visible={monthPickerVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setMonthPickerVisible(false)}
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <Text style={styles.pickerTitle}>Sélectionner le mois</Text>
+                <TouchableOpacity 
+                  style={styles.pickerCloseBtn}
+                  onPress={() => setMonthPickerVisible(false)}
+                >
+                  <Text style={styles.pickerCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerScrollView}>
+                {MONTHS_FR.map((month, index) => {
+                  const isSelected = index === getCurrentMonth();
+                  return (
+                    <TouchableOpacity
+                      key={`month-${index}`}
+                      style={[
+                        styles.pickerItem,
+                        isSelected && styles.pickerItemSelected
+                      ]}
+                      onPress={() => jumpToMonth(index)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected
+                      ]}>
+                        {month}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -2793,6 +3143,57 @@ const styles = StyleSheet.create({
     width: '90%',
     maxHeight: '80%',
   },
+  // Custom calendar header styles
+  customCalendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    width: '100%',
+  },
+  monthYearContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  monthYearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    minWidth: 80,
+    maxWidth: 120,
+    alignItems: 'center',
+  },
+  monthYearText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  monthNavArrowButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+    padding: 4,
+    minWidth: 32,
+    minHeight: 32,
+    zIndex: 10,
+  },
+  navArrow: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
   calendarHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -3373,6 +3774,82 @@ const styles = StyleSheet.create({
   floatingAddButtonText: {
     color: 'white',
     fontSize: 28,
+    fontWeight: 'bold',
+  },
+  // Year and Month Picker Styles
+  calendarQuickSelect: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 15,
+    paddingHorizontal: 10,
+  },
+  quickSelectButton: {
+    flex: 1,
+    backgroundColor: '#005F6B',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  quickSelectButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '80%',
+    maxHeight: '70%',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pickerCloseBtn: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerCloseBtnText: {
+    fontSize: 18,
+    color: '#666',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerItem: {
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerItemSelected: {
+    backgroundColor: '#E8F5E8',
+  },
+  pickerItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  pickerItemTextSelected: {
+    color: '#005F6B',
     fontWeight: 'bold',
   },
 });

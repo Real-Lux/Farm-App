@@ -25,6 +25,15 @@ import { toISODate, getTodayISO, formatForCalendar, calculateEstimatedHatchingDa
 import { useElevageConfig } from '../hooks/useElevageConfig';
 import { useElevageLots } from '../hooks/useElevageLots';
 import { useElevageRaces } from '../hooks/useElevageRaces';
+import { MONTHS_FR } from '../../constants/DateConstants';
+
+// --- CRITICAL HELPER: Avoids UTC/ISO Offset Bugs ---
+const toLocalISO = (date) => {
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
 
 export default function ElevageScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -45,6 +54,11 @@ export default function ElevageScreen({ navigation, route }) {
   const [selectedLot, setSelectedLot] = useState(null);
   const [calendarModal, setCalendarModal] = useState(false);
   const [calendarField, setCalendarField] = useState(''); // 'date_creation' or 'date_eclosion'
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(toLocalISO(new Date()));
+  const [calendarMonth, setCalendarMonth] = useState(toLocalISO(new Date()));
+  const [isNavigating, setIsNavigating] = useState(false);
   const [collapsedLots, setCollapsedLots] = useState({}); // Track collapsed lots
   const [isManualInputExpanded, setIsManualInputExpanded] = useState(false); // Track manual input expansion
   const [isDraggingRace, setIsDraggingRace] = useState(false); // Track if any race is being dragged
@@ -53,6 +67,9 @@ export default function ElevageScreen({ navigation, route }) {
   const [highlightedLotId, setHighlightedLotId] = useState(null);
   const [highlightedLotName, setHighlightedLotName] = useState(null);
   const [validationErrors, setValidationErrors] = useState({}); // Track validation errors for incubation update
+  const [quantityInputModal, setQuantityInputModal] = useState(false); // Modal for quantity input on long-press
+  const [quantityInputValue, setQuantityInputValue] = useState(''); // Value for quantity input
+  const [pendingCorrection, setPendingCorrection] = useState(null); // Store pending correction {fromGender, toGender}
   const racesFlatListRef = useRef(null); // Ref for races FlatList
   const racesScrollOffset = useRef(0); // Track current scroll offset
   const lotsFlatListRef = useRef(null); // Ref for lots FlatList
@@ -544,19 +561,132 @@ export default function ElevageScreen({ navigation, route }) {
 
   const openCalendarModal = (field) => {
     setCalendarField(field);
+    // Set initial date based on form field value
+    const currentDate = field === 'date_creation' ? lotForm.date_creation :
+                       field === 'incubation_start_date' ? lotForm.incubation_start_date :
+                       field === 'date_eclosion' ? lotForm.date_eclosion :
+                       field === 'fertilization_check_date' ? lotForm.fertilization_check_date :
+                       null;
+    // Use the current date if available, otherwise use today
+    // If currentDate is already in ISO format (YYYY-MM-DD), use it directly
+    // Otherwise convert it using toLocalISO
+    let initialDate;
+    if (currentDate) {
+      // Check if it's already in ISO format
+      if (typeof currentDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(currentDate)) {
+        initialDate = currentDate;
+      } else {
+        initialDate = toLocalISO(new Date(currentDate));
+      }
+    } else {
+      initialDate = toLocalISO(new Date());
+    }
+    setSelectedCalendarDate(initialDate);
+    setCalendarMonth(initialDate);
     setCalendarModal(true);
   };
 
+  const getCurrentMonth = () => {
+    return new Date(calendarMonth).getMonth();
+  };
+
+  const getCurrentYear = () => {
+    return new Date(calendarMonth).getFullYear();
+  };
+
+  const navigateMonth = async (direction) => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+    try {
+      const current = new Date(calendarMonth);
+      const target = new Date(current.getFullYear(), current.getMonth() + direction, 15);
+      const dateStr = toLocalISO(target);
+      setCalendarMonth(dateStr);
+      setSelectedCalendarDate(dateStr);
+    } catch (error) {
+      console.error('Error navigating month:', error);
+    } finally {
+      setTimeout(() => setIsNavigating(false), 350);
+    }
+  };
+
+  const jumpToMonth = async (monthIndex) => {
+    setMonthPickerVisible(false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const current = new Date(calendarMonth);
+    const target = new Date(current.getFullYear(), monthIndex, 1);
+    const dateStr = toLocalISO(target);
+    setCalendarMonth(dateStr);
+    setSelectedCalendarDate(dateStr);
+  };
+
+  const jumpToYear = async (year) => {
+    const current = new Date(calendarMonth);
+    const target = new Date(year, current.getMonth(), 1);
+    const dateStr = toLocalISO(target);
+    setCalendarMonth(dateStr);
+    setSelectedCalendarDate(dateStr);
+    setYearPickerVisible(false);
+  };
+
+  const getYearRange = () => {
+    const currentYear = getCurrentYear();
+    const years = [];
+    for (let i = currentYear - 10; i <= currentYear + 10; i++) {
+      years.push(i);
+    }
+    return years;
+  };
+
+  const handleYearMonthChange = (year, month) => {
+    const newDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    setSelectedCalendarDate(newDate);
+    setYearPickerVisible(false);
+    setMonthPickerVisible(false);
+  };
+
+  const getAvailableYears = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    // Generate years from 50 years ago to current year
+    for (let i = currentYear; i >= currentYear - 50; i--) {
+      years.push(i);
+    }
+    return years;
+  };
+
+  const getAvailableMonths = () => {
+    return [
+      { value: 1, label: 'Janvier' },
+      { value: 2, label: 'Février' },
+      { value: 3, label: 'Mars' },
+      { value: 4, label: 'Avril' },
+      { value: 5, label: 'Mai' },
+      { value: 6, label: 'Juin' },
+      { value: 7, label: 'Juillet' },
+      { value: 8, label: 'Août' },
+      { value: 9, label: 'Septembre' },
+      { value: 10, label: 'Octobre' },
+      { value: 11, label: 'Novembre' },
+      { value: 12, label: 'Décembre' }
+    ];
+  };
+
   const handleDateSelect = (day) => {
+    // Update calendar month to the selected date's month to ensure proper display
+    const selectedDate = day.dateString;
+    setCalendarMonth(selectedDate);
+    setSelectedCalendarDate(selectedDate);
+    
     if (modalType === 'lot' || modalType === 'incubationUpdate') {
-      const updatedForm = {...lotForm, [calendarField]: day.dateString};
+      const updatedForm = {...lotForm, [calendarField]: selectedDate};
       
       // If incubation_start_date changed, recalculate estimated hatching date
       if (calendarField === 'incubation_start_date' && updatedForm.species) {
         const hatchingDates = calculateEstimatedHatchingDate(
           updatedForm.species,
           Object.keys(updatedForm.races)[0] || '', // Use first race if multiple
-          day.dateString
+          selectedDate
         );
         updatedForm.estimated_hatching_date = hatchingDates.estimatedDate;
         updatedForm.estimated_min_date = hatchingDates.minDate;
@@ -790,6 +920,58 @@ export default function ElevageScreen({ navigation, route }) {
               };
             });
           }
+        }
+        // Priority 6: For lapins or other species without eggs_count, use eggs_by_race directly if available
+        // For lapins, automatically set hatched_by_race and hatched_count when births are entered
+        else if (finalLotForm.eggs_by_race && Object.keys(finalLotForm.eggs_by_race).length > 0) {
+          raceNames.forEach((raceName) => {
+            const count = parseInt(finalLotForm.eggs_by_race[raceName]) || 0;
+            if (count > 0) {
+              finalLotForm.races[raceName] = {
+                ...finalLotForm.races[raceName],
+                initial: count,
+                current: count,
+                males: 0,
+                females: 0,
+                unsexed: count
+              };
+              
+              // For lapins: automatically set hatched_by_race and hatched_count
+              if (isLapins(finalLotForm.species)) {
+                if (!finalLotForm.hatched_by_race) {
+                  finalLotForm.hatched_by_race = {};
+                }
+                finalLotForm.hatched_by_race[raceName] = count;
+              }
+            }
+          });
+          
+          // For lapins: calculate total hatched_count from hatched_by_race
+          if (isLapins(finalLotForm.species) && finalLotForm.hatched_by_race) {
+            const totalHatched = Object.values(finalLotForm.hatched_by_race).reduce((sum, count) => {
+              return sum + (parseInt(count) || 0);
+            }, 0);
+            finalLotForm.hatched_count = totalHatched;
+            
+            // Set date_eclosion to date_creation if not set (lapins are born immediately)
+            if (!finalLotForm.date_eclosion && finalLotForm.date_creation) {
+              finalLotForm.date_eclosion = finalLotForm.date_creation;
+            }
+          }
+        }
+        // Priority 7: If no data provided but races exist, initialize with 0 but ensure unsexed is set
+        else {
+          raceNames.forEach((raceName) => {
+            const existingRace = finalLotForm.races[raceName] || {};
+            finalLotForm.races[raceName] = {
+              ...existingRace,
+              initial: existingRace.initial || 0,
+              current: existingRace.current || 0,
+              males: 0,
+              females: 0,
+              unsexed: existingRace.unsexed !== undefined ? existingRace.unsexed : (existingRace.current || existingRace.initial || 0)
+            };
+          });
         }
       }
 
@@ -1052,7 +1234,7 @@ export default function ElevageScreen({ navigation, route }) {
         // Also add to historique for tracking
         await database.addHistorique({
           lot_id: updateForm.lot_id,
-          date: new Date().toISOString().split('T')[0],
+          date: toLocalISO(new Date()),
           type: 'Note',
           description: updateForm.notes,
           race: updateForm.race,
@@ -1094,7 +1276,14 @@ export default function ElevageScreen({ navigation, route }) {
       ...lotForm,
       races: {
         ...lotForm.races,
-        [raceName]: { initial: undefined, current: undefined, males: undefined, females: undefined, deaths: undefined }
+        [raceName]: { 
+          initial: undefined, 
+          current: undefined, 
+          males: 0, 
+          females: 0, 
+          unsexed: 0, // Initialize as 0, will be set when count is provided
+          deaths: undefined 
+        }
       },
       eggs_by_race: newEggsByRace
     });
@@ -1147,11 +1336,37 @@ export default function ElevageScreen({ navigation, route }) {
       return sum + (isNaN(num) ? 0 : num);
     }, 0);
     
-    setLotForm({
+    // For lapins: automatically set hatched_by_race and hatched_count when births are entered
+    // Lapins are ready immediately, no incubation needed
+    let updatedForm = {
       ...lotForm,
       eggs_by_race: newEggsByRace,
       eggs_count: totalEggs > 0 ? totalEggs.toString() : ''
-    });
+    };
+    
+    if (isLapins(lotForm.species)) {
+      const numValue = value !== undefined && value !== null ? parseInt(value) : 0;
+      const newHatchedByRace = {
+        ...lotForm.hatched_by_race,
+        [raceName]: numValue > 0 ? numValue : undefined
+      };
+      
+      // Calculate total hatched from all races
+      const totalHatched = Object.values(newHatchedByRace).reduce((sum, count) => {
+        const num = count !== undefined && count !== null ? parseInt(count) : 0;
+        return sum + (isNaN(num) ? 0 : num);
+      }, 0);
+      
+      updatedForm.hatched_by_race = newHatchedByRace;
+      updatedForm.hatched_count = totalHatched > 0 ? totalHatched.toString() : '';
+      
+      // Set date_eclosion to date_creation if not set (lapins are born immediately)
+      if (!updatedForm.date_eclosion && updatedForm.date_creation) {
+        updatedForm.date_eclosion = updatedForm.date_creation;
+      }
+    }
+    
+    setLotForm(updatedForm);
   };
 
   const updateFertilizedForRace = (raceName, fertilizedCount) => {
@@ -1404,8 +1619,25 @@ export default function ElevageScreen({ navigation, route }) {
   };
 
   const getLotStatus = (lot) => {
+    // For lapins: if they have births (eggs_by_race or hatched_count), they're ready immediately
+    // Don't show "En gestation" for lapins with births
+    if (isLapins(lot.species)) {
+      const hasBirths = (lot.eggs_by_race && Object.values(lot.eggs_by_race).some(count => count > 0)) || 
+                        (lot.hatched_count && lot.hatched_count > 0);
+      if (hasBirths) {
+        // Lapins are ready, skip incubation status check
+      } else {
+        // No births yet, could be in gestation
+        const isGestating = lot.eggs_count > 0 && (!lot.hatched_count || lot.hatched_count === 0);
+        if (isGestating) {
+          return { status: `En ${getIncubationTerm(lot.species)}`, color: '#2196F3' };
+        }
+      }
+    }
+    
     // Check if still incubating (has eggs but no hatched count or hatched count is 0)
-    const isIncubating = lot.eggs_count > 0 && (!lot.hatched_count || lot.hatched_count === 0);
+    // Only for volailles
+    const isIncubating = isVolailles(lot.species) && lot.eggs_count > 0 && (!lot.hatched_count || lot.hatched_count === 0);
     
     if (isIncubating) {
       // Check if fertilization check has been done
@@ -1450,18 +1682,50 @@ export default function ElevageScreen({ navigation, route }) {
     }
   };
 
-  const correctSex = (fromGender, toGender) => {
+  const correctSex = (fromGender, toGender, quantity = 1) => {
     const currentFrom = parseInt(updateForm[fromGender]) || 0;
+    const qty = parseInt(quantity) || 1;
     
-    if (currentFrom > 0) {
+    if (currentFrom >= qty && qty > 0) {
       setUpdateForm({
         ...updateForm,
-        [fromGender]: (currentFrom - 1).toString(),
-        [toGender]: (parseInt(updateForm[toGender]) + 1).toString()
+        [fromGender]: (currentFrom - qty).toString(),
+        [toGender]: (parseInt(updateForm[toGender]) + qty).toString()
       });
     } else {
-      Alert.alert('Erreur', 'Aucun animal de ce sexe à corriger');
+      Alert.alert('Erreur', `Pas assez d'animaux de ce sexe (${currentFrom} disponible${currentFrom > 1 ? 's' : ''}, ${qty} demandé${qty > 1 ? 's' : ''})`);
     }
+  };
+
+  const handleLongPressCorrection = (fromGender, toGender) => {
+    const currentFrom = parseInt(updateForm[fromGender]) || 0;
+    if (currentFrom > 0) {
+      setPendingCorrection({ fromGender, toGender });
+      setQuantityInputValue('');
+      setQuantityInputModal(true);
+    }
+  };
+
+  const applyQuantityCorrection = () => {
+    if (!pendingCorrection) return;
+    
+    const qty = parseInt(quantityInputValue) || 0;
+    const available = parseInt(updateForm[pendingCorrection.fromGender]) || 0;
+    
+    if (qty <= 0) {
+      Alert.alert('Erreur', 'Veuillez entrer un nombre valide supérieur à 0');
+      return;
+    }
+    
+    if (qty > available) {
+      Alert.alert('Erreur', `Pas assez d'animaux disponibles. Disponible: ${available}, Demandé: ${qty}`);
+      return;
+    }
+    
+    correctSex(pendingCorrection.fromGender, pendingCorrection.toGender, qty);
+    setQuantityInputModal(false);
+    setPendingCorrection(null);
+    setQuantityInputValue('');
   };
 
   const getCurrentTotals = () => {
@@ -1492,7 +1756,9 @@ export default function ElevageScreen({ navigation, route }) {
           onPress={() => toggleLotCollapse(item.id)}
           onLongPress={() => {
             // Long press opens edit modal
-            if (item.eggs_count > 0) {
+            // For lapins, always open edit modal (no incubation update needed)
+            // For volailles with eggs, open incubation update modal
+            if (isVolailles(item.species) && item.eggs_count > 0) {
               openIncubationUpdateModal(item);
             } else {
               openEditLotModal(item);
@@ -1527,7 +1793,7 @@ export default function ElevageScreen({ navigation, route }) {
             {isEstimated && (
               <View style={styles.estimatedWarning}>
                 <Text style={styles.estimatedWarningText}>
-                  ⚠️ Quantités estimées: {item.eggs_count} œufs × {item.estimated_success_rate || 80}% = {totalInitial} initiaux estimés
+                  ⚠️ Quantités estimées: {item.eggs_count} {isLapins(item.species) ? 'naissances' : 'œufs'} × {item.estimated_success_rate || 80}% = {totalInitial} initiaux estimés
                 </Text>
               </View>
             )}
@@ -1668,7 +1934,8 @@ export default function ElevageScreen({ navigation, route }) {
             </View>
 
             <View style={styles.cardActions}>
-              {item.eggs_count > 0 && (
+              {/* Only show incubation update button for volailles */}
+              {isVolailles(item.species) && item.eggs_count > 0 && (
                 <TouchableOpacity 
                   style={[styles.actionBtn, { backgroundColor: '#FF9800' }]}
                   onPress={() => openIncubationUpdateModal(item)}
@@ -2587,8 +2854,8 @@ export default function ElevageScreen({ navigation, route }) {
                       </TouchableOpacity>
                     </View>
 
-                    {/* Incubation Start Date */}
-                    {lotForm.species && (
+                    {/* Incubation Start Date - Only for volailles */}
+                    {lotForm.species && isVolailles(lotForm.species) && (
                       <>
                         <View style={styles.dateFieldContainer}>
                           <View style={styles.dateFieldHeader}>
@@ -2644,28 +2911,30 @@ export default function ElevageScreen({ navigation, route }) {
                           </View>
                         )}
 
-                        {/* Actual Hatching/Birth Date */}
-                        <View style={styles.dateFieldContainer}>
-                          <View style={styles.dateFieldHeader}>
-                            <Text style={styles.dateFieldIcon}>🐣</Text>
-                            <Text style={styles.dateFieldLabel}>
-                              Date de {getHatchingTerm(lotForm.species)} (réelle ou estimée)
-                            </Text>
+                        {/* Actual Hatching/Birth Date - Only for volailles */}
+                        {isVolailles(lotForm.species) && (
+                          <View style={styles.dateFieldContainer}>
+                            <View style={styles.dateFieldHeader}>
+                              <Text style={styles.dateFieldIcon}>🐣</Text>
+                              <Text style={styles.dateFieldLabel}>
+                                Date de {getHatchingTerm(lotForm.species)} (réelle ou estimée)
+                              </Text>
+                            </View>
+                            <TouchableOpacity 
+                              style={styles.datePickerButton}
+                              onPress={() => openCalendarModal('date_eclosion')}
+                            >
+                              <Text style={styles.datePickerText}>
+                                {lotForm.date_eclosion ? 
+                                  formatForCalendar(lotForm.date_eclosion) : 
+                                  lotForm.estimated_hatching_date ?
+                                    `📅 ${formatForCalendar(lotForm.estimated_hatching_date)} (estimée)` :
+                                    '📅 Sélectionner une date'
+                                }
+                              </Text>
+                            </TouchableOpacity>
                           </View>
-                          <TouchableOpacity 
-                            style={styles.datePickerButton}
-                            onPress={() => openCalendarModal('date_eclosion')}
-                          >
-                            <Text style={styles.datePickerText}>
-                              {lotForm.date_eclosion ? 
-                                formatForCalendar(lotForm.date_eclosion) : 
-                                lotForm.estimated_hatching_date ?
-                                  `📅 ${formatForCalendar(lotForm.estimated_hatching_date)} (estimée)` :
-                                  '📅 Sélectionner une date'
-                              }
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
+                        )}
 
                         {/* Fertilization Check Date - Only for volailles */}
                         {isVolailles(lotForm.species) && (
@@ -2690,6 +2959,75 @@ export default function ElevageScreen({ navigation, route }) {
                       </>
                     )}
                   </View>
+
+                  {/* Race Selection Section - For Lapins */}
+                  {lotForm.species && isLapins(lotForm.species) && (
+                    <View style={styles.formSection}>
+                      <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionIcon}>🐰</Text>
+                        <Text style={styles.sectionLabel}>Sélection des races</Text>
+                      </View>
+                      <View style={styles.sectionDivider} />
+                      
+                      <Text style={styles.inputLabel}>Sélectionner les races:</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={styles.raceSelector}>
+                          {getRacesForSpecies(lotForm.species).map((race) => (
+                            <TouchableOpacity
+                              key={race.id}
+                              style={[
+                                styles.raceSelectorItem,
+                                lotForm.races[race.name] && styles.raceSelectorItemSelected
+                              ]}
+                              onPress={() => {
+                                if (lotForm.races[race.name]) {
+                                  removeRaceFromLot(race.name);
+                                } else {
+                                  addRaceToLot(race.name);
+                                }
+                              }}
+                            >
+                              <Text style={[
+                                styles.raceSelectorText,
+                                lotForm.races[race.name] && styles.raceSelectorTextSelected
+                              ]}>
+                                {lotForm.races[race.name] ? '✓ ' : ''}{race.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                          {getRacesForSpecies(lotForm.species).length === 0 && (
+                            <Text style={styles.noRacesText}>
+                              Aucune race trouvée pour cette espèce. Créez d'abord une race.
+                            </Text>
+                          )}
+                        </View>
+                      </ScrollView>
+                      
+                      {/* Number of births/portées for lapins */}
+                      {Object.keys(lotForm.races).length > 0 && (
+                        <>
+                          <Text style={[styles.inputLabel, { marginTop: 15 }]}>Nombre de naissances par race:</Text>
+                          {Object.keys(lotForm.races).map((raceName) => (
+                            <View key={raceName} style={styles.raceEggInputContainer}>
+                              <Text style={styles.raceEggLabel}>{raceName}:</Text>
+                              <TextInput
+                                style={styles.numberInput}
+                                placeholder="Nombre de naissances"
+                                placeholderTextColor="#999"
+                                value={lotForm.eggs_by_race[raceName] !== undefined && lotForm.eggs_by_race[raceName] !== null ? lotForm.eggs_by_race[raceName].toString() : ''}
+                                onChangeText={(text) => updateEggsForRace(raceName, text)}
+                                keyboardType="number-pad"
+                              />
+                            </View>
+                          ))}
+                          <View style={styles.totalEggsDisplay}>
+                            <Text style={styles.totalEggsLabel}>Total naissances:</Text>
+                            <Text style={styles.totalEggsValue}>{lotForm.eggs_count || 0}</Text>
+                          </View>
+                        </>
+                      )}
+                    </View>
+                  )}
 
                   {/* Incubation Statistics Section - Only for volailles */}
                   {lotForm.species && isVolailles(lotForm.species) && (
@@ -2787,8 +3125,8 @@ export default function ElevageScreen({ navigation, route }) {
                         </>
                       )}
                       
-                      {/* Single input for non-poultry */}
-                      {!['poussins', 'cailles', 'canards', 'oies', 'dindes'].includes(lotForm.species) && (
+                      {/* Single input for non-poultry (but not lapins, as they have race selection above) */}
+                      {!['poussins', 'cailles', 'canards', 'oies', 'dindes', 'lapins'].includes(lotForm.species) && (
                         <TextInput
                           style={styles.input}
                           placeholder="Nombre d'œufs mis en incubation *"
@@ -3418,7 +3756,9 @@ export default function ElevageScreen({ navigation, route }) {
 
               {modalType === 'update' && (() => {
                 // Check if éclosion has happened (hatched_count > 0)
-                const hasEclosion = updateModalLot && updateModalLot.hatched_count && updateModalLot.hatched_count > 0;
+                // For lapins, always allow sex correction (they're ready immediately)
+                const isLapinLot = updateModalLot && isLapins(updateModalLot.species);
+                const hasEclosion = isLapinLot || (updateModalLot && updateModalLot.hatched_count && updateModalLot.hatched_count > 0);
                 
                 return (
                 <>
@@ -3453,7 +3793,7 @@ export default function ElevageScreen({ navigation, route }) {
                         />
                       </View>
                     </View>
-                    {!hasEclosion && (
+                    {!hasEclosion && !isLapinLot && (
                       <View style={styles.warningMessage}>
                         <Text style={styles.warningText}>
                           ⚠️ Les modifications de sexe ne sont disponibles qu'après l'éclosion
@@ -3512,7 +3852,7 @@ export default function ElevageScreen({ navigation, route }) {
                     <Text style={styles.actionSectionTitle}>🔄 Corriger le sexe</Text>
                     <Text style={styles.correctionSubtitle}>
                       {hasEclosion 
-                        ? 'Cliquez pour transférer 1 animal d\'un sexe vers un autre'
+                        ? 'Cliquez pour transférer 1 animal, maintenez 1 seconde pour entrer un nombre'
                         : 'Disponible uniquement après l\'éclosion'}
                     </Text>
                     <View style={styles.correctionGrid}>
@@ -3527,6 +3867,8 @@ export default function ElevageScreen({ navigation, route }) {
                             (!hasEclosion || parseInt(updateForm.males) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('males', 'females')}
+                          onLongPress={() => handleLongPressCorrection('males', 'females')}
+                          delayLongPress={1000}
                           disabled={!hasEclosion || parseInt(updateForm.males) === 0}
                         >
                           <Text style={[
@@ -3540,6 +3882,8 @@ export default function ElevageScreen({ navigation, route }) {
                             (!hasEclosion || parseInt(updateForm.males) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('males', 'unsexed')}
+                          onLongPress={() => handleLongPressCorrection('males', 'unsexed')}
+                          delayLongPress={1000}
                           disabled={!hasEclosion || parseInt(updateForm.males) === 0}
                         >
                           <Text style={[
@@ -3559,6 +3903,8 @@ export default function ElevageScreen({ navigation, route }) {
                             (!hasEclosion || parseInt(updateForm.females) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('females', 'males')}
+                          onLongPress={() => handleLongPressCorrection('females', 'males')}
+                          delayLongPress={1000}
                           disabled={!hasEclosion || parseInt(updateForm.females) === 0}
                         >
                           <Text style={[
@@ -3572,6 +3918,8 @@ export default function ElevageScreen({ navigation, route }) {
                             (!hasEclosion || parseInt(updateForm.females) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('females', 'unsexed')}
+                          onLongPress={() => handleLongPressCorrection('females', 'unsexed')}
+                          delayLongPress={1000}
                           disabled={!hasEclosion || parseInt(updateForm.females) === 0}
                         >
                           <Text style={[
@@ -3591,6 +3939,8 @@ export default function ElevageScreen({ navigation, route }) {
                             (!hasEclosion || parseInt(updateForm.unsexed) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('unsexed', 'males')}
+                          onLongPress={() => handleLongPressCorrection('unsexed', 'males')}
+                          delayLongPress={1000}
                           disabled={!hasEclosion || parseInt(updateForm.unsexed) === 0}
                         >
                           <Text style={[
@@ -3604,6 +3954,8 @@ export default function ElevageScreen({ navigation, route }) {
                             (!hasEclosion || parseInt(updateForm.unsexed) === 0) && styles.correctionButtonDisabled
                           ]}
                           onPress={() => correctSex('unsexed', 'females')}
+                          onLongPress={() => handleLongPressCorrection('unsexed', 'females')}
+                          delayLongPress={1000}
                           disabled={!hasEclosion || parseInt(updateForm.unsexed) === 0}
                         >
                           <Text style={[
@@ -3757,6 +4109,70 @@ export default function ElevageScreen({ navigation, route }) {
         </KeyboardAvoidingView>
         </Modal>
 
+        {/* Quantity Input Modal for Sex Correction */}
+        <Modal
+          visible={quantityInputModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => {
+            setQuantityInputModal(false);
+            setPendingCorrection(null);
+            setQuantityInputValue('');
+          }}
+        >
+          <View style={styles.quantityModalOverlay}>
+            <View style={styles.quantityModalContent}>
+              <Text style={styles.quantityModalTitle}>
+                Nombre d'animaux à transférer
+              </Text>
+              {pendingCorrection && (
+                <Text style={styles.quantityModalSubtitle}>
+                  De {pendingCorrection.fromGender === 'males' ? '♂️ Mâles' : pendingCorrection.fromGender === 'females' ? '♀️ Femelles' : '❓ Non-sexés'} 
+                  {' → '}
+                  {pendingCorrection.toGender === 'males' ? '♂️ Mâles' : pendingCorrection.toGender === 'females' ? '♀️ Femelles' : '❓ Non-sexés'}
+                </Text>
+              )}
+              {pendingCorrection && (
+                <Text style={styles.quantityModalAvailable}>
+                  Disponible: {parseInt(updateForm[pendingCorrection.fromGender]) || 0}
+                </Text>
+              )}
+              <TextInput
+                style={styles.quantityModalInput}
+                placeholder="Entrer le nombre"
+                placeholderTextColor="#999"
+                value={quantityInputValue}
+                onChangeText={(text) => {
+                  // Only allow numeric input
+                  const numericText = text.replace(/[^0-9]/g, '');
+                  setQuantityInputValue(numericText);
+                }}
+                keyboardType="number-pad"
+                autoFocus={true}
+                maxLength={3}
+              />
+              <View style={styles.quantityModalActions}>
+                <TouchableOpacity 
+                  style={[styles.quantityModalBtn, styles.quantityModalCancelBtn]}
+                  onPress={() => {
+                    setQuantityInputModal(false);
+                    setPendingCorrection(null);
+                    setQuantityInputValue('');
+                  }}
+                >
+                  <Text style={styles.quantityModalBtnText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.quantityModalBtn, styles.quantityModalConfirmBtn]}
+                  onPress={applyQuantityCorrection}
+                >
+                  <Text style={[styles.quantityModalBtnText, { color: 'white' }]}>Confirmer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Calendar Modal */}
         <Modal
           visible={calendarModal}
@@ -3781,17 +4197,56 @@ export default function ElevageScreen({ navigation, route }) {
                   <Text style={styles.calendarCloseBtnText}>✕</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Custom Header with separate Month and Year */}
+              <View style={styles.customCalendarHeader}>
+                <TouchableOpacity 
+                  style={styles.monthNavArrowButton}
+                  onPress={() => navigateMonth(-1)}
+                  activeOpacity={0.7}
+                  disabled={isNavigating}
+                >
+                  <Text style={styles.navArrow}>‹</Text>
+                </TouchableOpacity>
+                
+                <View style={styles.monthYearContainer}>
+                  <TouchableOpacity 
+                    style={styles.monthYearButton}
+                    onPress={() => setMonthPickerVisible(true)}
+                  >
+                    <Text style={styles.monthYearText}>{MONTHS_FR[getCurrentMonth()]}</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.monthYearButton}
+                    onPress={() => setYearPickerVisible(true)}
+                  >
+                    <Text style={styles.monthYearText}>{getCurrentYear()}</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.monthNavArrowButton}
+                  onPress={() => navigateMonth(1)}
+                  activeOpacity={0.7}
+                  disabled={isNavigating}
+                >
+                  <Text style={styles.navArrow}>›</Text>
+                </TouchableOpacity>
+              </View>
               
               <Calendar
+                key={`calendar-${calendarMonth}`}
+                current={calendarMonth}
                 onDayPress={handleDateSelect}
                 minDate={calendarField === 'date_creation' ? getTodayISO() : undefined}
-                hideArrows={false}
-                enableSwipeMonths={true}
-                monthFormat={'MMMM yyyy'}
-                onMonthChange={(month) => {
-                  // Optional: handle month change if needed
-                  console.log('Month changed to:', month);
-                }}
+                hideArrows={true}
+                hideExtraDays={false}
+                disableMonthChange={true}
+                enableSwipeMonths={false}
+                onPressArrowLeft={() => {}}
+                onPressArrowRight={() => {}}
+                onMonthChange={() => {}}
                 theme={{
                   backgroundColor: '#ffffff',
                   calendarBackground: '#ffffff',
@@ -3803,25 +4258,116 @@ export default function ElevageScreen({ navigation, route }) {
                   textDisabledColor: '#d9e1e8',
                   dotColor: '#00adf5',
                   selectedDotColor: '#ffffff',
-                  arrowColor: '#005F6B',
-                  disabledArrowColor: '#d9e1e8',
-                  monthTextColor: '#005F6B',
+                  arrowColor: 'transparent',
+                  monthTextColor: 'transparent',
                   indicatorColor: '#005F6B',
                   textDayFontWeight: '300',
                   textMonthFontWeight: 'bold',
                   textDayHeaderFontWeight: '300',
                   textDayFontSize: 16,
-                  textMonthFontSize: 16,
-                  textDayHeaderFontSize: 13
+                  textDayHeaderFontSize: 13,
+                  'stylesheet.calendar.header': {
+                    week: {
+                      marginTop: 0,
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      paddingTop: 0,
+                      paddingBottom: 0,
+                      height: 0,
+                      opacity: 0,
+                    }
+                  }
                 }}
               />
-              
-              <TouchableOpacity 
-                style={styles.calendarCancelBtn}
-                onPress={() => setCalendarModal(false)}
-              >
-                <Text style={styles.calendarCancelBtnText}>Annuler</Text>
-              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Year Picker Modal */}
+        <Modal
+          visible={yearPickerVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setYearPickerVisible(false)}
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <Text style={styles.pickerTitle}>Sélectionner l'année</Text>
+                <TouchableOpacity 
+                  style={styles.pickerCloseBtn}
+                  onPress={() => setYearPickerVisible(false)}
+                >
+                  <Text style={styles.pickerCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerScrollView}>
+                {getYearRange().map((year) => {
+                  const isSelected = year === getCurrentYear();
+                  return (
+                    <TouchableOpacity
+                      key={year}
+                      style={[
+                        styles.pickerItem,
+                        isSelected && styles.pickerItemSelected
+                      ]}
+                      onPress={() => jumpToYear(year)}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected
+                      ]}>
+                        {year}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Month Picker Modal */}
+        <Modal
+          visible={monthPickerVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setMonthPickerVisible(false)}
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <Text style={styles.pickerTitle}>Sélectionner le mois</Text>
+                <TouchableOpacity 
+                  style={styles.pickerCloseBtn}
+                  onPress={() => setMonthPickerVisible(false)}
+                >
+                  <Text style={styles.pickerCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerScrollView}>
+                {MONTHS_FR.map((month, index) => {
+                  const isSelected = index === getCurrentMonth();
+                  return (
+                    <TouchableOpacity
+                      key={`month-${index}`}
+                      style={[
+                        styles.pickerItem,
+                        isSelected && styles.pickerItemSelected
+                      ]}
+                      onPress={() => jumpToMonth(index)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected
+                      ]}>
+                        {month}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -4795,6 +5341,57 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
+  // Custom calendar header styles
+  customCalendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    width: '100%',
+  },
+  monthYearContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  monthYearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    minWidth: 80,
+    maxWidth: 120,
+    alignItems: 'center',
+  },
+  monthYearText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  monthNavArrowButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+    padding: 4,
+    minWidth: 32,
+    minHeight: 32,
+    zIndex: 10,
+  },
+  navArrow: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
   calendarCloseBtn: {
     backgroundColor: '#f0f0f0',
     borderRadius: 20,
@@ -4818,6 +5415,82 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     fontWeight: '600',
+  },
+  // Year and Month Picker Styles
+  calendarQuickSelect: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 15,
+    paddingHorizontal: 10,
+  },
+  quickSelectButton: {
+    flex: 1,
+    backgroundColor: '#005F6B',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  quickSelectButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    width: '80%',
+    maxHeight: '70%',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pickerCloseBtn: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerCloseBtnText: {
+    fontSize: 18,
+    color: '#666',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerItem: {
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pickerItemSelected: {
+    backgroundColor: '#E8F5E8',
+  },
+  pickerItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  pickerItemTextSelected: {
+    color: '#005F6B',
+    fontWeight: 'bold',
   },
   
   // New styles for interactive update modal
@@ -5523,5 +6196,80 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 28,
     fontWeight: 'bold',
+  },
+  // Quantity Input Modal Styles
+  quantityModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quantityModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 25,
+    width: '85%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  quantityModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  quantityModalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  quantityModalAvailable: {
+    fontSize: 12,
+    color: '#2196F3',
+    fontWeight: '600',
+    marginBottom: 15,
+  },
+  quantityModalInput: {
+    borderWidth: 2,
+    borderColor: '#2196F3',
+    borderRadius: 10,
+    padding: 15,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    width: '100%',
+    marginBottom: 20,
+    backgroundColor: '#f8f9fa',
+    color: '#333',
+  },
+  quantityModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  quantityModalBtn: {
+    flex: 1,
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  quantityModalCancelBtn: {
+    backgroundColor: '#f0f0f0',
+  },
+  quantityModalConfirmBtn: {
+    backgroundColor: '#2196F3',
+  },
+  quantityModalBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -21,13 +21,23 @@ import database from '../services/database';
 import csvStorage from '../services/csvStorage';
 import * as Sharing from 'expo-sharing';
 import { getEventColor } from '../../constants/StatusConstants';
+import { MONTHS_FR } from '../../constants/DateConstants';
 
 const { width } = Dimensions.get('window');
+
+// --- CRITICAL HELPER: Avoids UTC/ISO Offset Bugs ---
+const toLocalISO = (date) => {
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
 
 export default function CalendarScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [events, setEvents] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // Use current date
+  const [selectedDate, setSelectedDate] = useState(toLocalISO(new Date()));
+  const [calendarMonth, setCalendarMonth] = useState(toLocalISO(new Date()));
   const [viewMode, setViewMode] = useState('month'); // month, week, day, year
   const [modalVisible, setModalVisible] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -40,14 +50,16 @@ export default function CalendarScreen({ navigation }) {
   });
   const [isExporting, setIsExporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const eventTypes = ['Alimentation', 'Entretien', 'Soins', 'Reproduction', 'Vétérinaire', 'Récupération', 'Autre'];
   // Event colors are now imported from StatusConstants
 
   // Helper function to check if selected date is today
   const isToday = () => {
-    const today = new Date().toISOString().split('T')[0];
-    return selectedDate === today;
+    return selectedDate === toLocalISO(new Date());
   };
 
   // Define view mode options with French labels
@@ -58,6 +70,8 @@ export default function CalendarScreen({ navigation }) {
   ];
 
   useEffect(() => {
+    const today = toLocalISO(new Date());
+    setCalendarMonth(today);
     loadEvents();
   }, []);
 
@@ -75,7 +89,7 @@ export default function CalendarScreen({ navigation }) {
     }, [selectedDate, viewMode, isRefreshing])
   );
 
-  const loadEvents = async (targetDate = selectedDate, viewModeParam = viewMode) => {
+  const loadEvents = useCallback(async (targetDate = selectedDate, viewModeParam = viewMode) => {
     try {
       console.log(`🔄 CalendarScreen: Loading events for ${viewModeParam} view around ${targetDate}...`);
       console.log(`📅 Current selectedDate: ${selectedDate}, targetDate: ${targetDate}`);
@@ -93,7 +107,7 @@ export default function CalendarScreen({ navigation }) {
     } catch (error) {
       console.error('Error loading events:', error);
     }
-  };
+  }, [selectedDate, viewMode]);
 
   // Comprehensive sync function that updates all data - only used for refresh
   const syncAllData = async () => {
@@ -284,8 +298,8 @@ export default function CalendarScreen({ navigation }) {
     }
   };
 
-  // Convert events to calendar format for marked dates
-  const getMarkedDates = () => {
+  // Convert events to calendar format for marked dates - MEMOIZED for performance
+  const markedDates = useMemo(() => {
     const marked = {};
     
     // Use the already filtered events from loadEvents
@@ -317,7 +331,7 @@ export default function CalendarScreen({ navigation }) {
     }
 
     return marked;
-  };
+  }, [events, selectedDate]);
 
   // Get events for selected date
   const getEventsForDate = (date) => {
@@ -328,15 +342,15 @@ export default function CalendarScreen({ navigation }) {
     });
   };
 
-  // Get date range based on view mode
+  // Get date range based on view mode - using toLocalISO for consistency
   const getDateRangeForView = (date, viewModeParam) => {
     const targetDate = new Date(date);
     
     switch (viewModeParam) {
       case 'day':
         return {
-          start: date,
-          end: date
+          start: toLocalISO(targetDate),
+          end: toLocalISO(targetDate)
         };
         
       case 'week':
@@ -349,8 +363,8 @@ export default function CalendarScreen({ navigation }) {
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         
         return {
-          start: startOfWeek.toISOString().split('T')[0],
-          end: endOfWeek.toISOString().split('T')[0]
+          start: toLocalISO(startOfWeek),
+          end: toLocalISO(endOfWeek)
         };
         
       case 'month':
@@ -358,8 +372,8 @@ export default function CalendarScreen({ navigation }) {
         const endOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
         
         return {
-          start: startOfMonth.toISOString().split('T')[0],
-          end: endOfMonth.toISOString().split('T')[0]
+          start: toLocalISO(startOfMonth),
+          end: toLocalISO(endOfMonth)
         };
         
       case 'year':
@@ -367,14 +381,14 @@ export default function CalendarScreen({ navigation }) {
         const endOfYear = new Date(targetDate.getFullYear(), 11, 31);
         
         return {
-          start: startOfYear.toISOString().split('T')[0],
-          end: endOfYear.toISOString().split('T')[0]
+          start: toLocalISO(startOfYear),
+          end: toLocalISO(endOfYear)
         };
         
       default:
         return {
-          start: date,
-          end: date
+          start: toLocalISO(targetDate),
+          end: toLocalISO(targetDate)
         };
     }
   };
@@ -582,6 +596,91 @@ export default function CalendarScreen({ navigation }) {
     }
   };
 
+  // Helper functions for month/year navigation
+  const getCurrentMonth = () => {
+    return new Date(calendarMonth).getMonth();
+  };
+
+  const getCurrentYear = () => {
+    return new Date(calendarMonth).getFullYear();
+  };
+
+  // --- FIXED NAVIGATION: Uses day 15 to avoid month-end rollover bugs ---
+  const navigateMonth = useCallback(async (direction) => {
+    if (isNavigating) {
+      console.log('📅 Navigation already in progress, ignoring');
+      return;
+    }
+    
+    setIsNavigating(true);
+    
+    try {
+      const current = new Date(calendarMonth);
+      // Use the 15th of the month to safely avoid month-end rollover bugs
+      const target = new Date(current.getFullYear(), current.getMonth() + direction, 15);
+      const dateStr = toLocalISO(target);
+      
+      console.log('📅 Navigating month:', { 
+        direction, 
+        from: calendarMonth, 
+        to: dateStr,
+        fromMonth: current.getMonth(),
+        toMonth: target.getMonth(),
+        fromYear: current.getFullYear(),
+        toYear: target.getFullYear()
+      });
+      
+      setCalendarMonth(dateStr);
+      setSelectedDate(dateStr);
+      await loadEvents(dateStr, viewMode);
+    } catch (error) {
+      console.error('Error navigating month:', error);
+    } finally {
+      // Lock navigation briefly to prevent the "Double Month Skip"
+      setTimeout(() => setIsNavigating(false), 350);
+    }
+  }, [calendarMonth, isNavigating, viewMode, loadEvents]);
+
+  const jumpToMonth = async (monthIndex) => {
+    console.log('📅 jumpToMonth called with index:', monthIndex, 'month name:', MONTHS_FR[monthIndex]);
+    
+    // Close modal first to prevent any interference
+    setMonthPickerVisible(false);
+    
+    // Small delay to ensure modal closes
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const current = new Date(selectedDate);
+    const target = new Date(current.getFullYear(), monthIndex, 1);
+    const dateStr = toLocalISO(target);
+    
+    console.log('📅 Setting new date:', dateStr, 'which should be:', MONTHS_FR[monthIndex], target.getFullYear());
+    
+    setCalendarMonth(dateStr);
+    setSelectedDate(dateStr);
+    await loadEvents(dateStr, viewMode);
+  };
+
+  const jumpToYear = async (year) => {
+    const current = new Date(selectedDate);
+    const target = new Date(year, current.getMonth(), 1);
+    const dateStr = toLocalISO(target);
+    
+    setCalendarMonth(dateStr);
+    setSelectedDate(dateStr);
+    setYearPickerVisible(false);
+    await loadEvents(dateStr, viewMode);
+  };
+
+  const getYearRange = () => {
+    const currentYear = getCurrentYear();
+    const years = [];
+    for (let i = currentYear - 10; i <= currentYear + 10; i++) {
+      years.push(i);
+    }
+    return years;
+  };
+
   const ViewModeSelector = () => (
     <View style={styles.viewModeSelector}>
       {viewModeOptions.map(option => ( // Use viewModeOptions for French labels
@@ -610,25 +709,74 @@ export default function CalendarScreen({ navigation }) {
   );
 
   const MonthView = () => {
+    const currentMonth = MONTHS_FR[getCurrentMonth()];
+    const currentYear = getCurrentYear();
+
     return (
       <View style={styles.monthViewContainer}>
+        {/* Custom Header with separate Month and Year */}
+        <View style={styles.customCalendarHeader}>
+          <TouchableOpacity 
+            style={styles.monthNavArrowButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              console.log('📅 Left arrow pressed');
+              navigateMonth(-1);
+            }}
+            activeOpacity={0.7}
+            disabled={isNavigating}
+          >
+            <Text style={styles.navArrow}>‹</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.monthYearContainer}>
+            <TouchableOpacity 
+              style={styles.monthYearButton}
+              onPress={() => setMonthPickerVisible(true)}
+            >
+              <Text style={styles.monthYearText}>{currentMonth}</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.monthYearButton}
+              onPress={() => setYearPickerVisible(true)}
+            >
+              <Text style={styles.monthYearText}>{currentYear}</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <TouchableOpacity 
+            style={styles.monthNavArrowButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              console.log('📅 Right arrow pressed');
+              navigateMonth(1);
+            }}
+            activeOpacity={0.7}
+            disabled={isNavigating}
+          >
+            <Text style={styles.navArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+
         <Calendar
-          current={selectedDate}
+          key={`calendar-${calendarMonth}`} // Force re-render when month changes
+          current={calendarMonth}
           onDayPress={async (day) => {
             console.log('📅 Day pressed:', day.dateString);
             setSelectedDate(day.dateString);
             // Reload events for the selected day
             await loadEvents(day.dateString, viewMode);
           }}
-          onMonthChange={async (month) => {
-            console.log('📅 Month changed:', month);
-            const newDate = month.dateString;
-            setSelectedDate(newDate);
-            await loadEvents(newDate, 'month');
-          }}
-          markedDates={getMarkedDates()}
+          markedDates={markedDates}
           markingType={'multi-dot'}
-          monthFormat={'MMMM yyyy'}
+          hideArrows={true}
+          hideExtraDays={true}
+          disableMonthChange={true}
+          enableSwipeMonths={false}
+          onPressArrowLeft={() => {}} // Override to prevent Calendar's navigation
+          onPressArrowRight={() => {}} // Override to prevent Calendar's navigation
+          onMonthChange={() => {}} // Override to prevent Calendar's navigation
           theme={{
             backgroundColor: '#ffffff',
             calendarBackground: '#ffffff',
@@ -640,21 +788,31 @@ export default function CalendarScreen({ navigation }) {
             textDisabledColor: '#d9e1e8',
             dotColor: '#005F6B',
             selectedDotColor: '#ffffff',
-            arrowColor: '#005F6B',
-            disabledArrowColor: '#d9e1e8',
-            monthTextColor: '#005F6B',
+            arrowColor: 'transparent',
+            disabledArrowColor: 'transparent',
+            monthTextColor: 'transparent',
             indicatorColor: '#005F6B',
             textDayFontWeight: '300',
             textMonthFontWeight: 'bold',
             textDayHeaderFontWeight: '300',
             textDayFontSize: 16,
-            textMonthFontSize: 16,
             textDayHeaderFontSize: 13,
             'stylesheet.day.basic': {
               today: {
                 fontWeight: '900', // Extra bold for today
                 fontSize: 18,
               },
+            },
+            'stylesheet.calendar.header': {
+              week: {
+                marginTop: 0,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                paddingTop: 0,
+                paddingBottom: 0,
+                height: 0,
+                opacity: 0,
+              }
             }
           }}
         />
@@ -680,7 +838,7 @@ export default function CalendarScreen({ navigation }) {
     const navigateToPreviousWeek = async () => {
       const newDate = new Date(startOfWeek);
       newDate.setDate(startOfWeek.getDate() - 7);
-      const newDateString = newDate.toISOString().split('T')[0];
+      const newDateString = toLocalISO(newDate);
       setSelectedDate(newDateString);
       await loadEvents(newDateString, viewMode);
     };
@@ -688,7 +846,7 @@ export default function CalendarScreen({ navigation }) {
     const navigateToNextWeek = async () => {
       const newDate = new Date(startOfWeek);
       newDate.setDate(startOfWeek.getDate() + 7);
-      const newDateString = newDate.toISOString().split('T')[0];
+      const newDateString = toLocalISO(newDate);
       setSelectedDate(newDateString);
       await loadEvents(newDateString, viewMode);
     };
@@ -716,7 +874,7 @@ export default function CalendarScreen({ navigation }) {
         
         <View style={styles.weekDaysContainer}>
           {weekDays.map((day, index) => {
-            const dayString = day.toISOString().split('T')[0];
+            const dayString = toLocalISO(day);
             const dayEvents = getEventsForDate(dayString);
             const isSelected = dayString === selectedDate;
             
@@ -777,16 +935,12 @@ export default function CalendarScreen({ navigation }) {
     const currentYear = new Date(selectedDate).getFullYear();
     console.log('📅 YearView rendering for year:', currentYear);
     
-    // Create months array for the year
-    const months = [
-      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
-    ];
+    // Use MONTHS_FR constant
     
     // Function to handle year navigation
     const navigateToYear = async (newYear) => {
       console.log('📅 Navigating to year:', newYear, 'from current year:', currentYear);
-      const newDate = new Date(newYear, 0, 1).toISOString().split('T')[0];
+      const newDate = toLocalISO(new Date(newYear, 0, 1));
       console.log('📅 Setting new date to:', newDate);
       setSelectedDate(newDate);
       // Force reload events for the new year
@@ -806,6 +960,7 @@ export default function CalendarScreen({ navigation }) {
               console.log('📅 Year view - Previous year clicked');
               await navigateToYear(currentYear - 1);
             }}
+            activeOpacity={0.7}
           >
             <Text style={styles.yearArrowText}>‹</Text>
           </TouchableOpacity>
@@ -818,6 +973,7 @@ export default function CalendarScreen({ navigation }) {
               console.log('📅 Year view - Next year clicked');
               await navigateToYear(currentYear + 1);
             }}
+            activeOpacity={0.7}
           >
             <Text style={styles.yearArrowText}>›</Text>
           </TouchableOpacity>
@@ -844,9 +1000,9 @@ export default function CalendarScreen({ navigation }) {
         
         {/* Months Grid */}
         <View style={styles.yearMonthsGrid}>
-          {months.map((month, index) => {
+          {MONTHS_FR.map((month, index) => {
             const monthDate = new Date(currentYear, index, 1);
-            const monthString = monthDate.toISOString().split('T')[0];
+            const monthString = toLocalISO(monthDate);
             const selectedMonth = new Date(selectedDate).getMonth();
             const selectedYear = new Date(selectedDate).getFullYear();
             const isCurrentMonth = index === selectedMonth && currentYear === selectedYear;
@@ -947,7 +1103,7 @@ export default function CalendarScreen({ navigation }) {
                 onPress={async () => {
                   const newDate = new Date(selectedDate);
                   newDate.setDate(newDate.getDate() - 1);
-                  const newDateString = newDate.toISOString().split('T')[0];
+                  const newDateString = toLocalISO(newDate);
                   setSelectedDate(newDateString);
                   await loadEvents(newDateString, viewMode);
                 }}
@@ -963,7 +1119,7 @@ export default function CalendarScreen({ navigation }) {
                   <TouchableOpacity 
                     style={styles.todayButton}
                     onPress={async () => {
-                      const today = new Date().toISOString().split('T')[0];
+                      const today = toLocalISO(new Date());
                       setSelectedDate(today);
                       await loadEvents(today, viewMode);
                     }}
@@ -978,7 +1134,7 @@ export default function CalendarScreen({ navigation }) {
                 onPress={async () => {
                   const newDate = new Date(selectedDate);
                   newDate.setDate(newDate.getDate() + 1);
-                  const newDateString = newDate.toISOString().split('T')[0];
+                  const newDateString = toLocalISO(newDate);
                   setSelectedDate(newDateString);
                   await loadEvents(newDateString, viewMode);
                 }}
@@ -1050,7 +1206,7 @@ export default function CalendarScreen({ navigation }) {
                 onPress={async () => {
                   const newDate = new Date(selectedDate);
                   newDate.setDate(newDate.getDate() - 1);
-                  const newDateString = newDate.toISOString().split('T')[0];
+                  const newDateString = toLocalISO(newDate);
                   setSelectedDate(newDateString);
                   await loadEvents(newDateString, viewMode);
                 }}
@@ -1066,7 +1222,7 @@ export default function CalendarScreen({ navigation }) {
                   <TouchableOpacity 
                     style={styles.todayButton}
                     onPress={async () => {
-                      const today = new Date().toISOString().split('T')[0];
+                      const today = toLocalISO(new Date());
                       setSelectedDate(today);
                       await loadEvents(today, viewMode);
                     }}
@@ -1081,7 +1237,7 @@ export default function CalendarScreen({ navigation }) {
                 onPress={async () => {
                   const newDate = new Date(selectedDate);
                   newDate.setDate(newDate.getDate() + 1);
-                  const newDateString = newDate.toISOString().split('T')[0];
+                  const newDateString = toLocalISO(newDate);
                   setSelectedDate(newDateString);
                   await loadEvents(newDateString, viewMode);
                 }}
@@ -1262,6 +1418,104 @@ export default function CalendarScreen({ navigation }) {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Month Picker Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={monthPickerVisible}
+        onRequestClose={() => setMonthPickerVisible(false)}
+      >
+        <View style={styles.pickerModalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Sélectionner le mois</Text>
+              <TouchableOpacity 
+                onPress={() => setMonthPickerVisible(false)}
+                style={styles.pickerModalClose}
+              >
+                <Text style={styles.pickerModalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView 
+              style={styles.pickerScrollView}
+              nestedScrollEnabled={true}
+              contentContainerStyle={styles.pickerScrollContent}
+            >
+              {MONTHS_FR.map((month, index) => {
+                const isSelected = index === getCurrentMonth();
+                return (
+                  <TouchableOpacity
+                    key={`month-${index}`}
+                    style={[
+                      styles.pickerItem,
+                      isSelected && styles.pickerItemSelected
+                    ]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      console.log('📅 Month clicked:', month, 'index:', index, 'isSelected:', isSelected);
+                      jumpToMonth(index);
+                    }}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+                  >
+                    <Text style={[
+                      styles.pickerItemText,
+                      isSelected && styles.pickerItemTextSelected
+                    ]}>
+                      {month}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Year Picker Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={yearPickerVisible}
+        onRequestClose={() => setYearPickerVisible(false)}
+      >
+        <View style={styles.pickerModalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Sélectionner l'année</Text>
+              <TouchableOpacity 
+                onPress={() => setYearPickerVisible(false)}
+                style={styles.pickerModalClose}
+              >
+                <Text style={styles.pickerModalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerScrollView}>
+              {getYearRange().map((year) => {
+                const isSelected = year === getCurrentYear();
+                return (
+                  <TouchableOpacity
+                    key={year}
+                    style={[
+                      styles.pickerItem,
+                      isSelected && styles.pickerItemSelected
+                    ]}
+                    onPress={() => jumpToYear(year)}
+                  >
+                    <Text style={[
+                      styles.pickerItemText,
+                      isSelected && styles.pickerItemTextSelected
+                    ]}>
+                      {year}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
       </SafeAreaView>
     </View>
   );
@@ -1439,22 +1693,28 @@ const styles = StyleSheet.create({
   yearNavigation: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    width: '100%',
   },
   yearArrow: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#005F6B',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 20,
+    flexShrink: 0,
+    padding: 4,
+    minWidth: 32,
+    minHeight: 32,
+    zIndex: 10,
   },
   yearArrowText: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: 'white',
+    color: '#005F6B',
   },
   weekNavigation: {
     flexDirection: 'row',
@@ -1499,12 +1759,128 @@ const styles = StyleSheet.create({
   monthViewContainer: {
     flex: 1,
   },
+  customCalendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    width: '100%',
+  },
+  monthYearContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  monthYearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f0f0f0',
+    minWidth: 80,
+    maxWidth: 120,
+    alignItems: 'center',
+  },
+  monthYearText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  monthNavArrowButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+    padding: 4,
+    minWidth: 32,
+    minHeight: 32,
+    zIndex: 10,
+  },
+  navArrow: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#005F6B',
+  },
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '80%',
+    maxHeight: '70%',
+    overflow: 'hidden',
+  },
+  pickerModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  pickerModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pickerModalClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerModalCloseText: {
+    fontSize: 18,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerScrollContent: {
+    paddingVertical: 0,
+  },
+  pickerItem: {
+    padding: 15,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    minHeight: 50,
+    justifyContent: 'center',
+  },
+  pickerItemSelected: {
+    backgroundColor: '#005F6B',
+  },
+  pickerItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  pickerItemTextSelected: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
   yearViewTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
-    color: '#4CAF50',
-    minWidth: 100,
+    color: '#005F6B',
+    flex: 1,
+    paddingHorizontal: 8,
+    flexShrink: 1,
   },
   yearMonthsGrid: {
     flexDirection: 'row',
@@ -1513,22 +1889,23 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   yearMonthButton: {
-    width: '30%',
-    aspectRatio: 1,
-    margin: 5,
+    width: '28%',
+    aspectRatio: 1.2,
+    margin: 4,
     backgroundColor: '#f0f0f0',
-    borderRadius: 8,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ddd',
+    padding: 8,
   },
   yearMonthButtonActive: {
     backgroundColor: '#005F6B',
     borderColor: '#005F6B',
   },
   yearMonthText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
@@ -1537,7 +1914,7 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   yearMonthEventCount: {
-    fontSize: 9,
+    fontSize: 8,
     color: '#666',
     marginTop: 2,
     textAlign: 'center',
