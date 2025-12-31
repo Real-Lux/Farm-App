@@ -581,10 +581,18 @@ export default function CheeseScreen({ navigation }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>
                   {editingItem ? 'Modifier la Production' : 'Nouvelle Production de Fromage'}
                 </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
 
                 <View style={styles.dateFieldContainer}>
                   <Text style={styles.dateFieldLabel}>Date de production *</Text>
@@ -673,12 +681,6 @@ export default function CheeseScreen({ navigation }) {
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => setModalVisible(false)}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={saveCheeseProduction}
                   >
@@ -701,10 +703,18 @@ export default function CheeseScreen({ navigation }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>
                   {editingItem ? 'Modifier la Recette' : 'Nouvelle Recette de Fromage'}
                 </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
 
                 <TextInput
                   style={styles.input}
@@ -817,12 +827,6 @@ export default function CheeseScreen({ navigation }) {
                 />
 
                 <View style={styles.modalActions}>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => setModalVisible(false)}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={saveRecipe}
@@ -1231,10 +1235,19 @@ const styles = StyleSheet.create({
     width: '95%',
     maxHeight: '80%',
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 20,
     color: '#333',
   },
@@ -1368,6 +1381,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     flex: 1,
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',

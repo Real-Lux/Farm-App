@@ -833,7 +833,18 @@ export default function AnimauxScreen({ navigation, route }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Ajouter un type d'animal</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Ajouter un type d'animal</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => {
+                    setAddAnimalTypeModal(false);
+                    setNewElevageAnimalTypeName('');
+                  }}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <Text style={styles.modalSubtitle}>
                 Sélectionnez le type d'animal à ajouter à votre élevage
               </Text>
@@ -877,15 +888,6 @@ export default function AnimauxScreen({ navigation, route }) {
               
               <View style={styles.modalActions}>
                 <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => {
-                    setAddAnimalTypeModal(false);
-                    setNewElevageAnimalTypeName('');
-                  }}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={addElevageAnimalType}
                 >
@@ -911,12 +913,23 @@ export default function AnimauxScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>🆕 Nouveau Type de Troupeau</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => {
+                    setAddHerdTypeModal(false);
+                    setNewHerdTypeName('');
+                  }}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>🆕 Nouveau Type de Troupeau</Text>
                 
                 <Text style={styles.templateDescription}>
                   Ajoutez un nouveau type de troupeau à gérer :
@@ -971,15 +984,6 @@ export default function AnimauxScreen({ navigation, route }) {
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => {
-                      setAddHerdTypeModal(false);
-                      setNewHerdTypeName('');
-                    }}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={addHerdType}
                   >
@@ -1002,9 +1006,17 @@ export default function AnimauxScreen({ navigation, route }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                {treatmentType === 'dosage' ? '💉 Calcul de Dosage' : '🧮 Formule Personnalisée'}
-              </Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {treatmentType === 'dosage' ? '💉 Calcul de Dosage' : '🧮 Formule Personnalisée'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setTreatmentModal(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
 
               {treatmentType === 'dosage' ? (
                 <>
@@ -1136,14 +1148,6 @@ export default function AnimauxScreen({ navigation, route }) {
                 </>
               )}
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setTreatmentModal(false)}
-                >
-                  <Text style={styles.modalBtnText}>Fermer</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </View>
         </Modal>
@@ -1161,12 +1165,20 @@ export default function AnimauxScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>💾 Sauvegarder Formule</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setSaveFormulaModal(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>💾 Sauvegarder Formule</Text>
                 
                 <Text style={styles.saveFormulaDescription}>
                   Donnez un nom à votre formule pour la retrouver facilement :
@@ -1186,12 +1198,6 @@ export default function AnimauxScreen({ navigation, route }) {
                 </View>
 
                 <View style={styles.modalActions}>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => setSaveFormulaModal(false)}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={saveFormula}
@@ -1660,12 +1666,35 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 20,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 20,
     color: '#333',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalSubtitle: {
     fontSize: 14,
@@ -1688,6 +1717,20 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 10,
     marginTop: 10,
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',

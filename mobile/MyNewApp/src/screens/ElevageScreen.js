@@ -2799,6 +2799,25 @@ export default function ElevageScreen({ navigation, route }) {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {modalType === 'lot' && (editingItem 
+                  ? `Modifier le Lot${lotForm.species ? ` - ${getElevageConfig(lotForm.species).name}` : ''}` 
+                  : `Nouveau Lot${lotForm.species ? ` - ${getElevageConfig(lotForm.species).name}` : ''}`)}
+                {modalType === 'race' && (editingItem ? 'Modifier la race' : 'Nouvelle race')}
+                {modalType === 'update' && `Mettre à jour ${updateForm.race}`}
+                {modalType === 'incubationUpdate' && 'Mise à jour incubation'}
+              </Text>
+              <TouchableOpacity 
+                style={styles.modalCloseBtn}
+                onPress={() => {
+                  setModalVisible(false);
+                  setUpdateModalLot(null);
+                }}
+              >
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
             <ScrollView 
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -2806,11 +2825,6 @@ export default function ElevageScreen({ navigation, route }) {
             >
               {modalType === 'lot' && (
                 <>
-                  <Text style={styles.modalTitle}>
-                    {editingItem 
-                      ? `Modifier le Lot${lotForm.species ? ` - ${getElevageConfig(lotForm.species).name}` : ''}` 
-                      : `Nouveau Lot${lotForm.species ? ` - ${getElevageConfig(lotForm.species).name}` : ''}`}
-                  </Text>
 
                   {/* Lot Name Section */}
                   <View style={styles.formSection}>
@@ -3188,9 +3202,6 @@ export default function ElevageScreen({ navigation, route }) {
 
               {modalType === 'race' && (
                 <>
-                  <Text style={styles.modalTitle}>
-                    {editingItem ? 'Modifier la Race' : 'Nouvelle Race'}
-                  </Text>
 
                   <TextInput
                     style={styles.input}
@@ -3234,9 +3245,6 @@ export default function ElevageScreen({ navigation, route }) {
 
               {modalType === 'incubationUpdate' && (
                 <>
-                  <Text style={styles.modalTitle}>
-                    Mise à jour de {getIncubationTerm(editingItem?.species || lotForm.species)}: {editingItem?.name}
-                  </Text>
 
                   {/* Incubation Timeline */}
                   <View style={styles.timelineContainer}>
@@ -3762,9 +3770,6 @@ export default function ElevageScreen({ navigation, route }) {
                 
                 return (
                 <>
-                  <Text style={styles.modalTitle}>
-                    Mettre à jour {updateForm.race}
-                  </Text>
 
                   {/* Current Status Display */}
                   <View style={styles.statusDisplayContainer}>
@@ -4076,15 +4081,6 @@ export default function ElevageScreen({ navigation, route }) {
               })()}
 
               <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => {
-                    setModalVisible(false);
-                    setUpdateModalLot(null);
-                  }}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
                 <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={async () => {
@@ -4874,10 +4870,19 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 20,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 20,
     color: '#333',
   },
@@ -5041,6 +5046,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#005F6B',
     textAlign: 'center',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',

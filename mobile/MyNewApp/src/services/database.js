@@ -1708,6 +1708,13 @@ class SimpleTestDatabaseService {
       ]
     },
       egg_production: {}, // { date: { animalType: count } }
+      egg_animal_types: [
+        { key: 'poules', label: 'Poules', icon: '🐔' },
+        { key: 'canards', label: 'Canards', icon: '🦆' },
+        { key: 'oies', label: 'Oies', icon: '🪿' },
+        { key: 'dindes', label: 'Dindes', icon: '🦃' },
+        { key: 'paons', label: 'Paons', icon: '🦚' }
+      ],
       template_messages: [
         {
           id: 1,
@@ -1804,6 +1811,13 @@ class SimpleTestDatabaseService {
           saved_formulas: parsedData.saved_formulas !== undefined ? parsedData.saved_formulas : this.storage.saved_formulas,
           order_pricing: parsedData.order_pricing !== undefined ? parsedData.order_pricing : this.storage.order_pricing,
           egg_production: parsedData.egg_production !== undefined ? parsedData.egg_production : (this.storage.egg_production || {}),
+          egg_animal_types: parsedData.egg_animal_types !== undefined ? parsedData.egg_animal_types : (this.storage.egg_animal_types || [
+            { key: 'poules', label: 'Poules', icon: '🐔' },
+            { key: 'canards', label: 'Canards', icon: '🦆' },
+            { key: 'oies', label: 'Oies', icon: '🪿' },
+            { key: 'dindes', label: 'Dindes', icon: '🦃' },
+            { key: 'paons', label: 'Paons', icon: '🦚' }
+          ]),
           template_messages: parsedData.template_messages !== undefined ? parsedData.template_messages : this.storage.template_messages,
           pricing_grids: parsedData.pricing_grids !== undefined ? parsedData.pricing_grids : this.storage.pricing_grids,
           cheese_productions: parsedData.cheese_productions !== undefined ? parsedData.cheese_productions : (this.storage.cheese_productions || []),
@@ -4122,7 +4136,7 @@ class SimpleTestDatabaseService {
   }
 
   // Egg production methods
-  async saveEggProduction(date, animalType, count) {
+  async saveEggProduction(date, animalType, total, rejected = 0) {
     try {
       if (!this.storage.egg_production) {
         this.storage.egg_production = {};
@@ -4130,12 +4144,22 @@ class SimpleTestDatabaseService {
       if (!this.storage.egg_production[date]) {
         this.storage.egg_production[date] = {};
       }
-      this.storage.egg_production[date][animalType] = count;
+      // Store as object with total and rejected
+      // For backward compatibility, if we receive just a number, treat it as total with 0 rejected
+      if (typeof total === 'object' && total !== null) {
+        // Already an object
+        this.storage.egg_production[date][animalType] = total;
+      } else {
+        this.storage.egg_production[date][animalType] = {
+          total: total || 0,
+          rejected: rejected || 0
+        };
+      }
       await this.saveToStorage();
       
       // Emit event for data refresh
       if (dataEventService && dataEventService.emitEggProductionChange) {
-        dataEventService.emitEggProductionChange({ date, animalType, count });
+        dataEventService.emitEggProductionChange({ date, animalType, total, rejected });
       }
       
       return { success: true };
@@ -4160,6 +4184,67 @@ class SimpleTestDatabaseService {
     } catch (error) {
       console.error('Error getting egg production for date:', error);
       return {};
+    }
+  }
+
+  // Egg animal types management
+  async getEggAnimalTypes() {
+    try {
+      if (!this.storage.egg_animal_types) {
+        // Initialize with default types
+        const defaultTypes = [
+          { key: 'poules', label: 'Poules', icon: '🐔' },
+          { key: 'canards', label: 'Canards', icon: '🦆' },
+          { key: 'oies', label: 'Oies', icon: '🪿' },
+          { key: 'dindes', label: 'Dindes', icon: '🦃' },
+          { key: 'paons', label: 'Paons', icon: '🦚' }
+        ];
+        this.storage.egg_animal_types = defaultTypes;
+        await this.saveToStorage();
+      }
+      return this.storage.egg_animal_types || [];
+    } catch (error) {
+      console.error('Error getting egg animal types:', error);
+      return [
+        { key: 'poules', label: 'Poules', icon: '🐔' },
+        { key: 'canards', label: 'Canards', icon: '🦆' },
+        { key: 'oies', label: 'Oies', icon: '🪿' },
+        { key: 'dindes', label: 'Dindes', icon: '🦃' },
+        { key: 'paons', label: 'Paons', icon: '🦚' }
+      ];
+    }
+  }
+
+  async addEggAnimalType(animalType) {
+    try {
+      if (!this.storage.egg_animal_types) {
+        await this.getEggAnimalTypes(); // Initialize if needed
+      }
+      // Check if already exists
+      const exists = this.storage.egg_animal_types.find(t => t.key === animalType.key);
+      if (exists) {
+        throw new Error('Animal type already exists');
+      }
+      this.storage.egg_animal_types.push(animalType);
+      await this.saveToStorage();
+      return { success: true };
+    } catch (error) {
+      console.error('Error adding egg animal type:', error);
+      throw error;
+    }
+  }
+
+  async deleteEggAnimalType(animalTypeKey) {
+    try {
+      if (!this.storage.egg_animal_types) {
+        await this.getEggAnimalTypes(); // Initialize if needed
+      }
+      this.storage.egg_animal_types = this.storage.egg_animal_types.filter(t => t.key !== animalTypeKey);
+      await this.saveToStorage();
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting egg animal type:', error);
+      throw error;
     }
   }
 }

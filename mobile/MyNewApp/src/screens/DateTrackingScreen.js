@@ -282,9 +282,17 @@ export default function DateTrackingScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>
-                {editingEvent ? 'Modifier l\'événement' : 'Ajouter un événement'}
-              </Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {editingEvent ? 'Modifier l\'événement' : 'Ajouter un événement'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
 
               <TextInput
                 style={styles.input}
@@ -347,12 +355,6 @@ export default function DateTrackingScreen() {
               />
 
               <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
                 <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveEvent}
@@ -525,10 +527,19 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 20,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 20,
     color: '#333',
   },
@@ -570,6 +581,20 @@ const styles = StyleSheet.create({
   typeOptionText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',

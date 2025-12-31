@@ -182,3 +182,4 @@ const saveProduct = async () => {
 - Events are lightweight and don't affect performance
 
 
+

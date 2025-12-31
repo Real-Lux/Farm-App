@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -12,7 +12,9 @@ import {
   FlatList,
   StatusBar,
   Platform,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Animated,
+  PanResponder
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -30,13 +32,7 @@ const toLocalISO = (date) => {
   return localDate.toISOString().split('T')[0];
 };
 
-const EGG_ANIMAL_TYPES = [
-  { key: 'poules', label: 'Poules', icon: '🐔' },
-  { key: 'canards', label: 'Canards', icon: '🦆' },
-  { key: 'oies', label: 'Oies', icon: '🪿' },
-  { key: 'dindes', label: 'Dindes', icon: '🦃' },
-  { key: 'paons', label: 'Paons', icon: '🦚' }
-];
+// EGG_ANIMAL_TYPES will be loaded from database dynamically
 
 export default function ProductManagementScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -91,7 +87,15 @@ export default function ProductManagementScreen({ navigation, route }) {
   const [singleAnimalModalVisible, setSingleAnimalModalVisible] = useState(false);
   const [singleAnimalType, setSingleAnimalType] = useState(null);
   const [singleAnimalCount, setSingleAnimalCount] = useState('');
+  const [singleAnimalRejected, setSingleAnimalRejected] = useState('');
+  const singleAnimalInputRef = React.useRef(null);
+  const singleAnimalRejectedRef = React.useRef(null);
   const [productionInfoModalVisible, setProductionInfoModalVisible] = useState(false);
+  const [eggAnimalTypes, setEggAnimalTypes] = useState([]);
+  const [configureAnimalsModalVisible, setConfigureAnimalsModalVisible] = useState(false);
+  const [newEggAnimalTypeName, setNewEggAnimalTypeName] = useState('');
+  const [newEggAnimalTypeIcon, setNewEggAnimalTypeIcon] = useState('🐔');
+  const [selectedAnimalTypeToDelete, setSelectedAnimalTypeToDelete] = useState(null);
 
   useEffect(() => {
     loadProducts();
@@ -99,6 +103,7 @@ export default function ProductManagementScreen({ navigation, route }) {
     loadConfigs();
     // loadTemplateMessages(); // Load on demand when Client tab is accessed
     loadOrders();
+    loadEggAnimalTypes();
   }, []);
 
   // Automatically refresh products when they change anywhere in the app
@@ -125,6 +130,17 @@ export default function ProductManagementScreen({ navigation, route }) {
       loadEggProduction();
     }
   }, [activeTab]);
+
+  // Auto-focus input when single animal modal opens
+  useEffect(() => {
+    if (singleAnimalModalVisible && singleAnimalInputRef.current) {
+      // Immediate focus to show keyboard right away
+      const timer = setTimeout(() => {
+        singleAnimalInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [singleAnimalModalVisible]);
 
   // Reload when screen comes into focus and check for initialTab and selectedAnimalType
   useFocusEffect(
@@ -227,9 +243,82 @@ export default function ProductManagementScreen({ navigation, route }) {
     }
   };
 
-  const saveEggProduction = async (date, animalType, count) => {
+  const loadEggAnimalTypes = async () => {
     try {
-      await database.saveEggProduction(date, animalType, count);
+      const types = await database.getEggAnimalTypes();
+      setEggAnimalTypes(types);
+    } catch (error) {
+      console.error('Error loading egg animal types:', error);
+      // Fallback to defaults
+      setEggAnimalTypes([
+        { key: 'poules', label: 'Poules', icon: '🐔' },
+        { key: 'canards', label: 'Canards', icon: '🦆' }
+      ]);
+    }
+  };
+
+  const addEggAnimalType = async () => {
+    if (!newEggAnimalTypeName.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer un nom pour le type d\'animal');
+      return;
+    }
+    
+    const animalTypeKey = newEggAnimalTypeName.toLowerCase().replace(/\s+/g, '_');
+    const newType = {
+      key: animalTypeKey,
+      label: newEggAnimalTypeName.trim(),
+      icon: newEggAnimalTypeIcon
+    };
+    
+    try {
+      await database.addEggAnimalType(newType);
+      await loadEggAnimalTypes();
+      setNewEggAnimalTypeName('');
+      setNewEggAnimalTypeIcon('🐔');
+    } catch (error) {
+      console.error('Error adding egg animal type:', error);
+      if (error.message.includes('already exists')) {
+        Alert.alert('Erreur', 'Ce type d\'animal existe déjà');
+      } else {
+        Alert.alert('Erreur', 'Impossible d\'ajouter le type d\'animal');
+      }
+    }
+  };
+
+  const deleteEggAnimalType = (animalTypeKey) => {
+    Alert.alert(
+      'Supprimer le type d\'animal',
+      'Êtes-vous sûr de vouloir supprimer ce type d\'animal ? Cette action supprimera également toutes les données de production associées.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Supprimer', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              await database.deleteEggAnimalType(animalTypeKey);
+              await loadEggAnimalTypes();
+              // Also remove production data for this animal type
+              const updatedProduction = { ...eggProduction };
+              Object.keys(updatedProduction).forEach(date => {
+                if (updatedProduction[date][animalTypeKey]) {
+                  delete updatedProduction[date][animalTypeKey];
+                }
+              });
+              setEggProduction(updatedProduction);
+            } catch (error) {
+              console.error('Error deleting egg animal type:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer le type d\'animal');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const saveEggProduction = async (date, animalType, total, rejected = 0) => {
+    try {
+      await database.saveEggProduction(date, animalType, total, rejected);
       await loadEggProduction();
     } catch (error) {
       console.error('Error saving egg production:', error);
@@ -293,9 +382,42 @@ export default function ProductManagementScreen({ navigation, route }) {
     return eggProduction[date] || {};
   };
 
+  // Helper to get production data (handles both old format: number, and new format: {total, rejected})
+  const getProductionData = (productionValue) => {
+    if (!productionValue) return { total: 0, rejected: 0, accepted: 0 };
+    if (typeof productionValue === 'number') {
+      // Old format - backward compatibility
+      return { total: productionValue, rejected: 0, accepted: productionValue };
+    }
+    // New format
+    const total = productionValue.total || 0;
+    const rejected = productionValue.rejected || 0;
+    const accepted = total - rejected;
+    return { total, rejected, accepted };
+  };
+
   const getTotalProductionForDate = (date) => {
     const dayData = getEggProductionForDate(date);
-    return Object.values(dayData).reduce((sum, count) => sum + (count || 0), 0);
+    return Object.values(dayData).reduce((sum, value) => {
+      const data = getProductionData(value);
+      return sum + data.total;
+    }, 0);
+  };
+
+  const getAcceptedProductionForDate = (date) => {
+    const dayData = getEggProductionForDate(date);
+    return Object.values(dayData).reduce((sum, value) => {
+      const data = getProductionData(value);
+      return sum + data.accepted;
+    }, 0);
+  };
+
+  const getRejectedProductionForDate = (date) => {
+    const dayData = getEggProductionForDate(date);
+    return Object.values(dayData).reduce((sum, value) => {
+      const data = getProductionData(value);
+      return sum + data.rejected;
+    }, 0);
   };
 
   const getBestDay = () => {
@@ -308,7 +430,12 @@ export default function ProductManagementScreen({ navigation, route }) {
         bestDate = date;
       }
     });
-    return bestDate ? { date: bestDate, total: bestTotal } : null;
+    if (bestDate) {
+      const accepted = getAcceptedProductionForDate(bestDate);
+      const rejected = getRejectedProductionForDate(bestDate);
+      return { date: bestDate, total: bestTotal, accepted, rejected };
+    }
+    return null;
   };
 
   const getYearlyTotal = (year) => {
@@ -321,18 +448,52 @@ export default function ProductManagementScreen({ navigation, route }) {
     return total;
   };
 
+  const getYearlyAccepted = (year) => {
+    let accepted = 0;
+    Object.keys(eggProduction).forEach(date => {
+      if (new Date(date).getFullYear() === year) {
+        accepted += getAcceptedProductionForDate(date);
+      }
+    });
+    return accepted;
+  };
+
+  const getYearlyRejected = (year) => {
+    let rejected = 0;
+    Object.keys(eggProduction).forEach(date => {
+      if (new Date(date).getFullYear() === year) {
+        rejected += getRejectedProductionForDate(date);
+      }
+    });
+    return rejected;
+  };
+
   const getBestMonth = () => {
     const currentYear = getCurrentProductionYear();
     let bestMonth = null;
     let bestTotal = 0;
+    let bestAccepted = 0;
+    let bestRejected = 0;
     for (let i = 0; i < 12; i++) {
       const monthTotal = getMonthlyTotal(currentYear, i);
       if (monthTotal > bestTotal) {
         bestTotal = monthTotal;
         bestMonth = i;
+        // Calculate accepted and rejected for this month
+        let monthAccepted = 0;
+        let monthRejected = 0;
+        Object.keys(eggProduction).forEach(date => {
+          const dateObj = new Date(date);
+          if (dateObj.getFullYear() === currentYear && dateObj.getMonth() === i) {
+            monthAccepted += getAcceptedProductionForDate(date);
+            monthRejected += getRejectedProductionForDate(date);
+          }
+        });
+        bestAccepted = monthAccepted;
+        bestRejected = monthRejected;
       }
     }
-    return bestMonth !== null ? { month: bestMonth, monthName: MONTHS_FR[bestMonth], total: bestTotal } : null;
+    return bestMonth !== null ? { month: bestMonth, monthName: MONTHS_FR[bestMonth], total: bestTotal, accepted: bestAccepted, rejected: bestRejected } : null;
   };
 
   const getMonthlyTotal = (year, month) => {
@@ -350,11 +511,23 @@ export default function ProductManagementScreen({ navigation, route }) {
     const currentYear = getCurrentProductionYear();
     const stats = [];
     for (let i = 0; i < 12; i++) {
-      const monthTotal = getMonthlyTotal(currentYear, i);
+      let monthTotal = 0;
+      let monthAccepted = 0;
+      let monthRejected = 0;
+      Object.keys(eggProduction).forEach(date => {
+        const dateObj = new Date(date);
+        if (dateObj.getFullYear() === currentYear && dateObj.getMonth() === i) {
+          monthTotal += getTotalProductionForDate(date);
+          monthAccepted += getAcceptedProductionForDate(date);
+          monthRejected += getRejectedProductionForDate(date);
+        }
+      });
       stats.push({
         month: i,
         monthName: MONTHS_FR[i],
-        total: monthTotal
+        total: monthTotal,
+        accepted: monthAccepted,
+        rejected: monthRejected
       });
     }
     return stats;
@@ -363,7 +536,20 @@ export default function ProductManagementScreen({ navigation, route }) {
   // Per-animal-type statistics
   const getAnimalTypeTotalForDate = (date, animalType) => {
     const dayData = getEggProductionForDate(date);
-    return dayData[animalType] || 0;
+    const data = getProductionData(dayData[animalType]);
+    return data.total;
+  };
+
+  const getAnimalTypeAcceptedForDate = (date, animalType) => {
+    const dayData = getEggProductionForDate(date);
+    const data = getProductionData(dayData[animalType]);
+    return data.accepted;
+  };
+
+  const getAnimalTypeRejectedForDate = (date, animalType) => {
+    const dayData = getEggProductionForDate(date);
+    const data = getProductionData(dayData[animalType]);
+    return data.rejected;
   };
 
   const getAnimalTypeBestDay = (animalType) => {
@@ -376,7 +562,12 @@ export default function ProductManagementScreen({ navigation, route }) {
         bestDate = date;
       }
     });
-    return bestDate ? { date: bestDate, total: bestTotal } : null;
+    if (bestDate) {
+      const accepted = getAnimalTypeAcceptedForDate(bestDate, animalType);
+      const rejected = getAnimalTypeRejectedForDate(bestDate, animalType);
+      return { date: bestDate, total: bestTotal, accepted, rejected };
+    }
+    return null;
   };
 
   const getAnimalTypeYearlyTotal = (year, animalType) => {
@@ -389,24 +580,42 @@ export default function ProductManagementScreen({ navigation, route }) {
     return total;
   };
 
+  const getAnimalTypeYearlyRejected = (year, animalType) => {
+    let rejected = 0;
+    Object.keys(eggProduction).forEach(date => {
+      if (new Date(date).getFullYear() === year) {
+        rejected += getAnimalTypeRejectedForDate(date, animalType);
+      }
+    });
+    return rejected;
+  };
+
   const getAnimalTypeBestMonth = (animalType) => {
     const currentYear = getCurrentProductionYear();
     let bestMonth = null;
     let bestTotal = 0;
+    let bestAccepted = 0;
+    let bestRejected = 0;
     for (let i = 0; i < 12; i++) {
       let monthTotal = 0;
+      let monthAccepted = 0;
+      let monthRejected = 0;
       Object.keys(eggProduction).forEach(date => {
         const dateObj = new Date(date);
         if (dateObj.getFullYear() === currentYear && dateObj.getMonth() === i) {
           monthTotal += getAnimalTypeTotalForDate(date, animalType);
+          monthAccepted += getAnimalTypeAcceptedForDate(date, animalType);
+          monthRejected += getAnimalTypeRejectedForDate(date, animalType);
         }
       });
       if (monthTotal > bestTotal) {
         bestTotal = monthTotal;
+        bestAccepted = monthAccepted;
+        bestRejected = monthRejected;
         bestMonth = i;
       }
     }
-    return bestMonth !== null ? { month: bestMonth, monthName: MONTHS_FR[bestMonth], total: bestTotal } : null;
+    return bestMonth !== null ? { month: bestMonth, monthName: MONTHS_FR[bestMonth], total: bestTotal, accepted: bestAccepted, rejected: bestRejected } : null;
   };
 
   const getAnimalTypeMonthlyStats = (animalType) => {
@@ -414,16 +623,22 @@ export default function ProductManagementScreen({ navigation, route }) {
     const stats = [];
     for (let i = 0; i < 12; i++) {
       let monthTotal = 0;
+      let monthAccepted = 0;
+      let monthRejected = 0;
       Object.keys(eggProduction).forEach(date => {
         const dateObj = new Date(date);
         if (dateObj.getFullYear() === currentYear && dateObj.getMonth() === i) {
           monthTotal += getAnimalTypeTotalForDate(date, animalType);
+          monthAccepted += getAnimalTypeAcceptedForDate(date, animalType);
+          monthRejected += getAnimalTypeRejectedForDate(date, animalType);
         }
       });
       stats.push({
         month: i,
         monthName: MONTHS_FR[i],
-        total: monthTotal
+        total: monthTotal,
+        accepted: monthAccepted,
+        rejected: monthRejected
       });
     }
     return stats;
@@ -436,8 +651,15 @@ export default function ProductManagementScreen({ navigation, route }) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateISO = toISODate(date.toISOString().split('T')[0]);
-      const count = getAnimalTypeTotalForDate(dateISO, animalType);
-      last7Days.push({ date: dateISO, count });
+      const dayData = getEggProductionForDate(dateISO);
+      const productionValue = dayData[animalType];
+      const productionData = getProductionData(productionValue);
+      last7Days.push({ 
+        date: dateISO, 
+        total: productionData.total,
+        accepted: productionData.accepted,
+        rejected: productionData.rejected
+      });
     }
     return last7Days;
   };
@@ -452,7 +674,7 @@ export default function ProductManagementScreen({ navigation, route }) {
   const openProductionModal = (date) => {
     const dayData = getEggProductionForDate(date);
     const formData = {};
-    EGG_ANIMAL_TYPES.forEach(type => {
+    eggAnimalTypes.forEach(type => {
       formData[type.key] = (dayData[type.key] || 0).toString();
     });
     setProductionForm(formData);
@@ -905,6 +1127,329 @@ export default function ProductManagementScreen({ navigation, route }) {
     );
   };
 
+  // Egg Type Card Component with Swipe-to-Delete
+  const EggTypeCard = ({
+    type,
+    dayData,
+    count,
+    isExpanded,
+    selectedProductionDate,
+    currentYear,
+    getAnimalTypeLast7Days,
+    getAnimalTypeMonthlyStats,
+    getAnimalTypeBestDay,
+    getAnimalTypeBestMonth,
+    getAnimalTypeYearlyTotal,
+    getAnimalTypeYearlyRejected,
+    getAnimalTypeTotalForDate,
+    getAnimalTypeAcceptedForDate,
+    getAnimalTypeRejectedForDate,
+    getProductionData,
+    toggleEggTypeExpansion,
+    onAddPress,
+    onDeletePress,
+    toFrenchDate
+  }) => {
+    const slideAnim = useRef(new Animated.Value(0)).current;
+    const longPressTimer = useRef(null);
+    const isRevealed = useRef(false);
+    const [isDeleteVisible, setIsDeleteVisible] = useState(false);
+
+    const revealDelete = () => {
+      if (isRevealed.current) return;
+      isRevealed.current = true;
+      setIsDeleteVisible(true);
+      Animated.spring(slideAnim, {
+        toValue: 80,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    };
+
+    const hideDelete = () => {
+      if (!isRevealed.current) return;
+      isRevealed.current = false;
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start(() => {
+        setIsDeleteVisible(false);
+      });
+    };
+
+    const handleLongPress = () => {
+      longPressTimer.current = setTimeout(() => {
+        revealDelete();
+      }, 1000); // 1 second long press
+    };
+
+    const handlePressOut = () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+    };
+
+    const panResponder = useRef(
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) => {
+          // Only respond to horizontal swipes when delete is revealed
+          if (isRevealed.current && Math.abs(gestureState.dx) > 10) {
+            return true;
+          }
+          return false;
+        },
+        onPanResponderGrant: () => {
+          if (isRevealed.current) {
+            slideAnim.setOffset(slideAnim._value);
+            slideAnim.setValue(0);
+          }
+        },
+        onPanResponderMove: (evt, gestureState) => {
+          if (isRevealed.current) {
+            const newValue = Math.max(0, Math.min(80, gestureState.dx));
+            slideAnim.setValue(newValue);
+          }
+        },
+        onPanResponderRelease: (evt, gestureState) => {
+          if (isRevealed.current) {
+            slideAnim.flattenOffset();
+            if (gestureState.dx < -40) {
+              // Swipe left to close
+              hideDelete();
+            } else if (gestureState.dx < 40) {
+              // Return to revealed position
+              Animated.spring(slideAnim, {
+                toValue: 80,
+                useNativeDriver: true,
+                tension: 50,
+                friction: 8,
+              }).start();
+            }
+          }
+        },
+      })
+    ).current;
+
+    const productionValue = dayData[type.key];
+    const productionData = getProductionData(productionValue);
+    const last7Days = getAnimalTypeLast7Days(type.key);
+    const animalTypeMonthlyStats = getAnimalTypeMonthlyStats(type.key);
+    const animalTypeBestDay = getAnimalTypeBestDay(type.key);
+    const animalTypeBestMonth = getAnimalTypeBestMonth(type.key);
+    const animalTypeYearlyTotal = getAnimalTypeYearlyTotal(currentYear, type.key);
+    const animalTypeYearlyRejected = getAnimalTypeYearlyRejected(currentYear, type.key);
+    const animalTypeTotalForDay = getAnimalTypeTotalForDate(selectedProductionDate, type.key);
+    const animalTypeAcceptedForDay = getAnimalTypeAcceptedForDate(selectedProductionDate, type.key);
+    const animalTypeRejectedForDay = getAnimalTypeRejectedForDate(selectedProductionDate, type.key);
+
+    return (
+      <View style={styles.eggTypeStatusCard}>
+        <View style={styles.eggTypeStatusHeader}>
+          <TouchableOpacity
+            style={styles.eggTypeStatusLeft}
+            onPress={() => toggleEggTypeExpansion(type.key)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.eggTypeIcon}>{type.icon}</Text>
+            <Text style={styles.eggTypeLabel}>{type.label}</Text>
+          </TouchableOpacity>
+            <View style={styles.eggTypeStatusRight}>
+              <View style={styles.eggTypeCountContainer}>
+                {productionData.total > 0 ? (
+                  <>
+                    <Text style={styles.eggTypeCountTotal}>{productionData.total}</Text>
+                    <Text style={styles.eggTypeCountSeparator}> • </Text>
+                    <Text style={styles.eggTypeCountAccepted}>{productionData.accepted}</Text>
+                    {productionData.rejected > 0 && (
+                      <>
+                        <Text style={styles.eggTypeCountSeparator}> • </Text>
+                        <Text style={styles.eggTypeCountRejected}>{productionData.rejected}</Text>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <Text style={styles.eggTypeCount}>0</Text>
+                )}
+              </View>
+              <TouchableOpacity 
+                style={styles.eggTypeAddButton}
+                onPress={onAddPress}
+              >
+                <Text style={styles.eggTypeAddButtonText}>+</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => toggleEggTypeExpansion(type.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.eggTypeExpandIcon}>
+                  {isExpanded ? '▼' : '▶'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+                
+                {isExpanded && (
+                  <View style={styles.eggTypeStatusDetails}>
+                    {/* Individual Stats for this animal type */}
+                    <View style={styles.eggTypeStatsRow}>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Du jour</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeTotalForDay}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Meilleur jour</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeBestDay ? animalTypeBestDay.total : '0'}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Meilleur mois</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeBestMonth ? animalTypeBestMonth.total : '0'}</Text>
+                          {animalTypeBestMonth && (
+                            <Text style={styles.eggTypeStatSubtext}>{animalTypeBestMonth.monthName}</Text>
+                          )}
+                        </View>
+                      </View>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Annuel</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeYearlyTotal}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Total rejetés</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={[styles.eggTypeStatValue, styles.eggTypeStatValueRejected]}>{animalTypeYearlyRejected}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Last 7 Days History */}
+                    <Text style={styles.eggTypeHistoryTitle}>Historique récents (7 derniers jours):</Text>
+                    <View style={styles.eggTypeHistoryList}>
+                      {last7Days.map(item => (
+                        <View key={item.date} style={styles.eggTypeHistoryItem}>
+                          <Text style={styles.eggTypeHistoryDate}>
+                            {toFrenchDate(item.date)}
+                          </Text>
+                          <Text style={styles.eggTypeHistoryCount}>
+                            {item.count} œufs
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+
+                    {/* Monthly Stats for this animal type */}
+                    <Text style={styles.eggTypeHistoryTitle}>Production par mois ({currentYear}):</Text>
+                    <View style={styles.monthlyBarChartContainer}>
+                      {(() => {
+                        const maxValue = Math.max(...animalTypeMonthlyStats.map(s => s.total), 1);
+                        const chartHeight = 100;
+                        return animalTypeMonthlyStats.map((stat, index) => {
+                          const totalBarHeight = maxValue > 0 ? (stat.total / maxValue) * chartHeight : 0;
+                          const acceptedBarHeight = stat.total > 0 ? (stat.accepted / stat.total) * totalBarHeight : 0;
+                          const rejectedBarHeight = stat.total > 0 ? (stat.rejected / stat.total) * totalBarHeight : 0;
+                          const hasLargeNumber = stat.total >= 1000;
+                          const isEven = index % 2 === 0;
+                          return (
+                            <View key={stat.month} style={styles.monthlyBarChartItem}>
+                              <View style={styles.monthlyBarChartBarContainer}>
+                                <View style={styles.monthlyBarChartValueContainer}>
+                                  {stat.total > 0 ? (
+                                    <>
+                                      <Text 
+                                        style={hasLargeNumber ? styles.monthlyBarChartValueLarge : styles.monthlyBarChartValue}
+                                        numberOfLines={1}
+                                      >
+                                        {stat.total}
+                                      </Text>
+                                      <View style={styles.monthlyBarChartValueBreakdown}>
+                                        <Text style={styles.monthlyBarChartValueAccepted}>{stat.accepted}</Text>
+                                        {stat.rejected > 0 && (
+                                          <Text style={styles.monthlyBarChartValueRejectedText}>{stat.rejected}</Text>
+                                        )}
+                                      </View>
+                                    </>
+                                  ) : (
+                                    <Text 
+                                      style={styles.monthlyBarChartValue}
+                                      numberOfLines={1}
+                                    >
+                                      0
+                                    </Text>
+                                  )}
+                                </View>
+                                <View style={styles.monthlyBarChartBarWrapper}>
+                                  {stat.total > 0 && (
+                                    <>
+                                      {/* Accepted bar (green, at bottom) */}
+                                      {stat.accepted > 0 && (
+                                        <View 
+                                          style={[
+                                            styles.monthlyBarChartBarAccepted,
+                                            { 
+                                              height: Math.max(acceptedBarHeight, 2),
+                                              position: 'absolute',
+                                              bottom: 0,
+                                              width: '70%',
+                                              zIndex: 1
+                                            }
+                                          ]}
+                                        />
+                                      )}
+                                      {/* Rejected bar (red, stacked on top of accepted) */}
+                                      {stat.rejected > 0 && (
+                                        <View 
+                                          style={[
+                                            styles.monthlyBarChartBarRejected,
+                                            { 
+                                              height: Math.max(rejectedBarHeight, 2),
+                                              position: 'absolute',
+                                              bottom: acceptedBarHeight,
+                                              width: '70%',
+                                              zIndex: 2
+                                            }
+                                          ]}
+                                        />
+                                      )}
+                                      {/* Total bar (blue background, full height for reference) */}
+                                      <View 
+                                        style={[
+                                          styles.monthlyBarChartBarTotal,
+                                          { 
+                                            height: Math.max(totalBarHeight, 2),
+                                            position: 'absolute',
+                                            bottom: 0,
+                                            width: '70%',
+                                            zIndex: 0,
+                                            opacity: 0.3
+                                          }
+                                        ]}
+                                      />
+                                    </>
+                                  )}
+                                </View>
+                              </View>
+                              <Text style={styles.monthlyBarChartMonth}>{stat.monthName.substring(0, 3)}</Text>
+                            </View>
+                          );
+                        });
+                      })()}
+                    </View>
+                  </View>
+                )}
+        </View>
+      );
+    };
+
   const MessageItem = ({ item }) => {
     if (!item) return null;
     
@@ -1151,10 +1696,14 @@ export default function ProductManagementScreen({ navigation, route }) {
   const renderProductions = () => {
     const dayData = getEggProductionForDate(selectedProductionDate);
     const totalForDay = getTotalProductionForDate(selectedProductionDate);
+    const acceptedForDay = getAcceptedProductionForDate(selectedProductionDate);
+    const rejectedForDay = getRejectedProductionForDate(selectedProductionDate);
     const bestDay = getBestDay();
     const bestMonth = getBestMonth();
     const currentYear = getCurrentProductionYear();
     const yearlyTotal = getYearlyTotal(currentYear);
+    const yearlyAccepted = getYearlyAccepted(currentYear);
+    const yearlyRejected = getYearlyRejected(currentYear);
     const monthlyStats = getMonthlyStats();
     const selectedDateObj = new Date(selectedProductionDate);
     const isToday = selectedProductionDate === getTodayISO();
@@ -1263,20 +1812,28 @@ export default function ProductManagementScreen({ navigation, route }) {
               <Text style={styles.compactStatLabel}>Total annuel</Text>
               <Text style={styles.compactStatValue}>{yearlyTotal}</Text>
             </View>
+            <View style={styles.compactStatItem}>
+              <Text style={styles.compactStatLabel}>Total rejetés</Text>
+              <Text style={[styles.compactStatValue, styles.compactStatValueRejected]}>{yearlyRejected}</Text>
+            </View>
           </View>
         </View>
 
         {/* Status Bar for Each Egg Type */}
         <View style={styles.eggTypesStatusContainer}>
-          {EGG_ANIMAL_TYPES.map(type => {
-            const count = dayData[type.key] || 0;
+          {eggAnimalTypes.map(type => {
+            const productionValue = dayData[type.key];
+            const productionData = getProductionData(productionValue);
             const isExpanded = expandedEggTypes[type.key];
             const last7Days = getAnimalTypeLast7Days(type.key);
             const animalTypeMonthlyStats = getAnimalTypeMonthlyStats(type.key);
             const animalTypeBestDay = getAnimalTypeBestDay(type.key);
             const animalTypeBestMonth = getAnimalTypeBestMonth(type.key);
             const animalTypeYearlyTotal = getAnimalTypeYearlyTotal(currentYear, type.key);
+            const animalTypeYearlyRejected = getAnimalTypeYearlyRejected(currentYear, type.key);
             const animalTypeTotalForDay = getAnimalTypeTotalForDate(selectedProductionDate, type.key);
+            const animalTypeAcceptedForDay = getAnimalTypeAcceptedForDate(selectedProductionDate, type.key);
+            const animalTypeRejectedForDay = getAnimalTypeRejectedForDate(selectedProductionDate, type.key);
             
             return (
               <View key={type.key} style={styles.eggTypeStatusCard}>
@@ -1290,12 +1847,29 @@ export default function ProductManagementScreen({ navigation, route }) {
                     <Text style={styles.eggTypeLabel}>{type.label}</Text>
                   </TouchableOpacity>
                   <View style={styles.eggTypeStatusRight}>
-                    <Text style={styles.eggTypeCount}>{count} œufs</Text>
+                    <View style={styles.eggTypeCountContainer}>
+                      {productionData.total > 0 ? (
+                        <>
+                          <Text style={styles.eggTypeCountTotal}>{productionData.total}</Text>
+                          <Text style={styles.eggTypeCountSeparator}> • </Text>
+                          <Text style={styles.eggTypeCountAccepted}>{productionData.accepted}</Text>
+                          {productionData.rejected > 0 && (
+                            <>
+                              <Text style={styles.eggTypeCountSeparator}> • </Text>
+                              <Text style={styles.eggTypeCountRejected}>{productionData.rejected}</Text>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <Text style={styles.eggTypeCount}>0</Text>
+                      )}
+                    </View>
                     <TouchableOpacity 
                       style={styles.eggTypeAddButton}
                       onPress={() => {
                         setSingleAnimalType(type.key);
                         setSingleAnimalCount('');
+                        setSingleAnimalRejected('');
                         setSingleAnimalModalVisible(true);
                       }}
                     >
@@ -1318,24 +1892,36 @@ export default function ProductManagementScreen({ navigation, route }) {
                     <View style={styles.eggTypeStatsRow}>
                       <View style={styles.eggTypeStatItem}>
                         <Text style={styles.eggTypeStatLabel}>Du jour</Text>
-                        <Text style={styles.eggTypeStatValue}>{animalTypeTotalForDay}</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeTotalForDay}</Text>
+                        </View>
                       </View>
-                      {animalTypeBestDay && (
-                        <View style={styles.eggTypeStatItem}>
-                          <Text style={styles.eggTypeStatLabel}>Meilleur jour</Text>
-                          <Text style={styles.eggTypeStatValue}>{animalTypeBestDay.total}</Text>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Meilleur jour</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeBestDay ? animalTypeBestDay.total : '0'}</Text>
                         </View>
-                      )}
-                      {animalTypeBestMonth && (
-                        <View style={styles.eggTypeStatItem}>
-                          <Text style={styles.eggTypeStatLabel}>Meilleur mois</Text>
-                          <Text style={styles.eggTypeStatValue}>{animalTypeBestMonth.total}</Text>
-                          <Text style={styles.eggTypeStatSubtext}>{animalTypeBestMonth.monthName}</Text>
+                      </View>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Meilleur mois</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeBestMonth ? animalTypeBestMonth.total : '0'}</Text>
+                          {animalTypeBestMonth && (
+                            <Text style={styles.eggTypeStatSubtext}>{animalTypeBestMonth.monthName}</Text>
+                          )}
                         </View>
-                      )}
+                      </View>
                       <View style={styles.eggTypeStatItem}>
                         <Text style={styles.eggTypeStatLabel}>Annuel</Text>
-                        <Text style={styles.eggTypeStatValue}>{animalTypeYearlyTotal}</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={styles.eggTypeStatValue}>{animalTypeYearlyTotal}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.eggTypeStatItem}>
+                        <Text style={styles.eggTypeStatLabel}>Total rejetés</Text>
+                        <View style={styles.eggTypeStatValueWrapper}>
+                          <Text style={[styles.eggTypeStatValue, styles.eggTypeStatValueRejected]}>{animalTypeYearlyRejected}</Text>
+                        </View>
                       </View>
                     </View>
 
@@ -1347,9 +1933,22 @@ export default function ProductManagementScreen({ navigation, route }) {
                           <Text style={styles.eggTypeHistoryDate}>
                             {toFrenchDate(item.date)}
                           </Text>
-                          <Text style={styles.eggTypeHistoryCount}>
-                            {item.count} œufs
-                          </Text>
+                          <View style={styles.eggTypeHistoryCounts}>
+                            {item.total > 0 ? (
+                              <>
+                                <Text style={styles.eggTypeHistoryCount}>
+                                  {item.accepted} acceptés
+                                </Text>
+                                {item.rejected > 0 && (
+                                  <Text style={[styles.eggTypeHistoryCount, styles.eggTypeHistoryRejected]}>
+                                    {' / '}{item.rejected} rejetés
+                                  </Text>
+                                )}
+                              </>
+                            ) : (
+                              <Text style={styles.eggTypeHistoryCount}>0 œufs</Text>
+                            )}
+                          </View>
                         </View>
                       ))}
                     </View>
@@ -1362,43 +1961,88 @@ export default function ProductManagementScreen({ navigation, route }) {
                         const valueTextHeight = 20; // Space reserved for value text at top
                         const chartHeight = 100; // Bar area height (below value text)
                         return animalTypeMonthlyStats.map((stat, index) => {
-                          const barHeight = maxValue > 0 ? (stat.total / maxValue) * chartHeight : 0;
+                          const totalBarHeight = maxValue > 0 ? (stat.total / maxValue) * chartHeight : 0;
+                          const acceptedBarHeight = stat.total > 0 ? (stat.accepted / stat.total) * totalBarHeight : 0;
+                          const rejectedBarHeight = stat.total > 0 ? (stat.rejected / stat.total) * totalBarHeight : 0;
                           const hasLargeNumber = stat.total >= 1000;
                           const isEven = index % 2 === 0;
                           return (
                             <View key={stat.month} style={styles.monthlyBarChartItem}>
                               <View style={styles.monthlyBarChartBarContainer}>
-                                {/* Value text - positioned to avoid overlap */}
-                                {hasLargeNumber ? (
-                                  <View style={[
-                                    styles.monthlyBarChartValueContainer,
-                                    isEven ? styles.monthlyBarChartValueLeft : styles.monthlyBarChartValueRight
-                                  ]}>
-                                    <Text 
-                                      style={styles.monthlyBarChartValueLarge}
-                                      numberOfLines={1}
-                                    >
-                                      {stat.total}
-                                    </Text>
-                                  </View>
-                                ) : (
-                                  <View style={styles.monthlyBarChartValueContainer}>
+                                <View style={styles.monthlyBarChartValueContainer}>
+                                  {stat.total > 0 ? (
+                                    <>
+                                      <Text 
+                                        style={hasLargeNumber ? styles.monthlyBarChartValueLarge : styles.monthlyBarChartValue}
+                                        numberOfLines={1}
+                                      >
+                                        {stat.total}
+                                      </Text>
+                                      <View style={styles.monthlyBarChartValueBreakdown}>
+                                        <Text style={styles.monthlyBarChartValueAccepted}>{stat.accepted}</Text>
+                                        {stat.rejected > 0 && (
+                                          <Text style={styles.monthlyBarChartValueRejectedText}>{stat.rejected}</Text>
+                                        )}
+                                      </View>
+                                    </>
+                                  ) : (
                                     <Text 
                                       style={styles.monthlyBarChartValue}
                                       numberOfLines={1}
                                     >
-                                      {stat.total}
+                                      0
                                     </Text>
-                                  </View>
-                                )}
-                                {/* Bar wrapper - below value text */}
+                                  )}
+                                </View>
                                 <View style={styles.monthlyBarChartBarWrapper}>
-                                  <View 
-                                    style={[
-                                      styles.monthlyBarChartBar,
-                                      { height: Math.max(barHeight, 2) }
-                                    ]}
-                                  />
+                                  {stat.total > 0 && (
+                                    <>
+                                      {/* Accepted bar (green, at bottom) */}
+                                      {stat.accepted > 0 && (
+                                        <View 
+                                          style={[
+                                            styles.monthlyBarChartBarAccepted,
+                                            { 
+                                              height: Math.max(acceptedBarHeight, 2),
+                                              position: 'absolute',
+                                              bottom: 0,
+                                              width: '70%',
+                                              zIndex: 1
+                                            }
+                                          ]}
+                                        />
+                                      )}
+                                      {/* Rejected bar (red, stacked on top of accepted) */}
+                                      {stat.rejected > 0 && (
+                                        <View 
+                                          style={[
+                                            styles.monthlyBarChartBarRejected,
+                                            { 
+                                              height: Math.max(rejectedBarHeight, 2),
+                                              position: 'absolute',
+                                              bottom: acceptedBarHeight,
+                                              width: '70%',
+                                              zIndex: 2
+                                            }
+                                          ]}
+                                        />
+                                      )}
+                                      {/* Total bar (blue background, full height for reference) */}
+                                      <View 
+                                        style={[
+                                          styles.monthlyBarChartBarTotal,
+                                          { 
+                                            height: Math.max(totalBarHeight, 2),
+                                            position: 'absolute',
+                                            bottom: 0,
+                                            width: '70%',
+                                            zIndex: 0,
+                                            opacity: 0.3
+                                          }
+                                        ]}
+                                      />
+                                    </>
+                                  )}
                                 </View>
                               </View>
                               <Text style={styles.monthlyBarChartMonth}>{stat.monthName.substring(0, 3)}</Text>
@@ -1412,6 +2056,21 @@ export default function ProductManagementScreen({ navigation, route }) {
               </View>
             );
           })}
+        </View>
+
+        {/* Configure Animals Button */}
+        <View style={styles.addAnimalTypeContainer}>
+          <TouchableOpacity 
+            style={styles.addAnimalTypeButton}
+            onPress={() => {
+              setNewEggAnimalTypeName('');
+              setNewEggAnimalTypeIcon('🐔');
+              setSelectedAnimalTypeToDelete(null);
+              setConfigureAnimalsModalVisible(true);
+            }}
+          >
+            <Text style={styles.addAnimalTypeButtonText}>⚙️ Configurer animaux</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -1614,14 +2273,22 @@ export default function ProductManagementScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>
-                  {editingProduct ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
-                </Text>
 
               <TextInput
                 style={styles.input}
@@ -1677,12 +2344,6 @@ export default function ProductManagementScreen({ navigation, route }) {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveProduct}
                 >
@@ -1709,14 +2370,22 @@ export default function ProductManagementScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {editingMessage ? 'Modifier le message' : 'Nouveau message modèle'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setMessageModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>
-                  {editingMessage ? 'Modifier le message' : 'Nouveau message modèle'}
-                </Text>
 
               <TextInput
                 style={styles.input}
@@ -1772,12 +2441,6 @@ export default function ProductManagementScreen({ navigation, route }) {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setMessageModalVisible(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveMessage}
                 >
@@ -1804,14 +2467,22 @@ export default function ProductManagementScreen({ navigation, route }) {
               <View style={styles.pricingModalHeader}>
                 <View style={styles.pricingModalHeaderTop}>
                   <Text style={styles.modalTitle}>⚙️ Configuration Grille Tarifaire</Text>
-                  {Object.keys(pricingGrids).length > 1 && (
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    {Object.keys(pricingGrids).length > 1 && (
+                      <TouchableOpacity 
+                        style={styles.copyGridButton}
+                        onPress={() => setCopyGridModal(true)}
+                      >
+                        <Text style={styles.copyGridButtonText}>📋 Copier</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity 
-                      style={styles.copyGridButton}
-                      onPress={() => setCopyGridModal(true)}
+                      style={styles.modalCloseBtn}
+                      onPress={() => setTemplateSettingsModal(false)}
                     >
-                      <Text style={styles.copyGridButtonText}>📋 Copier</Text>
+                      <Text style={styles.modalCloseBtnText}>✕</Text>
                     </TouchableOpacity>
-                  )}
+                  </View>
                 </View>
                 <Text style={styles.templateDescription}>
                   Modifiez la grille tarifaire pour <Text style={styles.animalTypeHighlight}>{selectedAnimalType}</Text> :
@@ -2046,7 +2717,15 @@ export default function ProductManagementScreen({ navigation, route }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>📋 Copier une Grille Tarifaire</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>📋 Copier une Grille Tarifaire</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setCopyGridModal(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               
               <Text style={styles.templateDescription}>
                 Sélectionnez une grille à copier vers {selectedAnimalType} :
@@ -2085,14 +2764,6 @@ export default function ProductManagementScreen({ navigation, route }) {
                 )}
               </ScrollView>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setCopyGridModal(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </View>
         </Modal>
@@ -2115,12 +2786,25 @@ export default function ProductManagementScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>📨 Générer un Message</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => {
+                    setGenerateMessageModal(false);
+                    setSelectedTemplateForGeneration(null);
+                    setSelectedOrderForGeneration(null);
+                    setGeneratedMessagePreview('');
+                  }}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>📨 Générer un Message</Text>
                 
                 <Text style={styles.inputLabel}>Sélectionner un modèle :</Text>
                 <ScrollView 
@@ -2199,17 +2883,6 @@ export default function ProductManagementScreen({ navigation, route }) {
                 )}
 
                 <View style={styles.modalActions}>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => {
-                      setGenerateMessageModal(false);
-                      setSelectedTemplateForGeneration(null);
-                      setSelectedOrderForGeneration(null);
-                      setGeneratedMessagePreview('');
-                    }}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
                   {generatedMessagePreview && (
                     <>
                       <TouchableOpacity 
@@ -2251,16 +2924,24 @@ export default function ProductManagementScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  Production d'Œufs - {toFrenchDate(selectedProductionDate)}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setProductionModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>
-                  Production d'Œufs - {toFrenchDate(selectedProductionDate)}
-                </Text>
 
-                {EGG_ANIMAL_TYPES.map(type => (
+                {eggAnimalTypes.map(type => (
                   <View key={type.key} style={styles.productionInputGroup}>
                     <Text style={styles.inputLabel}>
                       {type.icon} {type.label}
@@ -2281,17 +2962,11 @@ export default function ProductManagementScreen({ navigation, route }) {
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => setProductionModalVisible(false)}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={async () => {
                       try {
                         let saved = false;
-                        for (const type of EGG_ANIMAL_TYPES) {
+                        for (const type of eggAnimalTypes) {
                           const count = parseInt(productionForm[type.key] || '0');
                           await saveEggProduction(selectedProductionDate, type.key, count);
                           if (count > 0) saved = true;
@@ -2424,73 +3099,230 @@ export default function ProductManagementScreen({ navigation, route }) {
             setSingleAnimalType(null);
           }}
         >
-          <TouchableOpacity 
-            style={styles.singleAnimalModalOverlay}
-            activeOpacity={1}
-            onPress={() => {
-              const count = parseInt(singleAnimalCount || '0');
-              if (count > 0) {
-                saveEggProduction(selectedProductionDate, singleAnimalType, count);
-              }
-              setSingleAnimalModalVisible(false);
-              setSingleAnimalCount('');
-              setSingleAnimalType(null);
-            }}
-          >
+          <View style={styles.singleAnimalModalOverlay}>
             <TouchableOpacity 
-              style={styles.singleAnimalModalContent}
+              style={StyleSheet.absoluteFill}
               activeOpacity={1}
-              onPress={(e) => e.stopPropagation()}
+              onPress={() => {
+                const total = parseInt(singleAnimalCount || '0');
+                const rejected = parseInt(singleAnimalRejected || '0');
+                if (total > 0) {
+                  saveEggProduction(selectedProductionDate, singleAnimalType, total, rejected);
+                }
+                setSingleAnimalModalVisible(false);
+                setSingleAnimalCount('');
+                setSingleAnimalRejected('');
+                setSingleAnimalType(null);
+              }}
+            />
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
             >
-              <View style={styles.singleAnimalModalHeader}>
-                <Text style={styles.singleAnimalModalTitle}>
-                  {singleAnimalType && EGG_ANIMAL_TYPES.find(t => t.key === singleAnimalType)?.icon} {singleAnimalType && EGG_ANIMAL_TYPES.find(t => t.key === singleAnimalType)?.label}
-                </Text>
-                <TouchableOpacity 
-                  style={styles.singleAnimalModalClose}
-                  onPress={() => {
-                    const count = parseInt(singleAnimalCount || '0');
-                    if (count > 0) {
-                      saveEggProduction(selectedProductionDate, singleAnimalType, count);
-                    }
-                    setSingleAnimalModalVisible(false);
-                    setSingleAnimalCount('');
-                    setSingleAnimalType(null);
-                  }}
-                >
-                  <Text style={styles.singleAnimalModalCloseText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.singleAnimalModalBody}>
-                <Text style={styles.singleAnimalInputLabel}>Nombre d'œufs</Text>
-                <TextInput
-                  style={styles.singleAnimalInput}
-                  placeholder="nombre d'oeufs"
-                  placeholderTextColor="#999"
-                  value={singleAnimalCount}
-                  onChangeText={(text) => setSingleAnimalCount(text.replace(/[^0-9]/g, ''))}
-                  keyboardType="number-pad"
-                  autoFocus={true}
-                />
+              <TouchableOpacity 
+                style={styles.singleAnimalModalContent}
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.singleAnimalModalHeader}>
+                  <Text style={styles.singleAnimalModalTitle}>
+                    {singleAnimalType && eggAnimalTypes.find(t => t.key === singleAnimalType)?.icon} {singleAnimalType && eggAnimalTypes.find(t => t.key === singleAnimalType)?.label}
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.singleAnimalModalClose}
+                    onPress={() => {
+                      const total = parseInt(singleAnimalCount || '0');
+                      const rejected = parseInt(singleAnimalRejected || '0');
+                      if (total > 0) {
+                        saveEggProduction(selectedProductionDate, singleAnimalType, total, rejected);
+                      }
+                      setSingleAnimalModalVisible(false);
+                      setSingleAnimalCount('');
+                      setSingleAnimalRejected('');
+                      setSingleAnimalType(null);
+                    }}
+                  >
+                    <Text style={styles.singleAnimalModalCloseText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
                 
+                <View style={styles.singleAnimalModalBody}>
+                  <View style={styles.singleAnimalInputsRow}>
+                    <View style={styles.singleAnimalInputContainer}>
+                      <Text style={styles.singleAnimalInputLabel}>Total</Text>
+                      <TextInput
+                        ref={singleAnimalInputRef}
+                        style={styles.singleAnimalInput}
+                        placeholder="Total"
+                        placeholderTextColor="#999"
+                        value={singleAnimalCount}
+                        onChangeText={(text) => setSingleAnimalCount(text.replace(/[^0-9]/g, ''))}
+                        keyboardType="number-pad"
+                        autoFocus={true}
+                      />
+                    </View>
+                    <View style={styles.singleAnimalInputContainer}>
+                      <Text style={styles.singleAnimalInputLabel}>Rejetés</Text>
+                      <TextInput
+                        ref={singleAnimalRejectedRef}
+                        style={[styles.singleAnimalInput, styles.singleAnimalInputSmall]}
+                        placeholder="0"
+                        placeholderTextColor="#999"
+                        value={singleAnimalRejected}
+                        onChangeText={(text) => setSingleAnimalRejected(text.replace(/[^0-9]/g, ''))}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                  </View>
+                  
+                  <View style={styles.singleAnimalInfo}>
+                    <Text style={styles.singleAnimalInfoText}>
+                      Acceptés: {Math.max(0, (parseInt(singleAnimalCount || '0') - parseInt(singleAnimalRejected || '0')))}
+                    </Text>
+                  </View>
+                  
+                  <TouchableOpacity 
+                    style={styles.singleAnimalOkButton}
+                    onPress={() => {
+                      const total = parseInt(singleAnimalCount || '0');
+                      const rejected = parseInt(singleAnimalRejected || '0');
+                      if (total > 0) {
+                        saveEggProduction(selectedProductionDate, singleAnimalType, total, rejected);
+                      }
+                      setSingleAnimalModalVisible(false);
+                      setSingleAnimalCount('');
+                      setSingleAnimalRejected('');
+                      setSingleAnimalType(null);
+                    }}
+                  >
+                    <Text style={styles.singleAnimalOkButtonText}>Ok</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+
+        {/* Configure Animals Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={configureAnimalsModalVisible}
+          onRequestClose={() => setConfigureAnimalsModalVisible(false)}
+        >
+          <KeyboardAvoidingView 
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeaderContainer}>
+                <Text style={styles.modalTitle}>⚙️ Configurer les Animaux</Text>
                 <TouchableOpacity 
-                  style={styles.singleAnimalOkButton}
+                  style={styles.modalCloseBtnAbsolute}
                   onPress={() => {
-                    const count = parseInt(singleAnimalCount || '0');
-                    if (count > 0) {
-                      saveEggProduction(selectedProductionDate, singleAnimalType, count);
-                    }
-                    setSingleAnimalModalVisible(false);
-                    setSingleAnimalCount('');
-                    setSingleAnimalType(null);
+                    setConfigureAnimalsModalVisible(false);
+                    setNewEggAnimalTypeName('');
+                    setNewEggAnimalTypeIcon('🐔');
+                    setSelectedAnimalTypeToDelete(null);
                   }}
                 >
-                  <Text style={styles.singleAnimalOkButtonText}>Ok</Text>
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                
+                {/* Add Animal Type Section */}
+                <View style={styles.configureSection}>
+                  <Text style={styles.configureSectionTitle}>➕ Ajouter un type d'animal</Text>
+                  <Text style={styles.templateDescription}>
+                    Ajoutez un nouveau type d'animal qui produit des œufs :
+                  </Text>
+                  
+                  <Text style={styles.inputLabel}>Nom de l'animal :</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ex: Cailles, Pintades, Autruches..."
+                    placeholderTextColor="#999"
+                    value={newEggAnimalTypeName}
+                    onChangeText={setNewEggAnimalTypeName}
+                  />
+
+                  <Text style={styles.inputLabel}>Icône (emoji) :</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="🐔"
+                    placeholderTextColor="#999"
+                    value={newEggAnimalTypeIcon}
+                    onChangeText={setNewEggAnimalTypeIcon}
+                    maxLength={2}
+                  />
+
+                  <TouchableOpacity 
+                    style={[styles.modalBtn, styles.saveBtn, { marginTop: 10 }]}
+                    onPress={addEggAnimalType}
+                  >
+                    <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                      Ajouter
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Delete Animal Type Section */}
+                <View style={[styles.configureSection, { marginTop: 30, borderTopWidth: 1, borderTopColor: '#e0e0e0', paddingTop: 20 }]}>
+                  <Text style={styles.configureSectionTitle}>🗑️ Supprimer un type d'animal</Text>
+                  <Text style={styles.templateDescription}>
+                    Sélectionnez un type d'animal à supprimer :
+                  </Text>
+                  
+                  <Text style={styles.inputLabel}>Type d'animal à supprimer :</Text>
+                  <ScrollView 
+                    style={styles.animalTypeDeleteSelector}
+                    nestedScrollEnabled={true}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    {eggAnimalTypes.map((animalType) => (
+                      <TouchableOpacity
+                        key={animalType.key}
+                        style={[
+                          styles.animalTypeDeleteOption,
+                          selectedAnimalTypeToDelete === animalType.key && styles.animalTypeDeleteOptionSelected
+                        ]}
+                        onPress={() => setSelectedAnimalTypeToDelete(animalType.key)}
+                      >
+                        <Text style={[
+                          styles.animalTypeDeleteOptionText,
+                          selectedAnimalTypeToDelete === animalType.key && styles.animalTypeDeleteOptionTextSelected
+                        ]}>
+                          {animalType.icon} {animalType.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  <TouchableOpacity 
+                    style={[
+                      styles.modalBtn, 
+                      styles.deleteBtn, 
+                      { marginTop: 10 },
+                      !selectedAnimalTypeToDelete && styles.modalBtnDisabled
+                    ]}
+                    onPress={() => deleteEggAnimalType(selectedAnimalTypeToDelete)}
+                    disabled={!selectedAnimalTypeToDelete}
+                  >
+                    <Text style={[styles.modalBtnText, { color: 'white' }]}>
+                      Supprimer
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Production Info Modal */}
@@ -2526,6 +3358,15 @@ export default function ProductManagementScreen({ navigation, route }) {
                 </Text>
                 <Text style={styles.infoModalText}>
                   Vous pouvez enregistrer le nombre d'œufs collectés chaque jour pour chaque type d'animal et consulter les statistiques de production (totaux quotidiens, meilleurs jours, totaux annuels et mensuels).
+                </Text>
+                <Text style={styles.infoModalText}>
+                  <Text style={styles.infoModalBold}>🥚 Total œufs :</Text> Indique le nombre total d'œufs ramassés pour la période.
+                </Text>
+                <Text style={styles.infoModalText}>
+                  <Text style={styles.infoModalBold}>✅ Acceptés :</Text> Nombre d'œufs considérés comme bons ou utilisables.
+                </Text>
+                <Text style={styles.infoModalText}>
+                  <Text style={styles.infoModalBold}>❌ Rejetés :</Text> Nombre d'œufs rejetés (abîmés, fêlés ou non utilisables).
                 </Text>
                 <View style={styles.infoModalSeparator} />
                 <Text style={styles.infoModalImportant}>
@@ -3230,10 +4071,19 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 20,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 20,
     color: '#333',
   },
@@ -3249,6 +4099,32 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 80,
     textAlignVertical: 'top',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnAbsolute: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',
@@ -3311,6 +4187,54 @@ const styles = StyleSheet.create({
   },
   animalTypeSelector: {
     marginBottom: 12,
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+  },
+  animalTypeDeleteSelector: {
+    marginBottom: 12,
+    maxHeight: 150, // Shows approximately 3 items (each ~50px)
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 4,
+    backgroundColor: '#f8f9fa',
+  },
+  animalTypeDeleteOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 6,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginBottom: 6,
+  },
+  animalTypeDeleteOptionSelected: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  animalTypeDeleteOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  animalTypeDeleteOptionTextSelected: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  configureSection: {
+    marginBottom: 20,
+  },
+  configureSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  modalBtnDisabled: {
+    opacity: 0.5,
   },
   animalTypeTab: {
     paddingHorizontal: 16,
@@ -4460,16 +5384,22 @@ const styles = StyleSheet.create({
   compactStatItem: {
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
   },
   compactStatLabel: {
     fontSize: 10,
     color: '#666',
     marginBottom: 4,
+    textAlign: 'center',
   },
   compactStatValue: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#005F6B',
+    textAlign: 'center',
+  },
+  compactStatValueRejected: {
+    color: '#F44336',
   },
   compactStatSubtext: {
     fontSize: 8,
@@ -4527,6 +5457,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    zIndex: 1,
   },
   eggTypeStatusHeader: {
     flexDirection: 'row',
@@ -4554,10 +5485,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  eggTypeCountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   eggTypeCount: {
     fontSize: 16,
     fontWeight: 'bold',
+    color: '#666',
+  },
+  eggTypeCountTotal: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2196F3',
+  },
+  eggTypeCountSeparator: {
+    fontSize: 14,
+    color: '#999',
+    marginHorizontal: 2,
+  },
+  eggTypeCountAccepted: {
+    fontSize: 16,
+    fontWeight: 'bold',
     color: '#4CAF50',
+  },
+  eggTypeCountRejected: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#F44336',
   },
   eggTypeExpandIcon: {
     fontSize: 14,
@@ -4577,6 +5532,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  addAnimalTypeContainer: {
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  addAnimalTypeButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  addAnimalTypeButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   eggTypeStatusDetails: {
     padding: 15,
     paddingTop: 0,
@@ -4584,30 +5555,55 @@ const styles = StyleSheet.create({
   },
   eggTypeStatsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 15,
     paddingBottom: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    paddingHorizontal: 4,
   },
   eggTypeStatItem: {
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
   },
   eggTypeStatLabel: {
     fontSize: 11,
     color: '#666',
     marginBottom: 4,
+    textAlign: 'center',
+    height: 16,
+  },
+  eggTypeStatValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  eggTypeStatValueWrapper: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    minHeight: 32,
+    width: '100%',
   },
   eggTypeStatValue: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#005F6B',
+    textAlign: 'center',
+    lineHeight: 20,
+    height: 20,
+  },
+  eggTypeStatValueRejected: {
+    color: '#F44336',
   },
   eggTypeStatSubtext: {
     fontSize: 9,
     color: '#999',
     marginTop: 2,
+    height: 12,
+    minHeight: 12,
   },
   eggTypeHistoryTitle: {
     fontSize: 14,
@@ -4630,10 +5626,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
+  eggTypeHistoryCounts: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   eggTypeHistoryCount: {
     fontSize: 12,
     fontWeight: '600',
     color: '#4CAF50',
+  },
+  eggTypeHistoryRejected: {
+    color: '#F44336',
   },
   eggTypeNoHistory: {
     fontSize: 12,
@@ -4692,7 +5695,7 @@ const styles = StyleSheet.create({
   },
   monthlyBarChartValueContainer: {
     width: '100%',
-    height: 20,
+    minHeight: 32,
     justifyContent: 'flex-start',
     alignItems: 'center',
     marginBottom: 2,
@@ -4717,7 +5720,26 @@ const styles = StyleSheet.create({
     fontSize: 7,
     fontWeight: '600',
     color: '#005F6B',
-    textAlign: 'left',
+    textAlign: 'center',
+    width: '100%',
+  },
+  monthlyBarChartValueBreakdown: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  monthlyBarChartValueAccepted: {
+    fontSize: 7,
+    fontWeight: '600',
+    color: '#4CAF50',
+    textAlign: 'center',
+  },
+  monthlyBarChartValueRejectedText: {
+    fontSize: 7,
+    fontWeight: '600',
+    color: '#F44336',
+    textAlign: 'center',
   },
   monthlyBarChartBarWrapper: {
     width: '100%',
@@ -4725,6 +5747,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
     marginTop: 0,
+    position: 'relative',
   },
   monthlyBarChartBar: {
     width: '70%',
@@ -4732,6 +5755,25 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     minHeight: 2,
     maxHeight: 100,
+  },
+  monthlyBarChartBarTotal: {
+    width: '70%',
+    backgroundColor: '#2196F3',
+    borderRadius: 4,
+    minHeight: 2,
+    maxHeight: 100,
+  },
+  monthlyBarChartBarAccepted: {
+    width: '70%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 4,
+    minHeight: 2,
+  },
+  monthlyBarChartBarRejected: {
+    width: '70%',
+    backgroundColor: '#F44336',
+    borderRadius: 4,
+    minHeight: 2,
   },
   monthlyBarChartMonth: {
     fontSize: 9,
@@ -4814,13 +5856,47 @@ const styles = StyleSheet.create({
   singleAnimalModalContent: {
     backgroundColor: 'white',
     borderRadius: 12,
-    width: '80%',
-    maxWidth: 300,
+    width: '60%',
+    maxWidth: 250,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+    overflow: 'hidden',
+  },
+  eggTypeCardWrapper: {
+    position: 'relative',
+    marginBottom: 10,
+    overflow: 'visible',
+  },
+  eggTypeDeleteButtonContainer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
+  },
+  eggTypeDeleteButtonRevealed: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F44336',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  eggTypeDeleteButtonRevealedText: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: 'bold',
   },
   singleAnimalModalHeader: {
     flexDirection: 'row',
@@ -4857,15 +5933,37 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 8,
   },
+  singleAnimalInputsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  singleAnimalInputContainer: {
+    flex: 1,
+  },
   singleAnimalInput: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
     padding: 10,
-    marginBottom: 15,
     fontSize: 14,
     backgroundColor: 'white',
     minHeight: 40,
+  },
+  singleAnimalInputSmall: {
+    flex: 0.6,
+  },
+  singleAnimalInfo: {
+    marginBottom: 15,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f7ff',
+    borderRadius: 6,
+  },
+  singleAnimalInfoText: {
+    fontSize: 13,
+    color: '#005F6B',
+    fontWeight: '500',
   },
   singleAnimalOkButton: {
     backgroundColor: '#4CAF50',

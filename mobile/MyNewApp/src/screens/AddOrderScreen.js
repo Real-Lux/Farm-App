@@ -1886,9 +1886,17 @@ export default function AddOrderScreen({ navigation, route }) {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Choisir le lot pour {selectedRaceForLot}
-            </Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Choisir le lot pour {selectedRaceForLot}
+              </Text>
+              <TouchableOpacity 
+                style={styles.modalCloseBtn}
+                onPress={() => setLotSelectionModal(false)}
+              >
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.modalSubtitle}>
               Âge souhaité: {orderForm.ageMonths} mois {orderForm.ageWeeks} semaines
             </Text>
@@ -1957,14 +1965,6 @@ export default function AddOrderScreen({ navigation, route }) {
               ))}
             </ScrollView>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={() => setLotSelectionModal(false)}
-              >
-                <Text style={styles.modalBtnText}>Annuler</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
@@ -2203,10 +2203,16 @@ export default function AddOrderScreen({ navigation, route }) {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 80}
         >
           <View style={styles.raceConfigModalContent}>
-            <View style={styles.modalTitleContainer}>
+            <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 Configuration de race - {selectedAnimalForConfig}
               </Text>
+              <TouchableOpacity 
+                style={styles.modalCloseBtn}
+                onPress={() => setRaceConfigModal(false)}
+              >
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
             </View>
 
             <ScrollView 
@@ -2495,12 +2501,6 @@ export default function AddOrderScreen({ navigation, route }) {
             {/* Modal Actions - Always visible at bottom */}
             <View style={styles.modalActions}>
               <TouchableOpacity 
-                style={[styles.modalBtn, styles.cancelBtn]}
-                onPress={() => setRaceConfigModal(false)}
-              >
-                <Text style={styles.modalBtnText}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
                 style={[styles.modalBtn, styles.saveBtn]}
                 onPress={saveAllRaceConfigurations}
               >
@@ -2759,12 +2759,35 @@ const styles = StyleSheet.create({
     width: '95%',
     maxHeight: '80%',
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 10,
     color: '#333',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalSubtitle: {
     fontSize: 14,
@@ -2833,6 +2856,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#856404',
     fontWeight: '600',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',

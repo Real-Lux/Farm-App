@@ -1611,14 +1611,22 @@ export default function EtableScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {editingItem ? 'Modifier l\'Animal' : 'Nouvel Animal'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>
-                  {editingItem ? 'Modifier l\'Animal' : 'Nouvel Animal'}
-                </Text>
 
                 <TextInput
                   style={styles.input}
@@ -1836,12 +1844,6 @@ export default function EtableScreen({ navigation, route }) {
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => setModalVisible(false)}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={handleSaveAnimal}
                   >
@@ -1868,12 +1870,20 @@ export default function EtableScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Production Laitière</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-              <Text style={styles.modalTitle}>Production Laitière</Text>
 
               <View style={styles.dateFieldContainer}>
                 <Text style={styles.dateFieldLabel}>Date</Text>
@@ -1920,12 +1930,6 @@ export default function EtableScreen({ navigation, route }) {
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveMilkProduction}
                 >
@@ -1948,7 +1952,15 @@ export default function EtableScreen({ navigation, route }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Production Laitière du Troupeau</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Production Laitière du Troupeau</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
 
               <View style={styles.dateFieldContainer}>
                 <Text style={styles.dateFieldLabel}>Date</Text>
@@ -2013,7 +2025,15 @@ export default function EtableScreen({ navigation, route }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Paramètres Caprins</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Paramètres Caprins</Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
 
               <View style={styles.milkMethodSelector}>
                 <Text style={styles.inputLabel}>Méthode d'enregistrement du lait:</Text>
@@ -2065,12 +2085,6 @@ export default function EtableScreen({ navigation, route }) {
               </Text>
 
               <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.modalBtnText}>Annuler</Text>
-                </TouchableOpacity>
                 <TouchableOpacity 
                   style={[styles.modalBtn, styles.saveBtn]}
                   onPress={saveSettings}
@@ -2289,14 +2303,25 @@ export default function EtableScreen({ navigation, route }) {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {editingGroup ? 'Modifier le Groupe' : 'Nouveau Groupe'}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.modalCloseBtn}
+                  onPress={() => {
+                    setGroupModal(false);
+                    setSelectedAnimalsForGroup({});
+                  }}
+                >
+                  <Text style={styles.modalCloseBtnText}>✕</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalScrollContent}
               >
-                <Text style={styles.modalTitle}>
-                  {editingGroup ? 'Modifier le Groupe' : 'Nouveau Groupe'}
-                </Text>
 
                 <TextInput
                   style={styles.input}
@@ -2343,15 +2368,6 @@ export default function EtableScreen({ navigation, route }) {
                 </View>
 
                 <View style={styles.modalActions}>
-                  <TouchableOpacity 
-                    style={[styles.modalBtn, styles.cancelBtn]}
-                    onPress={() => {
-                      setGroupModal(false);
-                      setSelectedAnimalsForGroup({});
-                    }}
-                  >
-                    <Text style={styles.modalBtnText}>Annuler</Text>
-                  </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.modalBtn, styles.saveBtn]}
                     onPress={async () => {
@@ -2974,12 +2990,35 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 20,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
+    flex: 1,
     marginBottom: 20,
     color: '#333',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   input: {
     borderWidth: 1,
@@ -3108,6 +3147,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     flex: 1,
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  modalCloseBtnText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',
