@@ -227,7 +227,7 @@ function GestionNavigator({ route }) {
       setScreenParams(route.params);
     } else if (route?.params?.highlightLotId) {
       console.log('🐓 GestionNavigator: Received highlightLotId:', route.params.highlightLotId);
-      setCurrentScreen('Elevage');
+      setCurrentScreen('Elevage');  
       setScreenParams(route.params);
     } else if (route?.params?.initialTab) {
       // If initialTab is for Elevage (lots, races, historique, statistiques), go to Elevage

@@ -1940,6 +1940,9 @@ class SimpleTestDatabaseService {
       await this.syncOrdersWithCalendar();
     }
     
+    // Track egg consumption if order contains eggs
+    await this.trackEggConsumption(newOrder.id, newOrder);
+    
     await this.saveToStorage();
     dataEventService.emitOrderChange(newOrder);
     return { insertId: newOrder.id };
@@ -1966,6 +1969,10 @@ class SimpleTestDatabaseService {
     const index = this.storage.orders.findIndex(o => o.id == id);
     if (index !== -1) {
       this.storage.orders[index] = { ...this.storage.orders[index], ...order };
+      
+      // Update egg consumption tracking
+      await this.trackEggConsumption(id, this.storage.orders[index]);
+      
       await this.saveToStorage();
       dataEventService.emitOrderChange({ id, ...order });
       return { rowsAffected: 1 };
@@ -1980,6 +1987,10 @@ class SimpleTestDatabaseService {
     if (index !== -1) {
       this.storage.orders.splice(index, 1);
       console.log(`✅ Order deleted, new count: ${this.storage.orders.length}`);
+      
+      // Remove egg consumption tracking
+      await this.removeEggConsumption(id);
+      
       await this.saveToStorage();
       // Sync with calendar after deletion
       await this.syncOrdersWithCalendar();
@@ -4245,6 +4256,187 @@ class SimpleTestDatabaseService {
     } catch (error) {
       console.error('Error deleting egg animal type:', error);
       throw error;
+    }
+  }
+
+  // ========== EGG CONSUMPTION TRACKING ==========
+  
+  // Track egg consumption from orders
+  async trackEggConsumption(orderId, order) {
+    try {
+      if (!this.storage.egg_consumption) {
+        this.storage.egg_consumption = {};
+      }
+      
+      // Check if order contains egg products
+      let eggConsumption = {};
+      
+      // Check selectedProducts for egg products
+      if (order.selectedProducts && Array.isArray(order.selectedProducts)) {
+        order.selectedProducts.forEach(product => {
+          // Check if product name or category contains "œuf" or "egg"
+          const productName = (product.name || '').toLowerCase();
+          const productCategory = (product.category || '').toLowerCase();
+          
+          if (productName.includes('œuf') || productName.includes('oeuf') || productName.includes('egg') || 
+              productCategory === 'eggs' || productCategory === 'œufs' || productCategory.includes('oeuf') || productCategory.includes('œuf')) {
+            // Extract animal type from product name or use default
+            let animalType = 'poules'; // default
+            if (productName.includes('canard')) animalType = 'canards';
+            else if (productName.includes('oie')) animalType = 'oies';
+            else if (productName.includes('dinde')) animalType = 'dindes';
+            
+            const quantity = product.quantity || 0;
+            if (quantity > 0) {
+              eggConsumption[animalType] = (eggConsumption[animalType] || 0) + quantity;
+            }
+          }
+        });
+      }
+      
+      // Also check product field for backward compatibility
+      if (order.product && typeof order.product === 'string') {
+        const productName = order.product.toLowerCase();
+        if (productName.includes('œuf') || productName.includes('oeuf') || productName.includes('egg')) {
+          let animalType = 'poules';
+          if (productName.includes('canard')) animalType = 'canards';
+          else if (productName.includes('oie')) animalType = 'oies';
+          
+          const quantity = order.quantity || 0;
+          if (quantity > 0) {
+            eggConsumption[animalType] = (eggConsumption[animalType] || 0) + quantity;
+          }
+        }
+      }
+      
+      // Store consumption if any eggs were found
+      if (Object.keys(eggConsumption).length > 0) {
+        this.storage.egg_consumption[orderId] = {
+          orderId,
+          orderDate: order.orderDate || new Date().toISOString().split('T')[0],
+          deliveryDate: order.deliveryDate || null,
+          consumption: eggConsumption,
+          lastUpdated: new Date().toISOString()
+        };
+        await this.saveToStorage();
+      }
+      
+      return { success: true, consumption: eggConsumption };
+    } catch (error) {
+      console.error('Error tracking egg consumption:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Get egg consumption for an order
+  async getEggConsumptionForOrder(orderId) {
+    try {
+      return this.storage.egg_consumption?.[orderId] || null;
+    } catch (error) {
+      console.error('Error getting egg consumption:', error);
+      return null;
+    }
+  }
+
+  // Get all egg consumption
+  async getAllEggConsumption() {
+    try {
+      return this.storage.egg_consumption || {};
+    } catch (error) {
+      console.error('Error getting all egg consumption:', error);
+      return {};
+    }
+  }
+
+  // Remove egg consumption when order is deleted
+  async removeEggConsumption(orderId) {
+    try {
+      if (this.storage.egg_consumption && this.storage.egg_consumption[orderId]) {
+        delete this.storage.egg_consumption[orderId];
+        await this.saveToStorage();
+      }
+      return { success: true };
+    } catch (error) {
+      console.error('Error removing egg consumption:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Crosscheck egg production vs orders consumption
+  async crosscheckEggStock(date, animalType) {
+    try {
+      const production = await this.getEggProductionForDate(date);
+      const productionData = production[animalType] || { total: 0, rejected: 0 };
+      const available = productionData.total - (productionData.rejected || 0);
+      
+      // Get all orders with egg consumption for this date and animal type
+      const allConsumption = await this.getAllEggConsumption();
+      let totalConsumed = 0;
+      
+      Object.values(allConsumption).forEach(consumption => {
+        // Check if consumption is for this date and animal type
+        if (consumption.deliveryDate === date || consumption.orderDate === date) {
+          if (consumption.consumption[animalType]) {
+            totalConsumed += consumption.consumption[animalType];
+          }
+        }
+      });
+      
+      return {
+        date,
+        animalType,
+        produced: productionData.total,
+        rejected: productionData.rejected || 0,
+        available,
+        consumed: totalConsumed,
+        remaining: available - totalConsumed,
+        status: available - totalConsumed >= 0 ? 'ok' : 'deficit'
+      };
+    } catch (error) {
+      console.error('Error crosschecking egg stock:', error);
+      return null;
+    }
+  }
+
+  // Get crosscheck for all dates and animal types
+  async getAllEggStockCrosscheck() {
+    try {
+      const production = await this.getEggProduction();
+      const consumption = await this.getAllEggConsumption();
+      const crosschecks = [];
+      
+      // Process each production date
+      Object.keys(production).forEach(date => {
+        Object.keys(production[date]).forEach(animalType => {
+          const productionData = production[date][animalType];
+          const available = productionData.total - (productionData.rejected || 0);
+          
+          // Calculate consumption for this date and animal type
+          let totalConsumed = 0;
+          Object.values(consumption).forEach(cons => {
+            if ((cons.deliveryDate === date || cons.orderDate === date) && 
+                cons.consumption[animalType]) {
+              totalConsumed += cons.consumption[animalType];
+            }
+          });
+          
+          crosschecks.push({
+            date,
+            animalType,
+            produced: productionData.total,
+            rejected: productionData.rejected || 0,
+            available,
+            consumed: totalConsumed,
+            remaining: available - totalConsumed,
+            status: available - totalConsumed >= 0 ? 'ok' : 'deficit'
+          });
+        });
+      });
+      
+      return crosschecks;
+    } catch (error) {
+      console.error('Error getting all egg stock crosscheck:', error);
+      return [];
     }
   }
 }

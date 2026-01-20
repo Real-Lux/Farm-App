@@ -151,6 +151,16 @@ export default function AddOrderScreen({ navigation, route }) {
         }));
       }
     }
+    
+    // Load saved pricing data when editing an order
+    if (editingOrder && editingOrder.id) {
+      loadSavedPricingData(editingOrder.id);
+    }
+    
+    // Restore selected products when editing
+    if (editingOrder && editingOrder.selectedProducts && Array.isArray(editingOrder.selectedProducts)) {
+      setSelectedProducts(editingOrder.selectedProducts);
+    }
   }, []);
 
   const loadAnimalTypes = async () => {
@@ -179,6 +189,26 @@ export default function AddOrderScreen({ navigation, route }) {
       setExpandedAnimals(expandedAnimals);
     } catch (error) {
       console.error('Error loading configs:', error);
+    }
+  };
+
+  const loadSavedPricingData = async (orderId) => {
+    try {
+      const savedPricing = await database.getOrderPricing(orderId);
+      if (savedPricing) {
+        setCalculatedPrice(savedPricing.calculatedPrice || 0);
+        setPriceAdjustment(savedPricing.priceAdjustment || 0);
+        setPriceBreakdown(savedPricing.priceBreakdown || []);
+        
+        // Update total price in form
+        const finalPrice = (savedPricing.calculatedPrice || 0) + (savedPricing.priceAdjustment || 0);
+        setOrderForm(prev => ({
+          ...prev,
+          totalPrice: finalPrice.toFixed(2)
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading saved pricing data:', error);
     }
   };
 

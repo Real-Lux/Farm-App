@@ -55,7 +55,9 @@ export default function ProductManagementScreen({ navigation, route }) {
     quantity: '',
     unit: 'kg',
     category: 'Vegetables',
-    description: ''
+    description: '',
+    sourceType: 'manual', // 'manual', 'production', 'activity'
+    sourceId: null // animalType for production, activityId for activity
   });
   
   // Messagerie template messages state
@@ -96,6 +98,7 @@ export default function ProductManagementScreen({ navigation, route }) {
   const [newEggAnimalTypeName, setNewEggAnimalTypeName] = useState('');
   const [newEggAnimalTypeIcon, setNewEggAnimalTypeIcon] = useState('🐔');
   const [selectedAnimalTypeToDelete, setSelectedAnimalTypeToDelete] = useState(null);
+  const [productionQuantities, setProductionQuantities] = useState({}); // { animalType: quantity }
 
   useEffect(() => {
     loadProducts();
@@ -130,6 +133,61 @@ export default function ProductManagementScreen({ navigation, route }) {
       loadEggProduction();
     }
   }, [activeTab]);
+
+  // Calculate and cache production quantities
+  useEffect(() => {
+    const updateProductionQuantities = async () => {
+      if (!eggAnimalTypes || eggAnimalTypes.length === 0) return;
+      
+      const quantities = {};
+      for (const type of eggAnimalTypes) {
+        quantities[type.key] = await calculateQuantityFromProduction(type.key);
+      }
+      setProductionQuantities(quantities);
+    };
+    
+    if (eggAnimalTypes.length > 0 && eggProduction) {
+      updateProductionQuantities();
+    }
+  }, [eggProduction, eggAnimalTypes]);
+
+  // Sync product quantities when production changes
+  useEffect(() => {
+    const syncProductQuantities = async () => {
+      try {
+        const allProducts = await database.getProducts();
+        const productsToUpdate = [];
+        
+        for (const product of allProducts) {
+          if (product.sourceType === 'production' && product.sourceId) {
+            const newQuantity = await calculateQuantityFromProduction(product.sourceId);
+            if (product.quantity !== newQuantity) {
+              productsToUpdate.push({
+                id: product.id,
+                quantity: newQuantity
+              });
+            }
+          }
+        }
+        
+        // Update products in batch
+        for (const update of productsToUpdate) {
+          await database.updateProduct(update.id, { quantity: update.quantity });
+        }
+        
+        if (productsToUpdate.length > 0) {
+          // Reload products to reflect changes
+          loadProducts();
+        }
+      } catch (error) {
+        console.error('Error syncing product quantities:', error);
+      }
+    };
+    
+    if (eggProduction && Object.keys(eggProduction).length > 0) {
+      syncProductQuantities();
+    }
+  }, [eggProduction, productionQuantities]);
 
   // Auto-focus input when single animal modal opens
   useEffect(() => {
@@ -702,7 +760,9 @@ export default function ProductManagementScreen({ navigation, route }) {
       quantity: '',
       unit: 'kg',
       category: 'Vegetables',
-      description: ''
+      description: '',
+      sourceType: 'manual',
+      sourceId: null
     });
     setModalVisible(true);
   };
@@ -715,25 +775,66 @@ export default function ProductManagementScreen({ navigation, route }) {
       quantity: product.quantity.toString(),
       unit: product.unit,
       category: product.category,
-      description: product.description || ''
+      description: product.description || '',
+      sourceType: product.sourceType || 'manual',
+      sourceId: product.sourceId || null
     });
     setModalVisible(true);
   };
 
+  // Calculate available quantity from production
+  const calculateQuantityFromProduction = async (animalType) => {
+    if (!animalType || !eggProduction) return 0;
+    
+    try {
+      let totalAvailable = 0;
+      Object.keys(eggProduction).forEach(date => {
+        const dayData = eggProduction[date];
+        if (dayData[animalType]) {
+          const productionData = getProductionData(dayData[animalType]);
+          totalAvailable += productionData.accepted; // Only count accepted eggs
+        }
+      });
+      
+      // Subtract consumed eggs from orders
+      const allConsumption = await database.getAllEggConsumption();
+      let totalConsumed = 0;
+      
+      Object.values(allConsumption).forEach(consumption => {
+        if (consumption.consumption && consumption.consumption[animalType]) {
+          totalConsumed += consumption.consumption[animalType];
+        }
+      });
+      
+      return Math.max(0, totalAvailable - totalConsumed);
+    } catch (error) {
+      console.error('Error calculating quantity from production:', error);
+      return 0;
+    }
+  };
+
   const saveProduct = async () => {
-    if (!productForm.name || !productForm.price || !productForm.quantity) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+    if (!productForm.name || !productForm.price) {
+      Alert.alert('Erreur', 'Veuillez remplir au moins le nom et le prix');
       return;
     }
 
     try {
+      // If linked to production, calculate quantity automatically
+      let quantity = parseInt(productForm.quantity) || 0;
+      if (productForm.sourceType === 'production' && productForm.sourceId) {
+        quantity = await calculateQuantityFromProduction(productForm.sourceId);
+      }
+
       const productData = {
         name: productForm.name,
         description: productForm.description || `${productForm.unit} - ${productForm.category}`,
         price: parseFloat(productForm.price),
-        quantity: parseInt(productForm.quantity),
+        quantity: quantity,
         unit: productForm.unit,
-        category: productForm.category
+        category: productForm.category,
+        sourceType: productForm.sourceType,
+        sourceId: productForm.sourceId
       };
 
       if (editingProduct) {
@@ -2307,22 +2408,194 @@ export default function ProductManagementScreen({ navigation, route }) {
                 keyboardType="decimal-pad"
               />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Quantité"
-                placeholderTextColor="#999"
-                value={productForm.quantity}
-                onChangeText={(text) => setProductForm({...productForm, quantity: text})}
-                keyboardType="number-pad"
-              />
+              {/* Source Selection - moved before quantity/unit */}
+              <View style={styles.sourceSelector}>
+                <Text style={styles.inputLabel}>Lier à une source (optionnel) :</Text>
+                <View style={styles.sourceTypeOptions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.sourceTypeOption,
+                      productForm.sourceType === 'manual' && styles.sourceTypeOptionSelected
+                    ]}
+                    onPress={() => setProductForm({...productForm, sourceType: 'manual', sourceId: null})}
+                  >
+                    <Text style={[
+                      styles.sourceTypeOptionText,
+                      productForm.sourceType === 'manual' && styles.sourceTypeOptionTextSelected
+                    ]}>
+                      Manuel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.sourceTypeOption,
+                      productForm.sourceType === 'production' && styles.sourceTypeOptionSelected
+                    ]}
+                    onPress={() => setProductForm({...productForm, sourceType: 'production', sourceId: null})}
+                  >
+                    <Text style={[
+                      styles.sourceTypeOptionText,
+                      productForm.sourceType === 'production' && styles.sourceTypeOptionTextSelected
+                    ]}>
+                      Production
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.sourceTypeOption,
+                      productForm.sourceType === 'activity' && styles.sourceTypeOptionTextSelected
+                    ]}
+                    onPress={() => setProductForm({...productForm, sourceType: 'activity', sourceId: null})}
+                  >
+                    <Text style={[
+                      styles.sourceTypeOptionText,
+                      productForm.sourceType === 'activity' && styles.sourceTypeOptionTextSelected
+                    ]}>
+                      Activité
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-              <TextInput
-                style={styles.input}
-                placeholder="Unité (kg, têtes, boîtes, etc.)"
-                placeholderTextColor="#999"
-                value={productForm.unit}
-                onChangeText={(text) => setProductForm({...productForm, unit: text})}
-              />
+                {/* Production Source Selection */}
+                {productForm.sourceType === 'production' && (
+                  <View style={styles.sourceDetailSelector}>
+                    <Text style={styles.inputLabel}>Type d'animal (production d'œufs) :</Text>
+                    <ScrollView 
+                      style={styles.sourceDetailScrollView}
+                      nestedScrollEnabled={true}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      {eggAnimalTypes.map((type) => {
+                        const availableQty = productionQuantities[type.key] || 0;
+                        return (
+                          <TouchableOpacity
+                            key={type.key}
+                            style={[
+                              styles.sourceDetailOption,
+                              productForm.sourceId === type.key && styles.sourceDetailOptionSelected
+                            ]}
+                            onPress={() => {
+                              setProductForm({
+                                ...productForm,
+                                sourceId: type.key,
+                                quantity: availableQty.toString()
+                              });
+                            }}
+                          >
+                            <Text style={[
+                              styles.sourceDetailOptionText,
+                              productForm.sourceId === type.key && styles.sourceDetailOptionTextSelected
+                            ]}>
+                              {type.icon} {type.label}
+                            </Text>
+                            <Text style={styles.sourceDetailOptionSubtext}>
+                              Disponible: {availableQty} œufs
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                    {productForm.sourceId && (
+                      <View style={styles.sourceInfoBox}>
+                        <Text style={styles.sourceInfoText}>
+                          ✓ Quantité synchronisée automatiquement depuis la production
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Activity Source Selection */}
+                {productForm.sourceType === 'activity' && (
+                  <View style={styles.sourceDetailSelector}>
+                    <Text style={styles.inputLabel}>Activité :</Text>
+                    <ScrollView 
+                      style={styles.sourceDetailScrollView}
+                      nestedScrollEnabled={true}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.sourceDetailOption,
+                          productForm.sourceId === 'visite' && styles.sourceDetailOptionSelected
+                        ]}
+                        onPress={() => setProductForm({...productForm, sourceId: 'visite'})}
+                      >
+                        <Text style={[
+                          styles.sourceDetailOptionText,
+                          productForm.sourceId === 'visite' && styles.sourceDetailOptionTextSelected
+                        ]}>
+                          🚶‍♀️ Visite Guidée
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.sourceDetailOption,
+                          productForm.sourceId === 'chasse' && styles.sourceDetailOptionSelected
+                        ]}
+                        onPress={() => setProductForm({...productForm, sourceId: 'chasse'})}
+                      >
+                        <Text style={[
+                          styles.sourceDetailOptionText,
+                          productForm.sourceId === 'chasse' && styles.sourceDetailOptionTextSelected
+                        ]}>
+                          🏴‍☠️ Chasse au Trésor
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.sourceDetailOption,
+                          productForm.sourceId === 'formation' && styles.sourceDetailOptionSelected
+                        ]}
+                        onPress={() => setProductForm({...productForm, sourceId: 'formation'})}
+                      >
+                        <Text style={[
+                          styles.sourceDetailOptionText,
+                          productForm.sourceId === 'formation' && styles.sourceDetailOptionTextSelected
+                        ]}>
+                          🎓 Formations
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.sourceDetailOption,
+                          productForm.sourceId === 'evenement' && styles.sourceDetailOptionSelected
+                        ]}
+                        onPress={() => setProductForm({...productForm, sourceId: 'evenement'})}
+                      >
+                        <Text style={[
+                          styles.sourceDetailOptionText,
+                          productForm.sourceId === 'evenement' && styles.sourceDetailOptionTextSelected
+                        ]}>
+                          🎪 Événements
+                        </Text>
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* Quantity and Unit - only show if manual */}
+              {productForm.sourceType === 'manual' && (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Quantité"
+                    placeholderTextColor="#999"
+                    value={productForm.quantity}
+                    onChangeText={(text) => setProductForm({...productForm, quantity: text})}
+                    keyboardType="number-pad"
+                  />
+
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Unité (kg, têtes, boîtes, etc.)"
+                    placeholderTextColor="#999"
+                    value={productForm.unit}
+                    onChangeText={(text) => setProductForm({...productForm, unit: text})}
+                  />
+                </>
+              )}
 
               <TextInput
                 style={styles.input}
@@ -6044,5 +6317,99 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FF9800',
     marginBottom: 8,
+  },
+  // Source selector styles
+  sourceSelector: {
+    marginBottom: 15,
+  },
+  sourceTypeOptions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  sourceTypeOption: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 2,
+    borderColor: '#ddd',
+    alignItems: 'center',
+  },
+  sourceTypeOptionSelected: {
+    backgroundColor: '#005F6B',
+    borderColor: '#005F6B',
+  },
+  sourceTypeOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  sourceTypeOptionTextSelected: {
+    color: 'white',
+  },
+  sourceDetailSelector: {
+    marginTop: 12,
+  },
+  sourceDetailScrollView: {
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  sourceDetailOption: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  sourceDetailOptionSelected: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#2196F3',
+    borderWidth: 2,
+  },
+  sourceDetailOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  sourceDetailOptionTextSelected: {
+    color: '#2196F3',
+  },
+  sourceDetailOptionSubtext: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  sourceInfoBox: {
+    backgroundColor: '#e8f5e8',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  sourceInfoText: {
+    fontSize: 12,
+    color: '#155724',
+    fontWeight: '500',
+  },
+  inputDisabled: {
+    backgroundColor: '#f5f5f5',
+    color: '#999',
+  },
+  inputHelperText: {
+    fontSize: 11,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 4,
+    marginLeft: 4,
   },
 }); 

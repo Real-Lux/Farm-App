@@ -46,6 +46,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
   const [showOrderTypeDropdown, setShowOrderTypeDropdown] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const [eggStockCrosscheck, setEggStockCrosscheck] = useState([]);
+  const [showEggCrosscheck, setShowEggCrosscheck] = useState(false);
   const flatListRef = useRef(null);
 
   const orderStatuses = ORDER_STATUSES;
@@ -56,7 +58,17 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     } else {
       loadOrders();
     }
+    loadEggStockCrosscheck();
   }, [externalOrders]);
+
+  const loadEggStockCrosscheck = async () => {
+    try {
+      const crosscheck = await database.getAllEggStockCrosscheck();
+      setEggStockCrosscheck(crosscheck);
+    } catch (error) {
+      console.error('Error loading egg stock crosscheck:', error);
+    }
+  };
 
   // Handle navigation from calendar with specific order highlight
   useEffect(() => {
@@ -142,6 +154,9 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
     // Sync with calendar when orders change
       await database.syncOrdersWithCalendar();
       console.log('📅 Calendar synced with updated orders');
+      
+      // Reload egg stock crosscheck after order changes
+      await loadEggStockCrosscheck();
     } catch (error) {
       console.error('Error saving order:', error);
       Alert.alert('Erreur', 'Impossible de sauvegarder la commande');
@@ -162,6 +177,8 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
             // Update local state
             setOrders(orders.filter(o => o.id !== id));
             console.log('✅ Order deleted from database');
+            // Reload egg stock crosscheck after deletion
+            await loadEggStockCrosscheck();
           } catch (error) {
             console.error('Error deleting order:', error);
             Alert.alert('Erreur', 'Impossible de supprimer la commande');
@@ -938,6 +955,70 @@ export default function BookingSystemScreen({ navigation, orders: externalOrders
           </View>
         </View>
       </View>
+
+      {/* Egg Stock Crosscheck Section */}
+      {eggStockCrosscheck.length > 0 && (
+        <View style={styles.eggCrosscheckContainer}>
+          <TouchableOpacity 
+            style={styles.eggCrosscheckHeader}
+            onPress={() => setShowEggCrosscheck(!showEggCrosscheck)}
+          >
+            <Text style={styles.eggCrosscheckTitle}>
+              🥚 Vérification Stock Œufs
+            </Text>
+            <Text style={styles.eggCrosscheckToggle}>
+              {showEggCrosscheck ? '▼' : '▶'}
+            </Text>
+          </TouchableOpacity>
+          {showEggCrosscheck && (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={true}
+              style={styles.eggCrosscheckScroll}
+            >
+              <View style={styles.eggCrosscheckContent}>
+                {eggStockCrosscheck.map((check, index) => (
+                  <View 
+                    key={index} 
+                    style={[
+                      styles.eggCrosscheckCard,
+                      check.status === 'deficit' && styles.eggCrosscheckCardDeficit
+                    ]}
+                  >
+                    <Text style={styles.eggCrosscheckDate}>{check.date}</Text>
+                    <Text style={styles.eggCrosscheckAnimalType}>
+                      {check.animalType}
+                    </Text>
+                    <Text style={styles.eggCrosscheckDetail}>
+                      Produits: {check.produced}
+                    </Text>
+                    <Text style={styles.eggCrosscheckDetail}>
+                      Rejetés: {check.rejected}
+                    </Text>
+                    <Text style={styles.eggCrosscheckDetail}>
+                      Disponibles: {check.available}
+                    </Text>
+                    <Text style={styles.eggCrosscheckDetail}>
+                      Commandés: {check.consumed}
+                    </Text>
+                    <Text style={[
+                      styles.eggCrosscheckRemaining,
+                      check.status === 'deficit' && styles.eggCrosscheckRemainingDeficit
+                    ]}>
+                      Restant: {check.remaining}
+                    </Text>
+                    {check.status === 'deficit' && (
+                      <Text style={styles.eggCrosscheckWarning}>
+                        ⚠️ Déficit
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+        </View>
+      )}
 
       {/* Status Change Modal */}
       <Modal
@@ -2026,5 +2107,87 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
     lineHeight: 16,
+  },
+  // Egg crosscheck styles
+  eggCrosscheckContainer: {
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    marginBottom: 0,
+  },
+  eggCrosscheckHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#f0f8ff',
+  },
+  eggCrosscheckTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  eggCrosscheckToggle: {
+    fontSize: 12,
+    color: '#005F6B',
+    fontWeight: 'bold',
+  },
+  eggCrosscheckScroll: {
+    maxHeight: 150,
+  },
+  eggCrosscheckContent: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  eggCrosscheckCard: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 10,
+    minWidth: 140,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  eggCrosscheckCardDeficit: {
+    backgroundColor: '#fff3cd',
+    borderLeftColor: '#FF9800',
+  },
+  eggCrosscheckDate: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  eggCrosscheckAnimalType: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#005F6B',
+    marginBottom: 6,
+    textTransform: 'capitalize',
+  },
+  eggCrosscheckDetail: {
+    fontSize: 10,
+    color: '#666',
+    marginBottom: 2,
+  },
+  eggCrosscheckRemaining: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4CAF50',
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  eggCrosscheckRemainingDeficit: {
+    color: '#F44336',
+  },
+  eggCrosscheckWarning: {
+    fontSize: 10,
+    color: '#F44336',
+    fontWeight: 'bold',
+    marginTop: 4,
   },
 }); 
