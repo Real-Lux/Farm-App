@@ -101,7 +101,9 @@ export default function ElevageScreen({ navigation, route }) {
   const [raceForm, setRaceForm] = useState({
     name: '',
     type: 'poules',
-    description: ''
+    description: '',
+    characteristics: [], // Array of available characteristics for this race
+    newCharacteristic: '' // Temporary field for adding new characteristics
   });
 
   const [updateForm, setUpdateForm] = useState({
@@ -113,7 +115,8 @@ export default function ElevageScreen({ navigation, route }) {
     males: '',
     females: '',
     unsexed: '',
-    notes: ''
+    notes: '',
+    characteristicsTracking: {} // Format: { characteristic: { males: 0, females: 0, unsexed: 0 } }
   });
   const [updateModalLot, setUpdateModalLot] = useState(null); // Store lot data for update modal
 
@@ -471,7 +474,9 @@ export default function ElevageScreen({ navigation, route }) {
       name: '',
       type: defaultRaceType,
       description: '',
-      order: maxOrder
+      order: maxOrder,
+      characteristics: [],
+      newCharacteristic: ''
     });
     setModalVisible(true);
   };
@@ -554,7 +559,8 @@ export default function ElevageScreen({ navigation, route }) {
       males: lot.races[race].males?.toString() || '0',
       females: lot.races[race].females?.toString() || '0',
       unsexed: lot.races[race].unsexed?.toString() || '0',
-      notes: existingNotes
+      notes: existingNotes,
+      characteristicsTracking: lot.races[race].characteristicsTracking || {}
     });
     setModalVisible(true);
   };
@@ -1227,7 +1233,8 @@ export default function ElevageScreen({ navigation, route }) {
         deaths_unsexed: parseInt(updateForm.deaths_unsexed) || 0,
         males: parseInt(updateForm.males) || 0,
         females: parseInt(updateForm.females) || 0,
-        unsexed: parseInt(updateForm.unsexed) || 0
+        unsexed: parseInt(updateForm.unsexed) || 0,
+        characteristicsTracking: updateForm.characteristicsTracking || {}
       };
 
       await database.updateLotRaceQuantity(updateForm.lot_id, updateForm.race, updates);
@@ -1277,6 +1284,10 @@ export default function ElevageScreen({ navigation, route }) {
       [raceName]: undefined // Leave empty, don't set to 0
     };
     
+    // Get race characteristics from races list
+    const race = races.find(r => r.name === raceName);
+    const raceCharacteristics = race?.characteristics || [];
+    
     setLotForm({
       ...lotForm,
       races: {
@@ -1287,7 +1298,8 @@ export default function ElevageScreen({ navigation, route }) {
           males: 0, 
           females: 0, 
           unsexed: 0, // Initialize as 0, will be set when count is provided
-          deaths: undefined 
+          deaths: undefined,
+          selectedCharacteristics: [] // Initialize empty characteristics array
         }
       },
       eggs_by_race: newEggsByRace
@@ -1903,6 +1915,7 @@ export default function ElevageScreen({ navigation, route }) {
               <Text style={styles.racesSectionTitle}>Races dans ce lot:</Text>
               {Object.entries(item.races).map(([raceName, raceData]) => {
                 const status = getStockStatus(raceData.current, raceData.initial);
+                const characteristics = raceData.selectedCharacteristics || [];
                 return (
                   <TouchableOpacity 
                     key={raceName} 
@@ -1911,7 +1924,7 @@ export default function ElevageScreen({ navigation, route }) {
                   >
                     <View style={styles.raceInfo}>
                       <Text style={styles.raceName}>{raceName}</Text>
-                      <Text style={[styles.stockStatus, { color: status.color }]}>
+                      <Text style={[styles.stockStatus, { color: status.color, marginTop: 2 }]}>
                         {status.text}
                       </Text>
                     </View>
@@ -1932,6 +1945,37 @@ export default function ElevageScreen({ navigation, route }) {
                           unsexed={raceData.deaths_unsexed || 0} 
                         />
                       </View>
+                      {/* Display characteristics tracking - only show those with non-zero counts, as a subsection below restants/morts */}
+                      {raceData.characteristicsTracking && Object.keys(raceData.characteristicsTracking).length > 0 && (() => {
+                        const nonZeroCharacteristics = Object.entries(raceData.characteristicsTracking).filter(([char, counts]) => {
+                          const total = (counts.males || 0) + (counts.females || 0) + (counts.unsexed || 0);
+                          return total > 0; // Only show characteristics with animals tracked
+                        });
+                        
+                        if (nonZeroCharacteristics.length === 0) return null;
+                        
+                        return (
+                          <>
+                            <View style={styles.characteristicsDivider} />
+                            <View style={styles.characteristicsTrackingDisplay}>
+                              {nonZeroCharacteristics.map(([char, counts]) => {
+                                const total = (counts.males || 0) + (counts.females || 0) + (counts.unsexed || 0);
+                                return (
+                                  <View key={char} style={styles.characteristicsTrackingBadge}>
+                                    <Text style={styles.characteristicsTrackingBadgeText}>
+                                      {char}: {total} 
+                                      {counts.males > 0 && ` (♂${counts.males}`}
+                                      {counts.females > 0 && `${counts.males > 0 ? ',' : ' ('}♀${counts.females}`}
+                                      {counts.unsexed > 0 && `${(counts.males > 0 || counts.females > 0) ? ',' : ' ('}?${counts.unsexed}`}
+                                      {total > 0 && ')'}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          </>
+                        );
+                      })()}
                     </View>
                   </TouchableOpacity>
                 );
@@ -1997,7 +2041,9 @@ export default function ElevageScreen({ navigation, route }) {
       setRaceForm({
         name: item.name,
         type: item.type,
-        description: item.description
+        description: item.description || '',
+        characteristics: item.characteristics || [],
+        newCharacteristic: ''
       });
       setModalVisible(true);
     };
@@ -3022,6 +3068,62 @@ export default function ElevageScreen({ navigation, route }) {
                         </View>
                       </ScrollView>
                       
+                      {/* Characteristics selection for each race */}
+                      {Object.keys(lotForm.races).length > 0 && (
+                        <>
+                          <Text style={[styles.inputLabel, { marginTop: 15, marginBottom: 10 }]}>Caractéristiques par race:</Text>
+                          {Object.keys(lotForm.races).map((raceName) => {
+                            const race = races.find(r => r.name === raceName);
+                            const availableCharacteristics = race?.characteristics || [];
+                            const selectedChars = lotForm.races[raceName]?.selectedCharacteristics || [];
+                            
+                            if (availableCharacteristics.length === 0) return null;
+                            
+                            return (
+                              <View key={`char-${raceName}`} style={styles.raceCharacteristicsContainer}>
+                                <Text style={[styles.raceEggLabel, { marginBottom: 8 }]}>{raceName}:</Text>
+                                <View style={styles.characteristicsCheckboxContainer}>
+                                  {availableCharacteristics.map((char) => {
+                                    const isSelected = selectedChars.includes(char);
+                                    return (
+                                      <TouchableOpacity
+                                        key={char}
+                                        style={[
+                                          styles.characteristicCheckbox,
+                                          isSelected && { backgroundColor: getElevageConfig().color, borderColor: getElevageConfig().color }
+                                        ]}
+                                        onPress={() => {
+                                          const newSelected = isSelected
+                                            ? selectedChars.filter(c => c !== char)
+                                            : [...selectedChars, char];
+                                          setLotForm({
+                                            ...lotForm,
+                                            races: {
+                                              ...lotForm.races,
+                                              [raceName]: {
+                                                ...lotForm.races[raceName],
+                                                selectedCharacteristics: newSelected
+                                              }
+                                            }
+                                          });
+                                        }}
+                                      >
+                                        <Text style={[
+                                          styles.characteristicCheckboxText,
+                                          isSelected && { color: 'white', fontWeight: '600' }
+                                        ]}>
+                                          {isSelected ? '✓ ' : ''}{char}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </>
+                      )}
+                      
                       {/* Number of births/portées for lapins */}
                       {Object.keys(lotForm.races).length > 0 && (
                         <>
@@ -3089,7 +3191,14 @@ export default function ElevageScreen({ navigation, route }) {
                                           ...lotForm,
                                           races: {
                                             ...lotForm.races,
-                                            [race.name]: { initial: undefined, current: undefined, males: undefined, females: undefined, deaths: undefined }
+                                            [race.name]: { 
+                                              initial: undefined, 
+                                              current: undefined, 
+                                              males: undefined, 
+                                              females: undefined, 
+                                              deaths: undefined,
+                                              selectedCharacteristics: []
+                                            }
                                           },
                                           eggs_by_race: newEggsByRace,
                                           estimated_hatching_date: hatchingDates.estimatedDate,
@@ -3119,6 +3228,62 @@ export default function ElevageScreen({ navigation, route }) {
                           </ScrollView>
                           
                           {/* Per-race egg inputs - shown after races are selected */}
+                          {/* Characteristics selection for each race */}
+                          {Object.keys(lotForm.races).length > 0 && (
+                            <>
+                              <Text style={[styles.inputLabel, { marginTop: 15, marginBottom: 10 }]}>Caractéristiques par race:</Text>
+                              {Object.keys(lotForm.races).map((raceName) => {
+                                const race = races.find(r => r.name === raceName);
+                                const availableCharacteristics = race?.characteristics || [];
+                                const selectedChars = lotForm.races[raceName]?.selectedCharacteristics || [];
+                                
+                                if (availableCharacteristics.length === 0) return null;
+                                
+                                return (
+                                  <View key={`char-${raceName}`} style={styles.raceCharacteristicsContainer}>
+                                    <Text style={[styles.raceEggLabel, { marginBottom: 8 }]}>{raceName}:</Text>
+                                    <View style={styles.characteristicsCheckboxContainer}>
+                                      {availableCharacteristics.map((char) => {
+                                        const isSelected = selectedChars.includes(char);
+                                        return (
+                                          <TouchableOpacity
+                                            key={char}
+                                            style={[
+                                              styles.characteristicCheckbox,
+                                              isSelected && { backgroundColor: getElevageConfig().color, borderColor: getElevageConfig().color }
+                                            ]}
+                                            onPress={() => {
+                                              const newSelected = isSelected
+                                                ? selectedChars.filter(c => c !== char)
+                                                : [...selectedChars, char];
+                                              setLotForm({
+                                                ...lotForm,
+                                                races: {
+                                                  ...lotForm.races,
+                                                  [raceName]: {
+                                                    ...lotForm.races[raceName],
+                                                    selectedCharacteristics: newSelected
+                                                  }
+                                                }
+                                              });
+                                            }}
+                                          >
+                                            <Text style={[
+                                              styles.characteristicCheckboxText,
+                                              isSelected && { color: 'white', fontWeight: '600' }
+                                            ]}>
+                                              {isSelected ? '✓ ' : ''}{char}
+                                            </Text>
+                                          </TouchableOpacity>
+                                        );
+                                      })}
+                                    </View>
+                                  </View>
+                                );
+                              })}
+                            </>
+                          )}
+                          
                           {Object.keys(lotForm.races).length > 0 && (
                             <>
                               <Text style={[styles.inputLabel, { marginTop: 15 }]}>Nombre d'œufs par race:</Text>
@@ -3245,6 +3410,74 @@ export default function ElevageScreen({ navigation, route }) {
                     multiline={true}
                     numberOfLines={3}
                   />
+
+                  {/* Characteristics Management */}
+                  <View style={styles.formSection}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionIcon}>✨</Text>
+                      <Text style={styles.sectionLabel}>Caractéristiques disponibles</Text>
+                    </View>
+                    <View style={styles.sectionDivider} />
+                    <Text style={[styles.inputLabel, { marginBottom: 10, fontSize: 12, color: '#666' }]}>
+                      Ajoutez des caractéristiques qui pourront être sélectionnées lors de la création de lots (ex: "camaille rouge", "plumes blanche et dorée", "avec couettes", "sans couettes")
+                    </Text>
+                    
+                    {/* List of characteristics */}
+                    {raceForm.characteristics && raceForm.characteristics.length > 0 && (
+                      <View style={styles.characteristicsList}>
+                        {raceForm.characteristics.map((char, index) => (
+                          <View key={index} style={styles.characteristicItem}>
+                            <Text style={styles.characteristicText}>{char}</Text>
+                            <TouchableOpacity
+                              style={styles.removeCharacteristicBtn}
+                              onPress={() => {
+                                const newChars = raceForm.characteristics.filter((_, i) => i !== index);
+                                setRaceForm({...raceForm, characteristics: newChars});
+                              }}
+                            >
+                              <Text style={styles.removeCharacteristicBtnText}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    
+                    {/* Add new characteristic */}
+                    <View style={styles.addCharacteristicContainer}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, marginRight: 10 }]}
+                        placeholder="Nouvelle caractéristique"
+                        placeholderTextColor="#999"
+                        value={raceForm.newCharacteristic || ''}
+                        onChangeText={(text) => setRaceForm({...raceForm, newCharacteristic: text})}
+                        onSubmitEditing={() => {
+                          const newChar = raceForm.newCharacteristic?.trim();
+                          if (newChar && !raceForm.characteristics.includes(newChar)) {
+                            setRaceForm({
+                              ...raceForm,
+                              characteristics: [...(raceForm.characteristics || []), newChar],
+                              newCharacteristic: ''
+                            });
+                          }
+                        }}
+                      />
+                      <TouchableOpacity
+                        style={[styles.addBtn, { backgroundColor: getElevageConfig().color }]}
+                        onPress={() => {
+                          const newChar = raceForm.newCharacteristic?.trim();
+                          if (newChar && !raceForm.characteristics.includes(newChar)) {
+                            setRaceForm({
+                              ...raceForm,
+                              characteristics: [...(raceForm.characteristics || []), newChar],
+                              newCharacteristic: ''
+                            });
+                          }
+                        }}
+                      >
+                        <Text style={styles.addBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </>
               )}
 
@@ -4069,6 +4302,130 @@ export default function ElevageScreen({ navigation, route }) {
                   </View>
                   </View>
                   )} */}
+
+                  {/* Characteristics Tracking Section */}
+                  {(() => {
+                    const raceData = races.find(r => r.name === updateForm.race);
+                    const availableCharacteristics = raceData?.characteristics || [];
+                    const lotRaceData = updateModalLot?.races?.[updateForm.race];
+                    const lotCharacteristics = lotRaceData?.selectedCharacteristics || [];
+                    const allCharacteristics = [...new Set([...availableCharacteristics, ...lotCharacteristics])];
+                    
+                    if (allCharacteristics.length === 0) return null;
+                    
+                    return (
+                      <View style={styles.actionSection}>
+                        <Text style={styles.actionSectionTitle}>✨ Suivi des caractéristiques</Text>
+                        <Text style={styles.correctionSubtitle}>
+                          Enregistrez le nombre d'animaux avec chaque caractéristique observée
+                        </Text>
+                        
+                        {allCharacteristics.map((char) => {
+                          const tracking = updateForm.characteristicsTracking[char] || { males: 0, females: 0, unsexed: 0 };
+                          const totalTracked = tracking.males + tracking.females + tracking.unsexed;
+                          const maxMales = parseInt(updateForm.males) || 0;
+                          const maxFemales = parseInt(updateForm.females) || 0;
+                          const maxUnsexed = parseInt(updateForm.unsexed) || 0;
+                          
+                          return (
+                            <View key={char} style={styles.characteristicTrackingCard}>
+                              <View style={styles.characteristicTrackingHeader}>
+                                <Text style={styles.characteristicTrackingTitle}>
+                                  {char} <Text style={styles.characteristicTrackingTotalInline}>({totalTracked})</Text>
+                                </Text>
+                              </View>
+                              
+                              <View style={styles.characteristicTrackingInputsHorizontal}>
+                                <View style={styles.characteristicTrackingInputContainer}>
+                                  <Text style={styles.characteristicTrackingLabelCompact}>♂️</Text>
+                                  <TextInput
+                                    style={[styles.characteristicTrackingInputSmall, tracking.males > maxMales && styles.inputError]}
+                                    placeholder="0"
+                                    placeholderTextColor="#999"
+                                    value={tracking.males > 0 ? tracking.males.toString() : ''}
+                                    onChangeText={(text) => {
+                                      const num = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+                                      if (num > maxMales) {
+                                        Alert.alert('Erreur', `Le nombre ne peut pas dépasser ${maxMales} mâles disponibles`);
+                                        return;
+                                      }
+                                      setUpdateForm({
+                                        ...updateForm,
+                                        characteristicsTracking: {
+                                          ...updateForm.characteristicsTracking,
+                                          [char]: {
+                                            ...tracking,
+                                            males: num
+                                          }
+                                        }
+                                      });
+                                    }}
+                                    keyboardType="number-pad"
+                                  />
+                                </View>
+                                
+                                <View style={styles.characteristicTrackingInputContainer}>
+                                  <Text style={styles.characteristicTrackingLabelCompact}>♀️</Text>
+                                  <TextInput
+                                    style={[styles.characteristicTrackingInputSmall, tracking.females > maxFemales && styles.inputError]}
+                                    placeholder="0"
+                                    placeholderTextColor="#999"
+                                    value={tracking.females > 0 ? tracking.females.toString() : ''}
+                                    onChangeText={(text) => {
+                                      const num = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+                                      if (num > maxFemales) {
+                                        Alert.alert('Erreur', `Le nombre ne peut pas dépasser ${maxFemales} femelles disponibles`);
+                                        return;
+                                      }
+                                      setUpdateForm({
+                                        ...updateForm,
+                                        characteristicsTracking: {
+                                          ...updateForm.characteristicsTracking,
+                                          [char]: {
+                                            ...tracking,
+                                            females: num
+                                          }
+                                        }
+                                      });
+                                    }}
+                                    keyboardType="number-pad"
+                                  />
+                                </View>
+                                
+                                <View style={styles.characteristicTrackingInputContainer}>
+                                  <Text style={styles.characteristicTrackingLabelCompact}>❓</Text>
+                                  <TextInput
+                                    style={[styles.characteristicTrackingInputSmall, tracking.unsexed > maxUnsexed && styles.inputError]}
+                                    placeholder="0"
+                                    placeholderTextColor="#999"
+                                    value={tracking.unsexed > 0 ? tracking.unsexed.toString() : ''}
+                                    onChangeText={(text) => {
+                                      const num = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+                                      if (num > maxUnsexed) {
+                                        Alert.alert('Erreur', `Le nombre ne peut pas dépasser ${maxUnsexed} non-sexés disponibles`);
+                                        return;
+                                      }
+                                      setUpdateForm({
+                                        ...updateForm,
+                                        characteristicsTracking: {
+                                          ...updateForm.characteristicsTracking,
+                                          [char]: {
+                                            ...tracking,
+                                            unsexed: num
+                                          }
+                                        }
+                                      });
+                                    }}
+                                    keyboardType="number-pad"
+                                  />
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    );
+                  })()}
 
                   {/* Notes Section */}
                   <Text style={styles.sectionTitle}>📝 Notes</Text>
@@ -6295,5 +6652,211 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+  },
+  // Characteristics styles
+  characteristicsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+    gap: 8,
+  },
+  characteristicItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f4f8',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  characteristicText: {
+    fontSize: 13,
+    color: '#005F6B',
+    marginRight: 6,
+  },
+  removeCharacteristicBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#ff6b6b',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeCharacteristicBtnText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  addCharacteristicContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  addBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#005F6B',
+  },
+  addBtnText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  raceCharacteristicsContainer: {
+    marginBottom: 15,
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  characteristicsCheckboxContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  characteristicCheckbox: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#ccc',
+    backgroundColor: 'white',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  characteristicCheckboxText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  characteristicBadge: {
+    backgroundColor: '#e8f4f8',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  characteristicBadgeText: {
+    fontSize: 11,
+    color: '#005F6B',
+    fontWeight: '500',
+  },
+  // Characteristics tracking styles
+  characteristicTrackingCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  characteristicTrackingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  characteristicTrackingTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#005F6B',
+  },
+  characteristicTrackingTotal: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
+  characteristicTrackingTotalInline: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4CAF50',
+  },
+  characteristicTrackingInputs: {
+    gap: 8,
+  },
+  characteristicTrackingInputsHorizontal: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'space-between',
+  },
+  characteristicTrackingInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  characteristicTrackingLabel: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
+  },
+  characteristicTrackingInput: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    textAlign: 'right',
+  },
+  characteristicTrackingInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    gap: 4,
+    minHeight: 32,
+  },
+  characteristicTrackingInputSmall: {
+    flex: 1,
+    fontSize: 13,
+    textAlign: 'center',
+    padding: 0,
+    minHeight: 20,
+  },
+  characteristicTrackingLabelCompact: {
+    fontSize: 14,
+  },
+  inputError: {
+    borderColor: '#F44336',
+    borderWidth: 2,
+  },
+  characteristicsTrackingDisplay: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 6,
+    marginBottom: 6,
+    gap: 6,
+    width: '100%',
+  },
+  characteristicsDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 6,
+    width: '100%',
+  },
+  characteristicsTrackingBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  characteristicsTrackingBadgeText: {
+    fontSize: 10,
+    color: '#2E7D32',
+    fontWeight: '500',
   },
 });

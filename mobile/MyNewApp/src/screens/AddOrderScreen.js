@@ -1986,6 +1986,27 @@ export default function AddOrderScreen({ navigation, route }) {
                   <Text style={styles.lotOptionDetails}>
                     🎯 Différence d'âge: {lot.ageDifference.toFixed(1)} mois
                   </Text>
+                  {/* Display characteristics tracking if available */}
+                  {lot.races && lot.races[selectedRaceForLot] && lot.races[selectedRaceForLot].characteristicsTracking && 
+                   Object.keys(lot.races[selectedRaceForLot].characteristicsTracking).length > 0 && (
+                    <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                      {Object.entries(lot.races[selectedRaceForLot].characteristicsTracking).map(([char, counts]) => {
+                        const total = (counts.males || 0) + (counts.females || 0) + (counts.unsexed || 0);
+                        if (total === 0) return null;
+                        return (
+                          <View key={char} style={{ backgroundColor: '#E8F5E9', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: '#4CAF50' }}>
+                            <Text style={{ fontSize: 9, color: '#2E7D32', fontWeight: '500' }}>
+                              {char}: {total}
+                              {counts.males > 0 && ` (♂${counts.males}`}
+                              {counts.females > 0 && `${counts.males > 0 ? ',' : ' ('}♀${counts.females}`}
+                              {counts.unsexed > 0 && `${(counts.males > 0 || counts.females > 0) ? ',' : ' ('}?${counts.unsexed}`}
+                              {total > 0 && ')'}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
                   {lot.isOptimal && (
                     <Text style={styles.optimalBadge}>
                       ✅ Âge optimal pour votre commande

@@ -3858,7 +3858,11 @@ class SimpleTestDatabaseService {
           available: raceData.current,
           males: raceData.males || 0,
           females: raceData.females || 0,
-          date_creation: lot.date_creation
+          date_creation: lot.date_creation,
+          races: lot.races, // Include full races data with characteristicsTracking
+          eggs_count: lot.eggs_count,
+          estimated_success_rate: lot.estimated_success_rate,
+          hatched_count: lot.hatched_count
         });
       }
     }
@@ -3893,7 +3897,8 @@ class SimpleTestDatabaseService {
         deaths: totalDeaths,
         deaths_males: newDeathsMales,
         deaths_females: newDeathsFemales,
-        deaths_unsexed: newDeathsUnsexed
+        deaths_unsexed: newDeathsUnsexed,
+        characteristicsTracking: updates.characteristicsTracking !== undefined ? updates.characteristicsTracking : (currentRace.characteristicsTracking || {})
       };
       
       const lot = this.storage.elevage_lots[lotIndex];
