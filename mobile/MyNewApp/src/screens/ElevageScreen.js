@@ -1034,7 +1034,12 @@ export default function ElevageScreen({ navigation, route }) {
         rejected_count: totalEggs > 0 ? Math.max(0, totalEggs - fertilized) : 0,
         hatched_count: hatched,
         hatched_by_race: Object.keys(hatchedByRaceInt).length > 0 ? hatchedByRaceInt : (editingItem.hatched_by_race || {}),
-        fertilization_check_date: lotForm.fertilization_check_date || editingItem.fertilization_check_date || ''
+        fertilization_check_date: lotForm.fertilization_check_date || editingItem.fertilization_check_date || '',
+        date_eclosion: lotForm.date_eclosion || editingItem.date_eclosion || '',
+        incubation_start_date: lotForm.incubation_start_date || editingItem.incubation_start_date || '',
+        estimated_hatching_date: lotForm.estimated_hatching_date || editingItem.estimated_hatching_date || '',
+        estimated_min_date: lotForm.estimated_min_date || editingItem.estimated_min_date || '',
+        estimated_max_date: lotForm.estimated_max_date || editingItem.estimated_max_date || ''
       };
 
       // Update initial/current from per-race values (hatched_by_race > fertilized_by_race)
@@ -1807,14 +1812,14 @@ export default function ElevageScreen({ navigation, route }) {
               {item.incubation_start_date && (
                 <View style={styles.incubationDatesRow}>
                   <Text style={styles.incubationDateItem}>
-                    📅 Début {getIncubationTerm(item.species)}: {item.incubation_start_date}
+                    📅 Début {getIncubationTerm(item.species)}: <Text style={{ fontWeight: 'bold' }}>{item.incubation_start_date}</Text>
                   </Text>
                   {isVolailles(item.species) && item.fertilization_check_date && (
                     <Text style={styles.incubationDateItem}>🔍 Contrôle: {item.fertilization_check_date}</Text>
                   )}
                   {item.date_eclosion && (
                     <Text style={styles.incubationDateItem}>
-                      🐣 {getHatchingTerm(item.species).charAt(0).toUpperCase() + getHatchingTerm(item.species).slice(1)}: {item.date_eclosion}
+                      🐣 {getHatchingTerm(item.species).charAt(0).toUpperCase() + getHatchingTerm(item.species).slice(1)}: <Text style={{ fontWeight: 'bold' }}>{item.date_eclosion}</Text>
                     </Text>
                   )}
                   {item.estimated_hatching_date && !item.date_eclosion && (
@@ -3261,7 +3266,7 @@ export default function ElevageScreen({ navigation, route }) {
                         <Text style={styles.timelineStepTitle}>
                           Début de {getIncubationTerm(editingItem?.species || lotForm.species)}
                         </Text>
-                        <Text style={styles.timelineStepDate}>
+                        <Text style={[styles.timelineStepDate, { fontWeight: 'bold' }]}>
                           {formatForCalendar(editingItem?.incubation_start_date || lotForm.incubation_start_date)}
                         </Text>
                         <Text style={styles.timelineStepDetail}>
@@ -3553,7 +3558,7 @@ export default function ElevageScreen({ navigation, route }) {
                         </Text>
                         {lotForm.hatched_count || editingItem?.hatched_count ? (
                           <>
-                            <Text style={styles.timelineStepDate}>
+                            <Text style={[styles.timelineStepDate, { fontWeight: 'bold' }]}>
                               {formatForCalendar(lotForm.date_eclosion || editingItem?.date_eclosion || lotForm.estimated_hatching_date || editingItem?.estimated_hatching_date || '')}
                             </Text>
                             <TouchableOpacity 
